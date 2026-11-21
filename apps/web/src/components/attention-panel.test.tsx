@@ -10,7 +10,12 @@ describe('AttentionPanel — answering', () => {
   it('posts the chosen option with via "web" and refreshes the board', async () => {
     const answerAttention = vi.fn<TeamClient['answerAttention']>(
       async (id: string, body: AttentionAnswerBody) =>
-        makeAttention({ id, status: 'answered', answer: body.answer, answered_via: body.via }),
+        makeAttention({
+          id,
+          status: 'answered',
+          answer: body.answer,
+          answered_via: body.via ?? null,
+        }),
     );
     const { queryClient } = renderWithClient(
       <AttentionPanel state={makeState({ open_attention: [makeAttention()] })} />,

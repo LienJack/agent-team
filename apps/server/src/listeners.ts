@@ -83,11 +83,20 @@ export function lanAddresses(listening: Listening): string[] {
 }
 
 /**
- * Write DATA/run/listener.json (spec §4) with mode 0600: any stale file is removed first, the
- * directory is 0700. CLI and MCP read it to find the local listener and its token.
+ * Write DATA/run/listener.json (spec §4; or `which: 'leaderListener'` → DATA/leader/listener.json
+ * with the leader-scoped token) with mode 0600: any stale file is removed first, the directory
+ * is 0700. CLI and MCP read it to find the local listener and its token.
+ *
+ * The files are protected only by Unix permissions: any process running as the same user that is
+ * not sandboxed can read them (docs/adr/0014) — which is why workers run in a sandbox that
+ * denies DATA.
  */
-export async function writeListenerFile(dataDir: string, content: ListenerFile): Promise<string> {
-  const path = join(dataDir, DATA_LAYOUT.listener);
+export async function writeListenerFile(
+  dataDir: string,
+  content: ListenerFile,
+  which: 'listener' | 'leaderListener' = 'listener',
+): Promise<string> {
+  const path = join(dataDir, DATA_LAYOUT[which]);
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   await rm(path, { force: true });
   await writeFile(path, `${JSON.stringify(content)}\n`, { mode: 0o600, flag: 'wx' });

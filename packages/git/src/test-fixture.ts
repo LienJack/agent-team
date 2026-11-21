@@ -75,3 +75,9 @@ export async function newWorktree(f: Fixture, task = 't_000001') {
   });
   return { worktreePath, ...res };
 }
+
+/** Commit every uncommitted change of a worktree (tests; the port only commits listed files). */
+export async function commitChanges(f: Fixture, worktreePath: string, message: string) {
+  const files = await f.port.changedFiles({ worktreePath, sinceSha: 'HEAD' });
+  return f.port.commitFiles({ worktreePath, message, files });
+}

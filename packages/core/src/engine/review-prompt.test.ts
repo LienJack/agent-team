@@ -34,7 +34,9 @@ describe('review prompt carries the diff, the ticket and the acceptance text', (
     });
     const p = review.prompt;
     expect(p).toContain('## 派工單原文');
-    expect(p).toContain('## 驗收標準\n\n- a() 回傳 1\n- 有單元測試');
+    expect(p).toContain(
+      `## 驗收標準\n\n<<<DATA acceptance#${review.dispatchId}>>>\n- a() 回傳 1\n- 有單元測試\n<<<END acceptance#${review.dispatchId}>>>`,
+    );
     expect(p).not.toMatch(/## 驗收標準\n\n[^#]*不要動其他模組/);
     expect(p).toContain(`## 變更（\`${ws.base_sha}..${ws.head_sha}\`）`);
     expect(p).toContain(' src/feature/a.ts | 1 +');

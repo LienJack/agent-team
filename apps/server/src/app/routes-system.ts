@@ -17,6 +17,7 @@ import type { LeaderMessageResponse, Message, ModelsConfig, RoleInfo } from '@ag
 import { findReply } from '../leader/persist.js';
 import type { LeaderReply } from '../leader/types.js';
 import { boardSnapshot } from './board.js';
+import { messageSource } from './origin.js';
 import { ok, register } from './register.js';
 import { readRunLog } from './run-log.js';
 import { eventStream } from './sse.js';
@@ -90,7 +91,7 @@ export function registerSystemRoutes(app: OpenAPIHono<AppEnv>, ctx: AppContext):
     const { message, duplicate } = ctx.engine.recordMessage({
       channel: 'leader',
       direction: 'in',
-      source: body.source,
+      source: messageSource(c),
       body: body.text,
       client_msg_id: body.client_msg_id,
     });

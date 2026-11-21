@@ -19,6 +19,7 @@ const task: Task = {
   status: 'draft',
   impl_role: 'impl_C',
   fix_rounds: 0,
+  leader_retries: 0,
   attempts: 0,
   blocked_reason: null,
   version: 1,

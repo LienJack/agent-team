@@ -27,6 +27,13 @@ export class ValidationError extends TeamError {
   }
 }
 
+/** The actor may not run this command (e.g. the leader approving work; docs/adr/0014). */
+export class ForbiddenError extends TeamError {
+  constructor(message: string, hint?: string) {
+    super('forbidden', message, hint);
+  }
+}
+
 export class ConflictError extends TeamError {
   constructor(message: string, hint?: string) {
     super('conflict', message, hint);

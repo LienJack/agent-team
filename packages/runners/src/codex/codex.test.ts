@@ -6,6 +6,7 @@ import { eventually, fixtureLines, makeSpec, tempDir } from '../test-support.js'
 import { lastRecord, processAlive, writeScenario, type FakeCliResponse } from '../testing/index.js';
 import { resolveBundledCodex } from './binary.js';
 import { CODEX_EXEC_FLAGS, CODEX_ISOLATION_FLAGS, CodexRunner } from './runner.js';
+import { codexSandboxArgs } from './sandbox.js';
 import { CodexStream } from './stream.js';
 
 function parse(name: string) {
@@ -92,7 +93,10 @@ describe('runners: codex argv', () => {
     expect(r.error).toBeUndefined();
     expect(parseReceipt('review', r.final)).toMatchObject({ ok: true });
     expect(started).toEqual([
-      { sessionRef: '00000000-0000-4000-8000-000000000003', pid: expect.any(Number) },
+      expect.objectContaining({
+        sessionRef: '00000000-0000-4000-8000-000000000003',
+        pid: expect.any(Number),
+      }),
     ]);
 
     const rec = lastRecord(s.recordPath)!;
@@ -103,13 +107,14 @@ describe('runners: codex argv', () => {
       // inserted by the group wrapper: no user config.toml / execpolicy rules (docs/adr/0011)
       '--ignore-user-config',
       '--ignore-rules',
+      // …and the permission profile with the shared deny list (docs/adr/0014)
+      ...codexSandboxArgs(spec, { denyPaths: [] }),
       '--experimental-json',
       '--config',
       'skills.include_instructions=false',
       '--model',
       'gpt-6.1-terra',
-      '--sandbox',
-      'read-only',
+      // no --sandbox: it would replace the profile
       '--cd',
       spec.cwd,
       '--skip-git-repo-check',
@@ -151,11 +156,11 @@ describe('runners: codex argv', () => {
       new AbortController().signal,
     );
     const argv = lastRecord(s.recordPath)!.argv;
-    expect(argv.slice(0, 2)).toEqual(['exec', '--experimental-json']);
+    expect(argv.slice(0, 3)).toEqual(['exec', '--config', 'default_permissions="agent-team"']);
     for (const f of CODEX_ISOLATION_FLAGS) expect(argv).not.toContain(f);
   });
 
-  it('uses workspace-write for writable runs', async () => {
+  it('writable runs get a profile that writes the worktree only and denies the deny list', async () => {
     const s = await writeScenario(tmp.dir, {
       responses: probe,
       steps: fixtureLines(import.meta.url, 'no-json.jsonl').map((out) => ({ out })),
@@ -166,7 +171,14 @@ describe('runners: codex argv', () => {
     );
     expect(r.error?.kind).toBe('bad_output');
     const argv = lastRecord(s.recordPath)!.argv;
-    expect(argv[argv.indexOf('--sandbox') + 1]).toBe('workspace-write');
+    expect(argv).not.toContain('--sandbox');
+    const fs = argv.find((a) => a.startsWith('permissions.agent-team.filesystem='))!;
+    const cwd = join(tmp.dir, 'work');
+    expect(fs).toContain(`"${cwd}"="write"`);
+    expect(fs).toContain(`"${cwd}/.git"="read"`);
+    expect(fs).toContain('":root"="read"');
+    expect(fs).toMatch(/"[^"]*\/\.ssh"="deny"/);
+    expect(argv).toContain('permissions.agent-team.network={enabled=false}');
   });
 
   it('kills the whole codex process group on timeout', async () => {

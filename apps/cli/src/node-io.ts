@@ -56,8 +56,8 @@ export function nodeIo(signal: AbortSignal): CliIo {
     readFile: (path) => readFile(path, 'utf8'),
     cwd: process.cwd(),
     env,
-    connect: () =>
-      connectLocal({ env, ...(env['AGENT_TEAM_ACTOR'] === 'leader' ? { actor: 'leader' } : {}) }),
+    // the credential decides the actor (the leader's shim points at its own listener file)
+    connect: () => connectLocal({ env }),
     serve: () => runServer(env),
     signal,
   };

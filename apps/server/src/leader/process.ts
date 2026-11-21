@@ -9,9 +9,9 @@ import {
   type ClaudeProbe,
   type ClaudeTextResult,
 } from '@agent-team/runners';
-import type { ModelsConfig } from '@agent-team/schema';
+import { DATA_LAYOUT, type ModelsConfig } from '@agent-team/schema';
 import { LEADER_OPTIONAL_FLAGS, LEADER_REQUIRED_FLAGS, leaderArgs } from './args.js';
-import { LEADER_SYSTEM_PROMPT } from './prompt/system-v1.js';
+import { LEADER_SYSTEM_PROMPT } from './prompt/system-v2.js';
 import type { LeaderRuntime } from './types.js';
 
 // Everything about the leader's `claude -p` processes: the working directory, the `team` shim
@@ -41,9 +41,11 @@ const shQuote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
 export const SHIM_REFUSED_COMMANDS = ['serve', 'watch', 'ask'] as const;
 
 /**
- * `team` for the leader: this repo's CLI, the service's DATA directory, actor = leader. The CLI
- * runs with this machine's permissions, so what would read a local file (`--ticket-file`) or
- * never return (`serve` would also recover the live database) is refused before node starts.
+ * `team` for the leader: this repo's CLI, the service's DATA directory and the leader's own
+ * listener file (`DATA/leader/listener.json`, the leader-scoped token: the server treats every
+ * call made with it as the leader actor; docs/adr/0014). The CLI runs with this machine's
+ * permissions, so what would read a local file (`--ticket-file`) or never return (`serve` would
+ * also recover the live database) is refused before node starts.
  */
 export function teamShim(dataDir: string, nodePath: string, teamEntry: string): string {
   return [
@@ -65,7 +67,7 @@ export function teamShim(dataDir: string, nodePath: string, teamEntry: string): 
     '    echo "error: team $cmd is not available to the leader" >&2',
     '    exit 2 ;;',
     'esac',
-    `AGENT_TEAM_HOME=${shQuote(dataDir)} AGENT_TEAM_ACTOR=leader exec ${shQuote(nodePath)} ${shQuote(teamEntry)} "$@"`,
+    `AGENT_TEAM_HOME=${shQuote(dataDir)} AGENT_TEAM_LISTENER_FILE=${shQuote(join(dataDir, DATA_LAYOUT.leaderListener))} exec ${shQuote(nodePath)} ${shQuote(teamEntry)} "$@"`,
     '',
   ].join('\n');
 }

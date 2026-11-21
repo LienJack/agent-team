@@ -48,6 +48,9 @@ export async function runStartHandler(
 
   const controller = new AbortController();
   ctx.inflight.set(runId, controller);
+  const taskId = run.task_id;
+  // no second worker may enter this worktree until this one's runner has resolved
+  ctx.workerTasks.set(taskId, (ctx.workerTasks.get(taskId) ?? 0) + 1);
   let settle!: (signal: StartSignal) => void;
   const startSignal = new Promise<StartSignal>((resolve) => {
     settle = resolve;
@@ -56,6 +59,17 @@ export async function runStartHandler(
 
   const completion = runner
     .run(spec, controller.signal, {
+      // recorded synchronously before the spawn: after a crash, recovery knows a process may
+      // exist even if its pid never reached the database (docs/adr/0015)
+      onLaunching() {
+        recordProcess(ctx, runId, (tx) => ({ launched_at: tx.now }));
+      },
+      onSpawned(info) {
+        recordProcess(ctx, runId, () => ({
+          pid: info.pid,
+          pid_started_at: info.pidStartedAt ?? null,
+        }));
+      },
       onStarted(info) {
         if (started) return;
         started = true;
@@ -67,6 +81,10 @@ export async function runStartHandler(
   ctx.track(
     completion.then((result) => {
       ctx.inflight.delete(runId);
+      const left = (ctx.workerTasks.get(taskId) ?? 1) - 1;
+      if (left > 0) ctx.workerTasks.set(taskId, left);
+      else ctx.workerTasks.delete(taskId);
+      if (left <= 0) ctx.onCommit?.(); // the task may be dispatched again
       if (!started) {
         settle({ started: false, result });
         return;
@@ -84,6 +102,22 @@ export async function runStartHandler(
   return (tx) => applyUnstarted(ctx, tx, runId, signal.result);
 }
 
+/** Store process facts of a run (no state change, no event); never throws into the runner. */
+function recordProcess(
+  ctx: EngineContext,
+  runId: string,
+  patch: (tx: Tx) => { launched_at?: string; pid?: number; pid_started_at?: string | null },
+): void {
+  try {
+    ctx.transact((tx) => {
+      const run = tx.r.runs.get(runId);
+      if (run) saveRun(tx, run, patch(tx));
+    });
+  } catch (err) {
+    ctx.logger.error('cannot record worker process', { run_id: runId, error: errorMessage(err) });
+  }
+}
+
 function markAccepted(tx: Tx, runId: string, info: RunStartedInfo): void {
   const run = tx.r.runs.get(runId);
   if (!run) return;
@@ -97,6 +131,7 @@ function markAccepted(tx: Tx, runId: string, info: RunStartedInfo): void {
   saveRun(tx, run, {
     state: 'running',
     pid: info.pid ?? run.pid,
+    pid_started_at: info.pidStartedAt ?? run.pid_started_at,
     session_ref: info.sessionRef ?? run.session_ref,
   });
 }

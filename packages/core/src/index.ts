@@ -62,6 +62,12 @@ export {
   type IdempotentOutcome,
   type IdempotentRequest,
 } from './idempotency.js';
-export { filesOutside, isPathOwned, ownedPathsOverlap } from './util/paths.js';
+export {
+  filesOutside,
+  isPathOwned,
+  normalizeOwnedPath,
+  ownedPathsOverlap,
+  type PathMatchOptions,
+} from './util/paths.js';
 export { canonicalJson, sha256Hex } from './util/hash.js';
 export { addMs, backoffMs, lastLines } from './util/time.js';

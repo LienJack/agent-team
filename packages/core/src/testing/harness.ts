@@ -8,6 +8,7 @@ import { FakeRunner, type FakeStep } from './fake-runner.js';
 import {
   FakeCheckExecutor,
   FakeNotifier,
+  FakeProcessControl,
   InMemoryRunnerRegistry,
   ManualClock,
   RecordingLeaderNotifier,
@@ -26,6 +27,7 @@ export interface TestEngine {
   leader: RecordingLeaderNotifier;
   publisher: RecordingPublisher;
   registry: InMemoryRunnerRegistry;
+  processes: FakeProcessControl;
   /** One fake per runner name used by the test models config. */
   runners: Record<'claude' | 'codex' | 'dsh', FakeRunner>;
   config: EngineConfig;
@@ -50,6 +52,8 @@ export interface TestEngineOptions {
   idOffset?: number;
   /** Share the worktrees of another engine's FakeGit (a restart keeps the filesystem). */
   git?: FakeGit;
+  /** Share the processes of another engine (a restart keeps the OS processes). */
+  processes?: FakeProcessControl;
 }
 
 /**
@@ -66,6 +70,7 @@ export function createTestEngine(options: TestEngineOptions = {}): TestEngine {
   const leader = new RecordingLeaderNotifier();
   const publisher = new RecordingPublisher();
   const registry = new InMemoryRunnerRegistry();
+  const processes = options.processes ?? new FakeProcessControl();
   const runners = {
     claude: new FakeRunner('claude'),
     codex: new FakeRunner('codex'),
@@ -87,6 +92,7 @@ export function createTestEngine(options: TestEngineOptions = {}): TestEngine {
     notifier,
     leader,
     publisher,
+    processes,
   });
   let projectId: string | undefined;
   const harness: TestEngine = {
@@ -99,6 +105,7 @@ export function createTestEngine(options: TestEngineOptions = {}): TestEngine {
     leader,
     publisher,
     registry,
+    processes,
     runners,
     config,
     project(overrides = {}) {

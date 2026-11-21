@@ -28,6 +28,10 @@ export interface PlanInput {
   dispatching: ReadonlyMap<string, string>;
   /** Paths of tasks being prepared right now. */
   dispatchingPaths: ReadonlyArray<readonly string[]>;
+  /** Tasks whose previous worker process may still be running here: never dispatched (H2). */
+  workerTasks?: ReadonlySet<string>;
+  /** Whether a project's filesystem ignores case (overlap check); unknown → true. */
+  ignoreCaseOf?: (projectId: string) => boolean;
   humanPriority: ReadonlySet<string>;
   models: ModelsConfig;
   engine: EngineSettings;
@@ -52,7 +56,8 @@ export type DeferReason =
   | 'path_overlap'
   | 'no_model'
   | 'unknown_role'
-  | 'backoff';
+  | 'backoff'
+  | 'worker_alive';
 
 export interface PlanResult {
   dispatch: PlannedDispatch[];
@@ -88,10 +93,15 @@ export function planDispatch(input: PlanInput): PlanResult {
   for (const role of input.dispatching.values()) bump(role);
   let total = input.liveRuns.length + input.dispatching.size;
 
-  const held: Array<{ id: string; paths: readonly string[] }> = input.tasks
+  const ignoreCaseOf = input.ignoreCaseOf ?? (() => true);
+  const held: Array<{ id: string; project: string | null; paths: readonly string[] }> = input.tasks
     .filter((t) => (PATH_HOLDING_STATUSES as readonly string[]).includes(t.status))
-    .map((t) => ({ id: t.id, paths: t.owned_paths }));
-  for (const paths of input.dispatchingPaths) held.push({ id: '', paths });
+    .map((t) => ({ id: t.id, project: t.project_id, paths: t.owned_paths }));
+  for (const paths of input.dispatchingPaths) held.push({ id: '', project: null, paths });
+  const overlaps = (h: (typeof held)[number], task: Task) =>
+    ownedPathsOverlap(h.paths, task.owned_paths, {
+      ignoreCase: ignoreCaseOf(task.project_id) || h.project === null || ignoreCaseOf(h.project),
+    });
 
   const waiting = input.tasks
     .filter((t) => nextRunKind(t) !== undefined && !input.dispatching.has(t.id))
@@ -103,6 +113,10 @@ export function planDispatch(input: PlanInput): PlanResult {
       result.deferred.push({ task_id: task.id, reason, retry_at: retryAt });
     if (isAfter(task.retry_at, now)) {
       defer('backoff', task.retry_at);
+      continue;
+    }
+    if (input.workerTasks?.has(task.id)) {
+      defer('worker_alive');
       continue;
     }
     const role = roleFor(task, kind);
@@ -123,10 +137,7 @@ export function planDispatch(input: PlanInput): PlanResult {
       defer('role_slots');
       continue;
     }
-    if (
-      kind !== 'review' &&
-      held.some((h) => h.id !== task.id && ownedPathsOverlap(h.paths, task.owned_paths))
-    ) {
+    if (kind !== 'review' && held.some((h) => h.id !== task.id && overlaps(h, task))) {
       defer('path_overlap');
       continue;
     }
@@ -143,7 +154,9 @@ export function planDispatch(input: PlanInput): PlanResult {
     result.dispatch.push({ task, kind, role, human, resolved });
     total++;
     bump(role);
-    if (kind !== 'review') held.push({ id: task.id, paths: task.owned_paths });
+    if (kind !== 'review') {
+      held.push({ id: task.id, project: task.project_id, paths: task.owned_paths });
+    }
   }
   return result;
 }

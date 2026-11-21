@@ -93,7 +93,7 @@ describe('env and paths', () => {
         'AGENT_TEAM_ENV_FILE',
         'AGENT_TEAM_CONFIG_DIR',
         'AGENT_TEAM_FAKE_RUNNERS',
-        'AGENT_TEAM_ACTOR',
+        'AGENT_TEAM_LISTENER_FILE',
         'AGENT_TEAM_SERVER_ENTRY',
       ]),
     );

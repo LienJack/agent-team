@@ -7,6 +7,7 @@ import {
   type GitPort,
   type IdGen,
   type Logger,
+  type ProcessControl,
   type RunnerRegistry,
   type Store,
 } from '@agent-team/core';
@@ -59,6 +60,8 @@ export interface ServiceDeps {
   hub?: HubRuntime;
   /** Condenser for long Grok texts (default: role `hub_summarizer` through `runners`). */
   summarize?: Summarize;
+  /** Terminates worker groups left by a crashed service (startup recovery; docs/adr/0015). */
+  processes?: ProcessControl;
 }
 
 export interface RunningService {
@@ -130,6 +133,7 @@ export function createService(deps: ServiceDeps): Service {
       notifications: hub.delivering,
     },
     notifier: hub,
+    ...(deps.processes ? { processes: deps.processes } : {}),
     // every committed event reaches SSE and the leader (it filters and keeps its own cursor)
     publisher: {
       publish: (batch) => {
@@ -174,6 +178,7 @@ export function createService(deps: ServiceDeps): Service {
   let timer: ReturnType<typeof setInterval> | undefined;
   let logWatch: RunLogWatcher | undefined;
   let listenerFile: { path: string; token: string } | undefined;
+  let leaderListenerFile: { path: string; token: string } | undefined;
   let stopping: Promise<void> | undefined;
 
   async function stop(): Promise<void> {
@@ -194,6 +199,9 @@ export function createService(deps: ServiceDeps): Service {
         });
       }
       if (listenerFile) await removeListenerFile(listenerFile.path, listenerFile.token);
+      if (leaderListenerFile) {
+        await removeListenerFile(leaderListenerFile.path, leaderListenerFile.token);
+      }
       await deps.onClose?.();
       logger.info('service stopped');
     })();
@@ -211,10 +219,21 @@ export function createService(deps: ServiceDeps): Service {
         pending_effects: report.pendingEffects,
       });
 
+      // two token classes (docs/adr/0014): the operator's (humans: CLI, MCP) and the leader's
+      // (its `team` shim); the server derives the actor from the token
       const token = randomToken();
-      const localApp = createApp(context, { listener: 'local', token });
+      const leaderToken = randomToken();
+      const localApp = createApp(context, { listener: 'local', token, leaderToken });
       local = await listen(localApp.fetch, service.local.host, service.local.port);
       listenerFile = { path: await writeListenerFile(dataDir, { addr: local.url, token }), token };
+      leaderListenerFile = {
+        path: await writeListenerFile(
+          dataDir,
+          { addr: local.url, token: leaderToken },
+          'leaderListener',
+        ),
+        token: leaderToken,
+      };
       logger.info('local listener', { url: local.url });
 
       if (service.lan.enabled) {

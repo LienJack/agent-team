@@ -40,13 +40,12 @@ describe('createTeamClient', () => {
     expect(seen[0]!.headers.has(IDEMPOTENCY_HEADER)).toBe(false);
   });
 
-  it('adds a fresh Idempotency-Key to each mutating call and the actor header', async () => {
+  it('adds a fresh Idempotency-Key to each mutating call and never an actor header', async () => {
     let n = 0;
     const { fetch, seen } = fakeFetch(() => json({ task: { id: 't_1' } }));
     const client = createTeamClient({
       baseUrl: 'http://x',
       fetch,
-      actor: 'leader',
       newKey: () => `k${++n}`,
     });
     await client.taskAction('t_1', 'queue');
@@ -56,7 +55,8 @@ describe('createTeamClient', () => {
       ['POST', 'http://x/api/tasks/t_1/reject', 'k2'],
     ]);
     expect(JSON.parse(seen[1]!.body)).toEqual({ note: 'fix it' });
-    expect(seen[0]!.headers.get('x-team-actor')).toBe('leader');
+    // the server derives the actor from the token (docs/adr/0014); there is no actor header
+    expect(seen[0]!.headers.get('x-team-actor')).toBeNull();
   });
 
   it('retries a connection failure with the same Idempotency-Key', async () => {

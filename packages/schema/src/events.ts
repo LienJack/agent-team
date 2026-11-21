@@ -48,7 +48,7 @@ export const EVENT_DATA_SCHEMAS = {
     retry_at: IsoDateTimeSchema.nullable(),
   }),
   'task.base_drift': z.object({
-    action: z.enum(['rebuilt', 'blocked']),
+    action: z.enum(['rebuilt', 'blocked', 'accepted']),
     base_sha: ShaSchema,
     new_base_sha: ShaSchema,
     files: z.array(z.string()),
@@ -197,6 +197,10 @@ export const EVENT_DATA_SCHEMAS = {
   'recovery.completed': z.object({
     abandoned_runs: z.array(z.string()),
     requeued_tasks: z.array(z.string()),
+    /** Tasks blocked because their worker could not be confirmed dead (docs/adr/0015). */
+    blocked_tasks: z.array(z.string()).default([]),
+    /** Worker process groups terminated before requeueing. */
+    terminated_runs: z.array(z.string()).default([]),
     orphan_worktrees: NonNegativeIntSchema,
     pending_effects: NonNegativeIntSchema,
     cleared_idempotency: NonNegativeIntSchema,

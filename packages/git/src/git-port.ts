@@ -1,6 +1,6 @@
-import { existsSync, readdirSync, rmdirSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readlinkSync, rmdirSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import type { GitPort } from '@agent-team/core';
 import { git, gitEnv, withLockRetry } from './exec.js';
 import {
@@ -10,7 +10,14 @@ import {
   statusPaths,
   type WorktreeEntry,
 } from './parse.js';
-import { assertAbsolute, isInside, samePath, stripSlash, toCallerForm } from './paths.js';
+import {
+  assertAbsolute,
+  canonical,
+  isInside,
+  samePath,
+  stripSlash,
+  toCallerForm,
+} from './paths.js';
 import { fillReviewDiff } from './review-diff.js';
 
 export interface GitPortOptions {
@@ -204,25 +211,29 @@ export function createGitPort(opts: GitPortOptions): CliGitPort {
       return [...files].sort();
     },
 
-    async commitAll({ worktreePath, message }) {
-      const files = statusPaths(await statusEntries(worktreePath));
-      if (files.length === 0) return { sha: await revParse(worktreePath, 'HEAD'), created: false };
+    async commitFiles({ worktreePath, message, files }) {
+      const wanted = new Set(files);
+      const changed = statusPaths(await statusEntries(worktreePath)).filter((f) => wanted.has(f));
       // exact paths only (literal pathspecs: a file named ":x" is not pathspec magic)
-      for (let i = 0; i < files.length; i += ADD_CHUNK) {
-        const chunk = files.slice(i, i + ADD_CHUNK);
+      for (let i = 0; i < changed.length; i += ADD_CHUNK) {
+        const chunk = changed.slice(i, i + ADD_CHUNK);
         await withLockRetry(() =>
           run(worktreePath, ['--literal-pathspecs', 'add', '-A', '--', ...chunk]),
         );
       }
-      const staged = await git(['diff', '--cached', '--quiet'], {
-        cwd: worktreePath,
-        env: baseEnv,
-        okCodes: [1],
-      });
-      if (staged.exitCode === 0)
+      const staged = parseNameOnlyZ(
+        (await run(worktreePath, ['diff', '--cached', '--name-only', '-z', '--no-renames'])).stdout,
+      );
+      const extra = staged.filter((f) => !wanted.has(f));
+      if (extra.length > 0) {
+        throw new Error(
+          `refusing to commit: the index holds unverified paths (${extra.slice(0, 10).join(', ')})`,
+        );
+      }
+      if (staged.length === 0) {
         return { sha: await revParse(worktreePath, 'HEAD'), created: false };
-      // hooks run (never --no-verify) with stdin closed; service commits are not GPG-signed so a
-      // signing prompt can never hang the service
+      }
+      // no hooks (SERVICE_GIT_CONFIG); not GPG-signed, so a signing prompt can never hang it
       await withLockRetry(() =>
         run(
           worktreePath,
@@ -232,6 +243,73 @@ export function createGitPort(opts: GitPortOptions): CliGitPort {
         ),
       );
       return { sha: await revParse(worktreePath, 'HEAD'), created: true };
+    },
+
+    async rebuildWorktree({ repoPath, worktreePath, branch, baseBranch }) {
+      assertManaged(worktreePath);
+      if (!branch.startsWith('team/')) throw new Error(`refusing non-team branch ${branch}`);
+      const tip = await revParse(repoPath, baseBranch);
+      const ref = `refs/heads/${branch}`;
+      const here = (await worktrees(repoPath)).find((w) => samePath(w.path, worktreePath));
+      if (here && existsSync(worktreePath)) {
+        const head = await revParse(worktreePath, 'HEAD');
+        if (head === tip && (await statusEntries(worktreePath)).length === 0) {
+          return { baseSha: tip };
+        }
+      }
+      const old = await run(repoPath, ['rev-parse', '--verify', '--quiet', ref], readEnv)
+        .then((r) => r.stdout.toString('utf8').trim())
+        .catch(() => '');
+      if (old !== '' && old !== tip) {
+        const archive = `refs/team-archive/${branch.slice('team/'.length)}/${old.slice(0, 12)}`;
+        await run(repoPath, ['update-ref', archive, old]);
+      }
+      if (here) {
+        await withLockRetry(() => run(repoPath, ['worktree', 'remove', '--force', worktreePath]));
+      }
+      await prune(repoPath);
+      await mkdir(dirname(worktreePath), { recursive: true });
+      await withLockRetry(() =>
+        run(repoPath, ['worktree', 'add', '--no-track', '-B', branch, worktreePath, tip]),
+      );
+      return { baseSha: tip };
+    },
+
+    async resolvePaths({ worktreePath, files }) {
+      const rootCanon = stripSlash(canonical(worktreePath));
+      const out: Record<string, string | null> = {};
+      for (const file of files) {
+        const abs = join(worktreePath, file);
+        let st;
+        try {
+          st = lstatSync(abs);
+        } catch {
+          continue; // deleted
+        }
+        let target: string;
+        if (st.isSymbolicLink()) {
+          // resolve the link (even a dangling one) from its real parent directory
+          const parent = canonical(dirname(abs));
+          target = canonical(resolve(parent, readlinkSync(abs)));
+        } else {
+          target = canonical(abs);
+        }
+        const rel = relative(rootCanon, target);
+        out[file] =
+          rel === '' || rel.startsWith(`..${sep}`) || rel === '..' || rel.startsWith(sep)
+            ? null
+            : rel.split(sep).join('/');
+      }
+      return out;
+    },
+
+    async ignoresCase({ repoPath }) {
+      const res = await git(['config', '--type=bool', '--get', 'core.ignorecase'], {
+        cwd: repoPath,
+        env: readEnv,
+        okCodes: [1],
+      });
+      return res.stdout.toString('utf8').trim() === 'true';
     },
 
     async reviewDiff({ worktreePath, baseSha, headSha, maxChars }) {

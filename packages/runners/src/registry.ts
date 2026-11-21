@@ -32,10 +32,12 @@ export function createRunnerRegistry(opts: RunnerRegistryOptions): ManagedRunner
     }
   } else {
     const logger = opts.logger ? { logger: opts.logger } : {};
+    const sandbox = opts.sandbox ? { sandbox: opts.sandbox } : {};
     runners.set(
       'claude',
       new ClaudeRunner({
         ...logger,
+        ...sandbox,
         ...(opts.commands?.claude ? { command: opts.commands.claude } : {}),
       }),
     );
@@ -43,6 +45,7 @@ export function createRunnerRegistry(opts: RunnerRegistryOptions): ManagedRunner
       'codex',
       new CodexRunner({
         ...logger,
+        ...sandbox,
         ...(opts.commands?.codex ? { command: opts.commands.codex } : {}),
       }),
     );

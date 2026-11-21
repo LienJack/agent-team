@@ -24,7 +24,7 @@ describe('task lifecycle (happy path)', () => {
       state: 'active',
     });
     expect(ws.head_sha).not.toBeNull();
-    const commit = h.git.calls.find((c) => c.method === 'commitAll');
+    const commit = h.git.calls.find((c) => c.method === 'commitFiles');
     expect(commit?.input).toMatchObject({ message: `team(${task.id}): 加入 a 功能` });
     expect(h.checks.calls.map((c) => c.name)).toEqual(['test']);
     expect(h.checks.calls[0]!.logPath).toBe(`/data/runs/${runs[0]!.id}/checks/1-test.log`);

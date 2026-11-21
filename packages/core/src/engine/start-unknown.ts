@@ -28,3 +28,23 @@ export function applyStartUnknown(ctx: EngineContext, tx: Tx, run: Run, message:
     options: ['重試', '取消'],
   });
 }
+
+/** Run error of a worker that recovery could not confirm dead (docs/adr/0015). */
+export const WORKER_UNCONFIRMED = 'abandoned: worker may still be running';
+/** Prefix of `blocked_reason` when recovery could not confirm a worker dead (human retry only). */
+export const WORKER_UNCONFIRMED_BLOCK = 'worker_unconfirmed:';
+
+/**
+ * Why only a human may retry after `run` (its worker may still be alive), or null. Covers
+ * `start_unknown` (before or after `onStarted`) and workers recovery could not confirm dead.
+ */
+export function needsHumanRetry(run: Run | undefined): string | null {
+  if (!run) return null;
+  if (run.state === 'start_unknown' || (run.error ?? '').startsWith('start_unknown')) {
+    return 'its last run may have started (start_unknown)';
+  }
+  if ((run.error ?? '').startsWith(WORKER_UNCONFIRMED)) {
+    return 'its last worker could not be confirmed dead after a restart';
+  }
+  return null;
+}

@@ -14,6 +14,7 @@ export interface components {
         name: string;
         cmd: string;
       }[];
+      allow_network: boolean;
       /** Format: date-time */
       created_at: string;
     };
@@ -40,6 +41,7 @@ export interface components {
         | 'cancelled';
       impl_role: string;
       fix_rounds: number;
+      leader_retries: number;
       attempts: number;
       blocked_reason: string | null;
       version: number;
@@ -76,6 +78,7 @@ export interface components {
         | 'cancelled';
       impl_role: string;
       fix_rounds: number;
+      leader_retries: number;
       attempts: number;
       blocked_reason: string | null;
       version: number;
@@ -139,6 +142,7 @@ export interface components {
       branch: string;
       base_sha: string;
       head_sha: string | null;
+      accepted_base_sha: string | null;
       /** @enum {string} */
       state: 'active' | 'kept' | 'removed';
       /** Format: date-time */
@@ -211,6 +215,9 @@ export interface components {
       cost_usd: number | null;
       log_dir: string;
       pid: number | null;
+      pid_started_at: string | null;
+      /** Format: date-time */
+      launched_at: string | null;
       /** Format: date-time */
       started_at: string;
       /** Format: date-time */

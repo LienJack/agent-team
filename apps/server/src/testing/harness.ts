@@ -25,6 +25,8 @@ import type { LeaderRuntime } from '../leader/types.js';
 import { createService, type Service } from '../service.js';
 
 export const TEST_TOKEN = 'test-token-0123456789abcdef';
+/** The leader-scoped token of the local listener (docs/adr/0014). */
+export const TEST_LEADER_TOKEN = 'test-leader-token-0123456789';
 
 /** Loosely typed JSON response body for assertions. */
 // oxlint-disable-next-line typescript/no-explicit-any
@@ -143,7 +145,12 @@ export function createTestService(options: TestServiceOptions = {}): TestService
     dataDir,
     printed,
     root,
-    localApp: () => createApp(service.context, { listener: 'local', token: TEST_TOKEN }),
+    localApp: () =>
+      createApp(service.context, {
+        listener: 'local',
+        token: TEST_TOKEN,
+        leaderToken: TEST_LEADER_TOKEN,
+      }),
     lanApp: (overrides = {}) => {
       const lan = { ...config.lan, ...overrides };
       return createApp(service.context, {
@@ -167,12 +174,16 @@ export function createTestService(options: TestServiceOptions = {}): TestService
   };
 }
 
-/** `app.request` init for the local app: bearer token + JSON body. */
-export function local(body?: unknown, headers: Record<string, string> = {}): RequestInit {
+/** `app.request` init for the local app: bearer token (operator by default) + JSON body. */
+export function local(
+  body?: unknown,
+  headers: Record<string, string> = {},
+  token = TEST_TOKEN,
+): RequestInit {
   const init: RequestInit = {
     method: body === undefined ? 'GET' : 'POST',
     headers: {
-      authorization: `Bearer ${TEST_TOKEN}`,
+      authorization: `Bearer ${token}`,
       ...(body === undefined ? {} : { 'content-type': 'application/json' }),
       ...headers,
     },

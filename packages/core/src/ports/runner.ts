@@ -3,12 +3,21 @@ import type {
   RunnerName,
   RunQuota,
   RunResult,
+  RunSpawnInfo,
   RunSpec,
   RunStartedInfo,
 } from '@agent-team/schema';
 
 /** Callbacks a runner fires during `run`. */
 export interface RunHooks {
+  /**
+   * Call synchronously right before spawning the worker's OS process (never for in-process
+   * runners). The engine records it at once, so after a crash recovery knows a process may
+   * exist even if its pid was never stored (docs/adr/0015).
+   */
+  onLaunching?(): void;
+  /** Call once the worker process exists: its pid (group leader) and OS start time. */
+  onSpawned?(info: RunSpawnInfo): void;
   /**
    * Call exactly once, at the agent's first event (claude `system` init, codex `thread.started`,
    * dsh `session`) — not merely at spawn. The engine uses it to tell `accepted` from `rejected`

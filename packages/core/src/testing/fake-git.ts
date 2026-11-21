@@ -30,6 +30,10 @@ export class FakeGit implements GitPort {
   readonly repos = new Map<string, FakeRepo>();
   readonly worktrees = new Map<string, FakeWorktree>();
   readonly calls: Array<{ method: Method; input: unknown }> = [];
+  /** worktree path → file → where it really lives (`null` = outside the worktree). */
+  readonly symlinks = new Map<string, Map<string, string | null>>();
+  /** Repositories on a case-insensitive filesystem. */
+  readonly caseInsensitive = new Set<string>();
   private counter = 0;
   private readonly failures = new Map<Method, number>();
 
@@ -174,14 +178,65 @@ export class FakeGit implements GitPort {
     return [...files].sort();
   }
 
-  async commitAll(input: { worktreePath: string; message: string }) {
-    this.record('commitAll', input);
+  /** Commits the listed dirty files only; other dirty files stay uncommitted. */
+  async commitFiles(input: { worktreePath: string; message: string; files: readonly string[] }) {
+    this.record('commitFiles', input);
     const wt = this.wt(input.worktreePath);
-    if (wt.dirty.size === 0) return { sha: this.headOf(wt), created: false };
-    const commit = { sha: this.sha(), files: [...wt.dirty].sort() };
+    const files = [...wt.dirty].filter((f) => input.files.includes(f)).sort();
+    if (files.length === 0) return { sha: this.headOf(wt), created: false };
+    const commit = { sha: this.sha(), files };
     wt.commits.push(commit);
-    wt.dirty.clear();
+    for (const f of files) wt.dirty.delete(f);
     return { sha: commit.sha, created: true };
+  }
+
+  async rebuildWorktree(input: {
+    repoPath: string;
+    worktreePath: string;
+    branch: string;
+    baseBranch: string;
+  }) {
+    this.record('rebuildWorktree', input);
+    const baseSha = this.tipOf(input.repoPath, input.baseBranch);
+    this.worktrees.set(input.worktreePath, {
+      repoPath: input.repoPath,
+      branch: input.branch,
+      baseSha,
+      commits: [],
+      dirty: new Set(),
+    });
+    this.symlinks.delete(input.worktreePath);
+    return { baseSha };
+  }
+
+  async resolvePaths(input: { worktreePath: string; files: readonly string[] }) {
+    this.record('resolvePaths', input);
+    const links = this.symlinks.get(input.worktreePath);
+    const out: Record<string, string | null> = {};
+    for (const f of input.files) out[f] = links?.has(f) ? links.get(f)! : f;
+    return out;
+  }
+
+  async ignoresCase(input: { repoPath: string }) {
+    this.record('ignoresCase', input);
+    return this.caseInsensitive.has(input.repoPath);
+  }
+
+  /** Make `file` in a worktree a symlink that resolves to `target` (`null` = outside). */
+  link(worktreePath: string, file: string, target: string | null): void {
+    let links = this.symlinks.get(worktreePath);
+    if (!links) this.symlinks.set(worktreePath, (links = new Map()));
+    links.set(file, target);
+  }
+
+  /** HEAD of a worktree (tests). */
+  head(worktreePath: string): string {
+    return this.headOf(this.wt(worktreePath));
+  }
+
+  /** Uncommitted files of a worktree (tests). */
+  dirtyFiles(worktreePath: string): string[] {
+    return [...this.wt(worktreePath).dirty].sort();
   }
 
   /**

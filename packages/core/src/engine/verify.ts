@@ -1,7 +1,9 @@
-import { commitMessage, joinPosix, RUN_LOG_FILES } from '@agent-team/schema';
-import { filesOutside } from '../util/paths.js';
+import { commitMessage, joinPosix, RUN_LOG_FILES, type Task } from '@agent-team/schema';
+import type { GitPort } from '../ports/git.js';
+import { filesOutside, isPathOwned } from '../util/paths.js';
 import { lastLines } from '../util/time.js';
 import type { EngineContext, Tx } from './context.js';
+import { projectIgnoresCase } from './dispatch.js';
 import { effectPayload, type EffectFinalizer, type EffectHandler } from './effect-queue.js';
 import { blockTask, requestFix } from './outcomes.js';
 import { saveRun, saveTask, saveWorkspace } from './records.js';
@@ -21,11 +23,41 @@ function list(files: readonly string[], max = 30): string {
 }
 
 /**
+ * Changed files that are out of bounds: outside `owned_paths`, or resolving (through a symlink,
+ * the file itself or a parent directory) to a path outside them or outside the worktree (M7).
+ * Each entry is printable: `file` or `file -> target`.
+ */
+async function outOfBounds(
+  git: GitPort,
+  worktreePath: string,
+  files: readonly string[],
+  task: Task,
+  ignoreCase: boolean,
+): Promise<string[]> {
+  const opts = { ignoreCase };
+  const out = filesOutside(files, task.owned_paths, opts);
+  const owned = files.filter((f) => !out.includes(f));
+  if (owned.length === 0) return out;
+  const resolved = await git.resolvePaths({ worktreePath, files: owned });
+  for (const file of owned) {
+    if (!(file in resolved)) continue; // deleted
+    const target = resolved[file];
+    if (target === file) continue;
+    if (target === null || target === undefined) out.push(`${file} -> (outside the worktree)`);
+    else if (!isPathOwned(target, task.owned_paths, opts)) out.push(`${file} -> ${target}`);
+  }
+  return out;
+}
+
+/**
  * `run.verify` effect: spec §6 steps 3–5 for an accepted impl/fix receipt — the worktree has
- * changes, every changed file (per git, not the receipt) is inside `owned_paths`, every project
- * check passes, then the service commits. Any failing step → `outcome = rejected` and a fix run
- * (or escalation). Git/check infrastructure errors throw so the effect retries; when retries run
- * out the task is blocked.
+ * changes, every changed file (per git, not the receipt; symlinks resolved) is inside
+ * `owned_paths`, every project check passes, then the changed-file list is computed again: if the
+ * checks added any file (or anything out of bounds appeared) nothing is committed (H3);
+ * otherwise exactly the verified files are committed. Any failing step → `outcome = rejected` and
+ * a fix run (or escalation). Git/check infrastructure errors throw so the effect retries; when
+ * retries run out the task is blocked. A service shutdown aborts a running check (the effect
+ * stays for the next start) and never starts the commit.
  */
 export const verifyHandler: EffectHandler = {
   async run(ctx, effect) {
@@ -40,6 +72,8 @@ export const verifyHandler: EffectHandler = {
       return (tx) => rejectRun(ctx, tx, runId, 'workspace_missing', '找不到任務的 worktree 紀錄。');
     }
     const { git, checks } = ctx.deps;
+    const signal = ctx.shutdownController.signal;
+    const ignoreCase = await projectIgnoresCase(ctx, project);
 
     // step 3: there are changes, and all of them are owned
     const all = await git.changedFiles({ worktreePath: ws.path, sinceSha: ws.base_sha });
@@ -51,7 +85,7 @@ export const verifyHandler: EffectHandler = {
       return (tx) =>
         rejectRun(ctx, tx, runId, 'no_changes', 'worktree 沒有任何變更；請實際完成派工單的修改。');
     }
-    const outside = filesOutside(all, task.owned_paths);
+    const outside = await outOfBounds(git, ws.path, all, task, ignoreCase);
     if (outside.length > 0) {
       return (tx) =>
         rejectRun(
@@ -76,7 +110,10 @@ export const verifyHandler: EffectHandler = {
           `${i + 1}-${slug(check.name)}.log`,
         ),
         timeoutMs: ctx.config.engine.check_timeout_ms,
+        signal,
+        repoPath: project.repo_path,
       });
+      if (signal.aborted) throw new Error('verification aborted: service shutdown');
       results.push({
         name: check.name,
         passed: outcome.passed,
@@ -100,9 +137,26 @@ export const verifyHandler: EffectHandler = {
         );
     }
 
-    // step 5: service-side commit
+    // step 5: the list again, right before committing (checks run worker-authored code)
+    if (signal.aborted) throw new Error('verification aborted: service shutdown');
+    const after = await git.changedFiles({ worktreePath: ws.path, sinceSha: ws.base_sha });
+    const added = after.filter((f) => !all.includes(f));
+    const nowOutside = await outOfBounds(git, ws.path, after, task, ignoreCase);
+    const unexpected = [...new Set([...added, ...nowOutside])];
+    if (unexpected.length > 0) {
+      return (tx) =>
+        rejectRun(
+          ctx,
+          tx,
+          runId,
+          `changed_during_checks: ${unexpected.slice(0, 10).join(', ')}`,
+          `機器檢查執行後多出（或越界）的檔案，未提交任何東西：${list(unexpected)}。檢查不得寫入受版控的檔案；請找出是哪個檢查或測試產生它們並修正。`,
+          results,
+        );
+    }
+    // service-side commit of exactly the verified files
     const message = commitMessage(task.id, task.title);
-    const commit = await git.commitAll({ worktreePath: ws.path, message });
+    const commit = await git.commitFiles({ worktreePath: ws.path, message, files: all });
     return acceptRun(runId, ws.id, { ...commit, message }, results);
   },
 

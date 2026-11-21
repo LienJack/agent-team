@@ -1,7 +1,7 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { cleanup, newWorktree, setup, type Fixture } from './test-fixture.js';
+import { cleanup, commitChanges, newWorktree, setup, type Fixture } from './test-fixture.js';
 
 let fx: Fixture;
 
@@ -31,7 +31,7 @@ describe('git worktree lifecycle', () => {
   it('reuses an existing branch (merge-base as base) when the directory is gone', async () => {
     const wt = await newWorktree(fx);
     writeFileSync(join(wt.worktreePath, 'a.txt'), 'changed\n');
-    await fx.port.commitAll({ worktreePath: wt.worktreePath, message: 'work' });
+    await commitChanges(fx, wt.worktreePath, 'work');
     rmSync(wt.worktreePath, { recursive: true, force: true });
     const again = await newWorktree(fx);
     expect(again.created).toBe(true);
@@ -141,7 +141,7 @@ describe('git change lists', () => {
   it('includes files of commits after sinceSha', async () => {
     const wt = await newWorktree(fx);
     writeFileSync(join(wt.worktreePath, 'c.txt'), 'c\n');
-    const c1 = await fx.port.commitAll({ worktreePath: wt.worktreePath, message: 'one' });
+    const c1 = await commitChanges(fx, wt.worktreePath, 'one');
     writeFileSync(join(wt.worktreePath, 'd.txt'), 'd\n');
     expect(
       await fx.port.changedFiles({ worktreePath: wt.worktreePath, sinceSha: wt.baseSha }),
@@ -158,7 +158,7 @@ describe('git service commits', () => {
   });
   afterEach(() => cleanup(fx));
 
-  it('commits exactly the changed files under the service identity, idempotently, running hooks', async () => {
+  it('commits exactly the changed files under the service identity, idempotently, without hooks', async () => {
     const marker = join(fx.dir, 'hook-ran');
     const hook = join(fx.repo, '.git', 'hooks', 'pre-commit');
     writeFileSync(hook, `#!/bin/sh\necho ran > "${marker}"\n`);
@@ -168,12 +168,9 @@ describe('git service commits', () => {
     writeFileSync(join(wt.worktreePath, ':magic.txt'), 'm\n');
     rmSync(join(wt.worktreePath, 'b.txt'));
 
-    const c = await fx.port.commitAll({
-      worktreePath: wt.worktreePath,
-      message: 'team(t_000001): x',
-    });
+    const c = await commitChanges(fx, wt.worktreePath, 'team(t_000001): x');
     expect(c.created).toBe(true);
-    expect(readFileSync(marker, 'utf8').trim()).toBe('ran');
+    expect(existsSync(marker)).toBe(false); // docs/adr/0016: repository hooks never run
     expect(fx.sh(wt.worktreePath, 'log', '-1', '--format=%an <%ae>|%cn|%s')).toBe(
       'agent-team <agent-team@localhost>|agent-team|team(t_000001): x',
     );
@@ -185,26 +182,24 @@ describe('git service commits', () => {
       clean: true,
     });
 
-    const again = await fx.port.commitAll({ worktreePath: wt.worktreePath, message: 'again' });
+    const again = await commitChanges(fx, wt.worktreePath, 'again');
     expect(again).toEqual({ sha: c.sha, created: false });
   });
 
   it('keeps a zh-TW commit title intact', async () => {
     const wt = await newWorktree(fx);
     writeFileSync(join(wt.worktreePath, 'a.txt'), '中文\n');
-    await fx.port.commitAll({ worktreePath: wt.worktreePath, message: 'team(t_000001): 中文標題' });
+    await commitChanges(fx, wt.worktreePath, 'team(t_000001): 中文標題');
     expect(fx.sh(wt.worktreePath, 'log', '-1', '--format=%s')).toBe('team(t_000001): 中文標題');
   });
 
-  it('rejects when a hook fails (hooks are never skipped)', async () => {
+  it('a failing repository hook cannot block the service commit (hooks never run)', async () => {
     const hook = join(fx.repo, '.git', 'hooks', 'pre-commit');
     writeFileSync(hook, '#!/bin/sh\necho nope >&2\nexit 1\n');
     chmodSync(hook, 0o755);
     const wt = await newWorktree(fx);
     writeFileSync(join(wt.worktreePath, 'a.txt'), 'a2\n');
-    await expect(
-      fx.port.commitAll({ worktreePath: wt.worktreePath, message: 'x' }),
-    ).rejects.toThrow(/nope/);
+    expect((await commitChanges(fx, wt.worktreePath, 'x')).created).toBe(true);
   });
 
   it('retries while index.lock is held', async () => {
@@ -215,7 +210,7 @@ describe('git service commits', () => {
     writeFileSync(lock, '');
     const timer = setTimeout(() => rmSync(lock, { force: true }), 500);
     try {
-      const c = await fx.port.commitAll({ worktreePath: wt.worktreePath, message: 'locked' });
+      const c = await commitChanges(fx, wt.worktreePath, 'locked');
       expect(c.created).toBe(true);
     } finally {
       clearTimeout(timer);
@@ -253,7 +248,7 @@ describe('git base drift', () => {
     await expect(
       fx.port.resetWorktree({ worktreePath: wt.worktreePath, toSha: tip }),
     ).rejects.toThrow(/changes/);
-    await fx.port.commitAll({ worktreePath: wt.worktreePath, message: 'own' });
+    await commitChanges(fx, wt.worktreePath, 'own');
     await expect(
       fx.port.resetWorktree({ worktreePath: wt.worktreePath, toSha: tip }),
     ).rejects.toThrow(/commits of its own/);

@@ -288,6 +288,8 @@ export interface operations_part1 {
             name: string;
             cmd: string;
           }[];
+          /** @default false */
+          allow_network?: boolean;
         };
       };
     };

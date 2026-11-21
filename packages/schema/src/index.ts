@@ -10,5 +10,6 @@ export * from './config/models.js';
 export * from './config/service.js';
 export * from './env.js';
 export * from './paths.js';
+export * from './redact.js';
 export * from './api/errors.js';
 export * from './api/dto.js';

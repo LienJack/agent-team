@@ -80,11 +80,12 @@ export const ENV_VARS = [
       '設為 1 時以行程內的假 runner 取代 claude／codex／dsh 的 worker（端到端測試）；leader 另由 service.json 的 leader.enabled 控制',
   },
   {
-    name: 'AGENT_TEAM_ACTOR',
+    name: 'AGENT_TEAM_LISTENER_FILE',
     source: 'process',
     secret: false,
     required: false,
-    description: '`team` 指令的呼叫者身分；leader 對話裡設為 leader（不可用保留槽）',
+    description:
+      '`team` 改讀這個 listener 檔（預設 DATA/run/listener.json）；leader 的 shim 指向 DATA/leader/listener.json（leader 權杖，身分由伺服器依權杖判定）',
   },
   {
     name: 'AGENT_TEAM_SERVER_ENTRY',

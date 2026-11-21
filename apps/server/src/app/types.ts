@@ -9,6 +9,8 @@ export interface AppEnv {
     /** Idempotency caller: `local`, or `lan:<session hash>`. Never a credential. */
     caller: string;
     actor: Actor;
+    /** Which credential the call came with (derives message source / answer channel). */
+    channel: 'operator' | 'leader' | 'lan';
   };
 }
 

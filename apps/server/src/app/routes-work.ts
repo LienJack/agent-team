@@ -16,6 +16,7 @@ import {
   rejectTask,
   retryTask,
 } from '@agent-team/protocol';
+import { answerVia } from './origin.js';
 import { created, ok, register } from './register.js';
 import type { AppContext, AppEnv } from './types.js';
 
@@ -39,7 +40,7 @@ export function registerWorkRoutes(app: OpenAPIHono<AppEnv>, ctx: AppContext): v
         );
       }
     }
-    return created({ project: engine.createProject(body) });
+    return created({ project: engine.createProject(body, c.get('actor')) });
   });
 
   register(app, listTasks, (c) => {
@@ -79,7 +80,7 @@ export function registerWorkRoutes(app: OpenAPIHono<AppEnv>, ctx: AppContext): v
   );
   register(app, approveTask, (c) => {
     const { reason } = c.req.valid('json');
-    return ok({ task: engine.approveTask(c.req.valid('param').id, reason) });
+    return ok({ task: engine.approveTask(c.req.valid('param').id, reason, c.get('actor')) });
   });
   register(app, rejectTask, (c) => {
     const { note } = c.req.valid('json');
@@ -100,9 +101,9 @@ export function registerWorkRoutes(app: OpenAPIHono<AppEnv>, ctx: AppContext): v
     created({ attention: engine.openAttention(c.req.valid('json')) }),
   );
   register(app, answerAttention, (c) => {
-    const { answer, via } = c.req.valid('json');
-    // the leader's own answers are recorded as such (they never re-enter its event digest)
-    const by = c.get('actor').kind === 'leader' ? 'leader' : via;
-    return ok({ attention: engine.answerAttention(c.req.valid('param').id, answer, by) });
+    const { answer } = c.req.valid('json');
+    // humans only (the engine refuses the leader); the channel comes from the credential
+    const id = c.req.valid('param').id;
+    return ok({ attention: engine.answerAttention(id, answer, answerVia(c), c.get('actor')) });
   });
 }

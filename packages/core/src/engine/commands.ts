@@ -12,18 +12,37 @@ import {
   type Task,
   type TaskCreateRequest,
 } from '@agent-team/schema';
-import { ConflictError, NotFoundError, ValidationError } from '../errors.js';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../errors.js';
 import type { EngineContext, Tx } from './context.js';
 import { answerAttention, openAttention } from './attention.js';
+import { applyAttentionAction, isBaseDriftBlock } from './drift.js';
 import { enqueueEffect } from './effect-queue.js';
 import { completeTask, requestFix } from './outcomes.js';
 import { finishRun, lastRun, requireTask, saveTask } from './records.js';
+import { needsHumanRetry, WORKER_UNCONFIRMED_BLOCK } from './start-unknown.js';
 
-// Human/leader commands (spec §11 task actions). Each runs in one transaction. A `human` actor
-// marks the task so the scheduler may use the reserved slot for it (spec §8).
+// Human/leader commands (spec §11 task actions). Each runs in one transaction and checks the
+// task's current status first (a clear 409 instead of a stranded task). A `human` actor marks
+// the task so the scheduler may use the reserved slot for it (spec §8).
+//
+// Actors (docs/adr/0014): the server derives the actor from the credential — `human` (LAN
+// session, operator token), `leader` (the leader-scoped token). Decisions that bypass review or
+// change what runs where are human-only: approve, reject, answering attention items, reassign,
+// project registration, base-drift decisions and retries the leader is not trusted with.
 
 export interface Actor {
   kind: 'human' | 'leader' | 'system';
+}
+
+const HUMAN: Actor = { kind: 'human' };
+
+export function requireHuman(actor: Actor, what: string): void {
+  if (actor.kind !== 'human') {
+    throw new ForbiddenError(
+      `${what} is a human decision (actor: ${actor.kind})`,
+      'ask the person with `team attention open`',
+    );
+  }
 }
 
 interface SafeParser<T> {
@@ -50,7 +69,12 @@ function prioritize(ctx: EngineContext, taskId: string, actor: Actor): void {
   if (actor.kind === 'human') ctx.humanPriority.add(taskId);
 }
 
-export function createProject(ctx: EngineContext, input: ProjectCreateRequest): Project {
+export function createProject(
+  ctx: EngineContext,
+  input: ProjectCreateRequest,
+  actor: Actor = HUMAN,
+): Project {
+  requireHuman(actor, 'registering a project');
   const req = parse(ProjectCreateRequestSchema, input);
   return ctx.transact((tx) => {
     if (tx.r.projects.getByName(req.name)) {
@@ -62,6 +86,7 @@ export function createProject(ctx: EngineContext, input: ProjectCreateRequest): 
       repo_path: req.repo_path,
       base_branch: req.base_branch,
       checks: req.checks,
+      allow_network: req.allow_network,
       created_at: tx.now,
     };
     tx.r.projects.insert(project);
@@ -93,6 +118,7 @@ export function createTask(ctx: EngineContext, input: TaskCreateRequest, actor: 
       status: req.queue ? 'queued' : 'draft',
       impl_role: implRole,
       fix_rounds: 0,
+      leader_retries: 0,
       attempts: 0,
       blocked_reason: null,
       version: 1,
@@ -115,10 +141,20 @@ export function createTask(ctx: EngineContext, input: TaskCreateRequest, actor: 
   return task;
 }
 
+/** Queue a draft (only drafts: every other state has its own way back, e.g. retry). */
 export function queueTask(ctx: EngineContext, id: string, actor: Actor): Task {
-  const task = ctx.transact((tx) =>
-    saveTask(tx, requireTask(tx, id), { status: 'queued' }, 'queued'),
-  );
+  const task = ctx.transact((tx) => {
+    const current = requireTask(tx, id);
+    if (current.status !== 'draft') {
+      throw new ConflictError(
+        `only draft tasks can be queued (task ${id} is ${current.status})`,
+        current.status === 'blocked' || current.status === 'failed'
+          ? 'use retry for blocked or failed tasks'
+          : 'the task is already queued or in progress',
+      );
+    }
+    return saveTask(tx, current, { status: 'queued' }, 'queued');
+  });
   prioritize(ctx, id, actor);
   return task;
 }
@@ -147,30 +183,59 @@ export function cancelTask(ctx: EngineContext, id: string, reason = 'cancelled')
 
 /**
  * Retry a blocked/failed task: back to `review` when it stopped during review (committed work
- * waiting for a reviewer), otherwise to `queued`. Resets attempts and backoff.
+ * waiting for a reviewer), otherwise to `queued`. A human retry resets attempts, backoff and the
+ * leader's retry count. The leader (M6) may not retry a task whose worker may still be alive
+ * (`start_unknown`, unconfirmed after a crash) or that exhausted its attempts (`failed`); its
+ * retries keep `attempts` and count against `engine.leader_retry_budget` per task.
  */
 export function retryTask(ctx: EngineContext, id: string, actor: Actor): Task {
   const task = ctx.transact((tx) => {
     const current = requireTask(tx, id);
     if (current.status !== 'blocked' && current.status !== 'failed') {
       throw new ConflictError(
-        `only blocked or failed tasks can be retried (task is ${current.status})`,
+        `only blocked or failed tasks can be retried (task ${id} is ${current.status})`,
       );
+    }
+    if (isBaseDriftBlock(current)) {
+      throw new ConflictError(
+        `task ${id} is blocked by a base drift; a retry would block again`,
+        'answer its attention item: rebuild the worktree or continue on the old base',
+      );
+    }
+    const last = lastRun(tx, id);
+    const human = actor.kind === 'human';
+    if (!human) {
+      if (current.status === 'failed') {
+        throw new ForbiddenError(`task ${id} exhausted its attempts; only a human can retry it`);
+      }
+      const why = (current.blocked_reason ?? '').startsWith(WORKER_UNCONFIRMED_BLOCK)
+        ? 'a worker could not be confirmed dead after a restart'
+        : needsHumanRetry(last);
+      if (why !== null) throw new ForbiddenError(`task ${id}: ${why}; only a human can retry it`);
+      const budget = ctx.config.engine.leader_retry_budget;
+      if (current.leader_retries >= budget) {
+        throw new ForbiddenError(
+          `task ${id} used its ${budget} leader retries; a human has to decide`,
+          'open an attention item for the person',
+        );
+      }
     }
     const ws = tx.r.workspaces.findCurrentByTask(id);
     const backToReview =
-      lastRun(tx, id)?.kind === 'review' && current.fix_notes === null && ws?.head_sha != null;
+      last?.kind === 'review' && current.fix_notes === null && ws?.head_sha != null;
     return saveTask(
       tx,
       current,
       {
         status: backToReview ? 'review' : 'queued',
-        attempts: 0,
+        ...(human
+          ? { attempts: 0, leader_retries: 0 }
+          : { leader_retries: current.leader_retries + 1 }),
         retry_at: null,
         blocked_reason: null,
         current_run_id: null,
       },
-      'retry',
+      human ? 'retry' : 'retry (leader)',
     );
   });
   prioritize(ctx, id, actor);
@@ -178,7 +243,13 @@ export function retryTask(ctx: EngineContext, id: string, actor: Actor): Task {
 }
 
 /** Human acceptance of a task in review (overrides a pending model review). */
-export function approveTask(ctx: EngineContext, id: string, reason = 'approved by human'): Task {
+export function approveTask(
+  ctx: EngineContext,
+  id: string,
+  reason = 'approved by human',
+  actor: Actor = HUMAN,
+): Task {
+  requireHuman(actor, 'approving a task');
   return ctx.transact((tx) => {
     const task = requireTask(tx, id);
     if (task.status !== 'review')
@@ -190,6 +261,7 @@ export function approveTask(ctx: EngineContext, id: string, reason = 'approved b
 
 /** Human rejection of a task in review: the note becomes the fix run's must-fix list. */
 export function rejectTask(ctx: EngineContext, id: string, note: string, actor: Actor): Task {
+  requireHuman(actor, 'rejecting a task');
   if (note.trim() === '') throw new ValidationError('note must not be empty');
   const task = ctx.transact((tx) => {
     const current = requireTask(tx, id);
@@ -208,6 +280,7 @@ export function rejectTask(ctx: EngineContext, id: string, note: string, actor: 
  * task is in flight; a blocked/failed task is queued again.
  */
 export function reassignTask(ctx: EngineContext, id: string, role: string, actor: Actor): Task {
+  requireHuman(actor, 'reassigning a task');
   const roleCfg = ctx.config.models.roles[role];
   if (!roleCfg || !roleCfg.enabled) throw new ValidationError(`unknown or disabled role ${role}`);
   const task = ctx.transact((tx) => {
@@ -218,6 +291,12 @@ export function reassignTask(ctx: EngineContext, id: string, role: string, actor
     if (current.current_run_id !== null || current.status === 'verifying') {
       throw new ConflictError(`task ${id} has a run in progress`, 'cancel or wait for it first');
     }
+    if (isBaseDriftBlock(current)) {
+      throw new ConflictError(
+        `task ${id} is blocked by a base drift`,
+        'answer its attention item first (rebuild or continue)',
+      );
+    }
     const requeue = current.status === 'blocked' || current.status === 'failed';
     return saveTask(
       tx,
@@ -226,7 +305,13 @@ export function reassignTask(ctx: EngineContext, id: string, role: string, actor
         impl_role: role,
         fix_rounds: 0,
         ...(requeue
-          ? { status: 'queued' as const, attempts: 0, retry_at: null, blocked_reason: null }
+          ? {
+              status: 'queued' as const,
+              attempts: 0,
+              leader_retries: 0,
+              retry_at: null,
+              blocked_reason: null,
+            }
           : {}),
       },
       `reassigned to ${role}`,
@@ -251,6 +336,21 @@ export function createAttention(ctx: EngineContext, input: AttentionCreateReques
   });
 }
 
-export function answer(ctx: EngineContext, id: string, text: string, via: AnswerVia): Attention {
-  return ctx.transact((tx) => answerAttention(tx, id, text, via));
+/**
+ * Record a human's answer. Items the engine opened with a known action (base drift: rebuild or
+ * continue) apply the chosen option in the same transaction.
+ */
+export function answer(
+  ctx: EngineContext,
+  id: string,
+  text: string,
+  via: AnswerVia,
+  actor: Actor = HUMAN,
+): Attention {
+  requireHuman(actor, 'answering an attention item');
+  return ctx.transact((tx) => {
+    const item = answerAttention(tx, id, text, via);
+    applyAttentionAction(ctx, tx, item);
+    return item;
+  });
 }

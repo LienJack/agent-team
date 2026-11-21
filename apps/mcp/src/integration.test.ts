@@ -78,7 +78,8 @@ describe('MCP server over stdio against the real HTTP server', () => {
     expect(text(answered)).toBe(`${item.id} answered: sqlite`);
 
     const after = await http.listAttention({ status: 'answered' });
-    expect(after).toMatchObject([{ id: item.id, answer: 'sqlite', answered_via: 'mcp' }]);
+    // the server derives the channel from the credential (operator token → cli; ADR 0014)
+    expect(after).toMatchObject([{ id: item.id, answer: 'sqlite', answered_via: 'cli' }]);
 
     const missing = await mcp.callTool({
       name: 'answer_attention',

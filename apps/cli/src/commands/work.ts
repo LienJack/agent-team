@@ -44,14 +44,31 @@ export function registerWorkCommands(program: Command, ctx: CommandContext): voi
     .description('register a repository (local listener only)')
     .option('--base <branch>', 'base branch', 'main')
     .option('--check <name=cmd>', 'machine check, repeatable', collect, [] as string[])
-    .action(async (name: string, repo: string, options: { base: string; check: string[] }) => {
-      const checks = options.check.map(parseCheck);
-      const repoPath = isAbsolute(repo) ? repo : resolve(ctx.io.cwd, repo);
-      const created = await (
-        await ctx.client()
-      ).createProject({ name, repo_path: repoPath, base_branch: options.base, checks });
-      ctx.print(created, () => projectLine(created));
-    });
+    .option(
+      '--allow-network',
+      "let the project's sandboxed workers use the network (never this machine's ports)",
+      false,
+    )
+    .action(
+      async (
+        name: string,
+        repo: string,
+        options: { base: string; check: string[]; allowNetwork: boolean },
+      ) => {
+        const checks = options.check.map(parseCheck);
+        const repoPath = isAbsolute(repo) ? repo : resolve(ctx.io.cwd, repo);
+        const created = await (
+          await ctx.client()
+        ).createProject({
+          name,
+          repo_path: repoPath,
+          base_branch: options.base,
+          checks,
+          allow_network: options.allowNetwork,
+        });
+        ctx.print(created, () => projectLine(created));
+      },
+    );
 
   const task = program.command('task').description('tasks');
   task

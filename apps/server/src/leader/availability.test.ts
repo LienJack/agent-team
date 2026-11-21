@@ -11,7 +11,7 @@ import {
 import { local, type Loose, type TestService } from '../testing/harness.js';
 import { LEADER_OPTIONAL_FLAGS, LEADER_REQUIRED_FLAGS, leaderArgs } from './args.js';
 import type { LeaderImpl } from './leader.js';
-import { LEADER_SYSTEM_PROMPT } from './prompt/system-v1.js';
+import { LEADER_SYSTEM_PROMPT } from './prompt/system-v2.js';
 import { LEADER_SESSION_KEY } from './types.js';
 
 // spec §9 額度與登入: a rate limit or a missing login makes the leader unavailable without
@@ -26,7 +26,7 @@ const HOUR = 3_600_000;
 async function send(text: string, id: string) {
   const res = await h
     .localApp()
-    .request('/api/leader/messages', local({ text, source: 'web', client_msg_id: id }));
+    .request('/api/leader/messages', local({ text, source: 'cli', client_msg_id: id }));
   return { status: res.status, body: (await res.json()) as Loose };
 }
 

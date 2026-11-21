@@ -138,6 +138,9 @@ describe('runners: claude argv', () => {
       '--json-schema',
       JSON.stringify(spec.schema),
       '--safe-mode',
+      '--restricted',
+      '--settings',
+      expect.stringContaining('"sandbox":{"enabled":true'),
       '--strict-mcp-config',
       '--mcp-config',
       '{"mcpServers":{}}',
@@ -233,7 +236,9 @@ describe('runners: claude argv', () => {
 
   it('refuses to assemble a permission bypass', () => {
     const spec = makeSpec(tmp.dir, { model: '--dangerously-skip-permissions' });
-    expect(() => claudeArgs(spec, new Set())).toThrow(/refusing/);
+    expect(() =>
+      claudeArgs(spec, new Set(['--settings', '--restricted']), { denyPaths: [] }),
+    ).toThrow(/refusing/);
   });
 
   it('times out by killing the process group', async () => {

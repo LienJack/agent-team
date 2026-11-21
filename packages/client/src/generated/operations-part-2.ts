@@ -277,7 +277,7 @@ export interface operations_part2 {
         'application/json': {
           text: string;
           /** @enum {string} */
-          source: 'web' | 'cli' | 'mcp' | 'grok' | 'service';
+          source?: 'web' | 'cli' | 'mcp' | 'grok' | 'service';
           client_msg_id: string;
           /** @default true */
           wait?: boolean;

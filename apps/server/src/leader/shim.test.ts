@@ -18,7 +18,10 @@ beforeEach(() => {
   record = join(dir, 'node-called.txt');
   // stands in for node: records how the shim would have started the CLI
   const node = join(dir, 'node');
-  writeFileSync(node, `#!/bin/sh\necho "$AGENT_TEAM_ACTOR|$AGENT_TEAM_HOME|$*" > '${record}'\n`);
+  writeFileSync(
+    node,
+    `#!/bin/sh\necho "$AGENT_TEAM_LISTENER_FILE|$AGENT_TEAM_HOME|$*" > '${record}'\n`,
+  );
   chmodSync(node, 0o755);
   shim = join(dir, 'team');
   writeFileSync(shim, teamShim(join(dir, "da'ta"), node, '/repo/apps/cli/dist/bin.js'));
@@ -40,7 +43,7 @@ describe('§9 leader team shim', () => {
   it('runs the CLI as the leader actor with the DATA directory', async () => {
     expect((await run('task', 'list', '--status', 'queued')).code).toBe(0);
     expect(readFileSync(record, 'utf8').trim()).toBe(
-      `leader|${join(dir, "da'ta")}|/repo/apps/cli/dist/bin.js task list --status queued`,
+      `${join(dir, "da'ta", 'leader', 'listener.json')}|${join(dir, "da'ta")}|/repo/apps/cli/dist/bin.js task list --status queued`,
     );
   });
 

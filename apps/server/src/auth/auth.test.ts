@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   createTestService,
   SOURCE_HEADER,
+  TEST_LEADER_TOKEN,
   TEST_PASSWORD,
   TEST_TOKEN,
   type Loose,
@@ -85,14 +86,13 @@ describe('§14 server — local listener bearer auth', () => {
     expect((await app.request('/')).status).toBe(404);
   });
 
-  it('marks calls with X-Team-Actor: leader as leader actions', async () => {
+  it('the leader-scoped token makes leader actions; a header cannot', async () => {
     const app = h.localApp();
     const res = await app.request('/api/attention', {
       method: 'POST',
       headers: {
-        authorization: `Bearer ${TEST_TOKEN}`,
+        authorization: `Bearer ${TEST_LEADER_TOKEN}`,
         'content-type': 'application/json',
-        'x-team-actor': 'leader',
       },
       body: JSON.stringify({ question: 'Q?' }),
     });
@@ -101,9 +101,8 @@ describe('§14 server — local listener bearer auth', () => {
     const project = await app.request('/api/projects', {
       method: 'POST',
       headers: {
-        authorization: `Bearer ${TEST_TOKEN}`,
+        authorization: `Bearer ${TEST_LEADER_TOKEN}`,
         'content-type': 'application/json',
-        'x-team-actor': 'leader',
       },
       body: JSON.stringify({ name: 'demo', repo_path: '/repos/demo' }),
     });

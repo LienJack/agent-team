@@ -102,21 +102,21 @@ worktree 在 `~/RanoLabs/worktrees/<project>/<task_id>/`，分支 `team/<task_id
 
 ## CLI 速查
 
-| 指令                                                                                              | 說明                                                                              |
-| ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `team serve`                                                                                      | 前景執行服務                                                                      |
-| `team status` / `team doctor` / `team resume`                                                     | 看板摘要／環境與 runner 檢查／不經模型的現況摘要                                  |
-| `team watch [--after seq]`                                                                        | 每個事件一行，斷線自動接續                                                        |
-| `team roles`                                                                                      | `config/models.json` 的角色、別名、runner、槽位                                   |
-| `team project add <name> <repo> [--base B] [--check "name=cmd"]…`                                 | 註冊專案（僅本機）                                                                |
-| `team task add --project P --title T --tier A\|B\|C --paths "…" (--ticket-file F \| -) [--queue]` | 建任務                                                                            |
-| `team task list [--project P] [--status queued,running]` / `team task show <id>`                  | 列出／詳情                                                                        |
-| `team task queue\|cancel\|retry <id>`                                                             | 排入／停止並取消／重試                                                            |
-| `team task reassign <id> <role>`                                                                  | 改派角色（先檢查角色存在且啟用）                                                  |
-| `team receipt <task_id>`                                                                          | 最新回執                                                                          |
-| `team ask "<text>"`                                                                               | 對 leader 說話，等到回覆為止；Ctrl-C 只停止等待（訊息保留，回覆會出現在看板聊天） |
-| `team leader reset`                                                                               | 開新的 leader 對話（例如換了 Claude 登入）                                        |
-| `team attention list` / `open --question Q --option A …` / `answer <id> "<答案>"`                 | 待決事項                                                                          |
+| 指令                                                                                              | 說明                                                                                       |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `team serve`                                                                                      | 前景執行服務                                                                               |
+| `team status` / `team doctor` / `team resume`                                                     | 看板摘要／環境與 runner 檢查／不經模型的現況摘要                                           |
+| `team watch [--after seq]`                                                                        | 每個事件一行，斷線自動接續                                                                 |
+| `team roles`                                                                                      | `config/models.json` 的角色、別名、runner、槽位                                            |
+| `team project add <name> <repo> [--base B] [--check "name=cmd"]… [--allow-network]`               | 註冊專案（僅本機）；`--allow-network` 讓 worker 沙箱可連公開網路（預設關閉，建立後不能改） |
+| `team task add --project P --title T --tier A\|B\|C --paths "…" (--ticket-file F \| -) [--queue]` | 建任務                                                                                     |
+| `team task list [--project P] [--status queued,running]` / `team task show <id>`                  | 列出／詳情                                                                                 |
+| `team task queue\|cancel\|retry <id>`                                                             | 排入／停止並取消／重試                                                                     |
+| `team task reassign <id> <role>`                                                                  | 改派角色（先檢查角色存在且啟用）                                                           |
+| `team receipt <task_id>`                                                                          | 最新回執                                                                                   |
+| `team ask "<text>"`                                                                               | 對 leader 說話，等到回覆為止；Ctrl-C 只停止等待（訊息保留，回覆會出現在看板聊天）          |
+| `team leader reset`                                                                               | 開新的 leader 對話（例如換了 Claude 登入）                                                 |
+| `team attention list` / `open --question Q --option A …` / `answer <id> "<答案>"`                 | 待決事項                                                                                   |
 
 每個指令都可加 `--json`。結束碼：0 成功、1 業務錯誤、2 用法或連線錯誤（`team ask` 被 Ctrl-C 中止是 130）。
 
@@ -225,6 +225,17 @@ team leader reset
 
 ## 已知限制
 
+- **持有區網密碼的人就能讓 agent 在這台電腦上執行程式碼**（派工、退回、回答待決事項都能從看板做）。區網密碼等同
+  這台電腦上一個受限的 shell，只給信任的人。
+- 沙箱擋什麼、不擋什麼（ADR 0014）：claude worker 在 Claude Code 的沙箱內，讀寫只限 worktree（與暫存、套件快取），
+  讀不到 DATA（資料庫、含權杖的 listener 檔）、`.env`、`~/.ssh` 等憑證目錄，連不到本機的服務埠；codex worker 用權限
+  設定檔拒絕同一份清單；macOS 上機器檢查也以 `sandbox-exec` 套同一份清單（檢查可以起自己的本機測試伺服器，
+  但連不到服務的埠）。**不擋**：dsh worker 讀得到清單內的檔案
+  （dsh 沒有這種設定）、Linux 上的檢查不在沙箱內、`allow_network` 開啟時 worker 能把 worktree 內容送到公開網站、
+  worker 讀得到主 repo 的 `.git/config`。listener 檔只靠 0600 權限保護：同一個使用者、不在沙箱內的行程（leader 的
+  claude、你自己的工具）都讀得到 operator 權杖。
+- 只有人能驗收、退回、回答待決事項、改派與建專案；leader 用自己的權杖，伺服器依權杖判定身分（ADR 0014）。
+- 服務端代提交時不執行 repo 的 git hooks（ADR 0016）；要在提交前檢查的事請寫進專案的 `checks`。
 - 不自動合併分支回主幹；不做提交前的檔案租約、自動輪換帳號、Jev 判定關卡、TLS、多使用者（spec §16）。
 - 區網是未加密的 HTTP；需要 TLS 請自行加反向代理。
 - leader 的 shell 範圍用 allow／deny 清單收斂，但 Claude Code 沒有「只允許這些」的 Bash 規則，清單以外的唯讀指令仍
@@ -232,7 +243,8 @@ team leader reset
 - 一個 leader turn 最長 10 分鐘；`team ask`／MCP 會一直等，但呼叫端自己的逾時（例如某些 MCP 用戶端）仍可能先放棄，
   訊息不會遺失，回覆之後出現在看板聊天。
 - 強制結束（第二次 Ctrl-C、kill -9、當機）時 leader 當下的 `claude` 行程可能殘留；worker 的行程群組會在強制結束前
-  被 SIGKILL，當機時則由下次啟動的復原把 run 標為 `abandoned`。
+  被 SIGKILL；當機時由下次啟動的復原先終止殘留的 worker 群組（pid 與啟動時間都相符才終止），無法確認的任務會阻塞
+  等人處理，不會派第二個 worker 進同一個 worktree（ADR 0015）。
 - 看板與 Grok 主動通知是單一使用者設計；沒有帳號與權限分級。
 
 ## 開發

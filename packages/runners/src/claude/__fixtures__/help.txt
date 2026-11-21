@@ -13,8 +13,10 @@ Options:
   --permission-mode <mode>              permission mode
   --permission-prompts <target>         host or none
   -p, --print                           print and exit
+  --restricted                          no user/project settings, file tools confined
   -r, --resume [value]                  resume a session
   --safe-mode                           no customizations
+  --settings <file-or-json>             more settings
   --strict-mcp-config                   only --mcp-config servers
   --tools <tools...>                    built-in tools
   --verbose                             verbose

@@ -127,7 +127,11 @@ describe.each(KINDS)('runners: $name start_unknown', (kind) => {
     const { result, started } = await run(kind, [{ out: kind.first }, { crash: 'SIGKILL' }]);
     expect(result.error?.kind).toBe('crash');
     expect(started).toHaveLength(1);
-    expect(started[0]).toEqual({ pid: expect.any(Number), sessionRef: expect.any(String) });
+    // the pid's OS start time rides along once `ps` answered (docs/adr/0015)
+    expect(started[0]).toMatchObject({ pid: expect.any(Number), sessionRef: expect.any(String) });
+    expect(Object.keys(started[0] as object).sort()).toEqual(
+      expect.arrayContaining(['pid', 'sessionRef']),
+    );
   });
 });
 

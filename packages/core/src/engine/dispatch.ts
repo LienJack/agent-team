@@ -12,13 +12,12 @@ import {
 } from '@agent-team/schema';
 import { errorMessage } from '../errors.js';
 import type { ReviewDiff } from '../ports/git.js';
-import { isPathOwned } from '../util/paths.js';
 import type { EngineContext, Tx } from './context.js';
-import { openAttention } from './attention.js';
+import { checkBaseDrift } from './drift.js';
 import { enqueueEffect } from './effect-queue.js';
-import { blockTask, retryLater } from './outcomes.js';
+import { retryLater } from './outcomes.js';
 import { buildPrompt, REVIEW_DIFF_MAX_CHARS } from './prompt.js';
-import { saveTask, saveWorkspace } from './records.js';
+import { saveTask } from './records.js';
 import { nextRunKind, type PlannedDispatch } from './scheduler.js';
 
 export type DispatchReport =
@@ -38,6 +37,7 @@ export async function dispatchPlanned(
 ): Promise<DispatchReport> {
   const { task } = planned;
   ctx.dispatching.set(task.id, planned.role);
+  ctx.dispatchingRunners.set(task.id, planned.resolved.runner);
   try {
     const project = ctx.store.projects.get(task.project_id);
     if (!project) return reject(ctx, task, `project ${task.project_id} missing`);
@@ -45,7 +45,8 @@ export async function dispatchPlanned(
     try {
       ws = await ensureWorkspace(ctx, task, project);
       if (planned.kind !== 'review') {
-        const drift = await checkBaseDrift(ctx, task, project, ws);
+        const ignoreCase = await projectIgnoresCase(ctx, project);
+        const drift = await checkBaseDrift(ctx, task, project, ws, ignoreCase);
         if (drift === 'blocked') {
           return { task_id: task.id, outcome: 'deferred', reason: 'base_drift_blocked' };
         }
@@ -76,7 +77,28 @@ export async function dispatchPlanned(
     return { task_id: task.id, outcome: 'accepted', run_id: runId };
   } finally {
     ctx.dispatching.delete(task.id);
+    ctx.dispatchingRunners.delete(task.id);
   }
+}
+
+/**
+ * Whether the project's filesystem compares names case-insensitively (cached per project). An
+ * error counts as case-insensitive: overlaps and ownership then err on the strict side.
+ */
+export async function projectIgnoresCase(ctx: EngineContext, project: Project): Promise<boolean> {
+  const cached = ctx.caseInsensitive.get(project.id);
+  if (cached !== undefined) return cached;
+  let value = true;
+  try {
+    value = await ctx.deps.git.ignoresCase({ repoPath: project.repo_path });
+  } catch (err) {
+    ctx.logger.warn('cannot read core.ignorecase', {
+      project: project.name,
+      error: errorMessage(err),
+    });
+  }
+  ctx.caseInsensitive.set(project.id, value);
+  return value;
 }
 
 async function ensureWorkspace(
@@ -104,6 +126,7 @@ async function ensureWorkspace(
       branch,
       base_sha: res.baseSha,
       head_sha: null,
+      accepted_base_sha: null,
       state: 'active',
       created_at: tx.now,
       removed_at: null,
@@ -116,62 +139,6 @@ async function ensureWorkspace(
     );
     return ws;
   });
-}
-
-/**
- * Base drift (spec §8): if `base_branch` moved since the worktree was created and the moved files
- * touch owned_paths, rebuild a pristine worktree on the new base, otherwise block the task with an
- * attention item. Neither consumes retry budget.
- */
-async function checkBaseDrift(
-  ctx: EngineContext,
-  task: Task,
-  project: Project,
-  ws: Workspace,
-): Promise<Workspace | 'blocked'> {
-  const { git } = ctx.deps;
-  const tip = await git.resolveRef({ repoPath: project.repo_path, ref: project.base_branch });
-  if (tip === ws.base_sha) return ws;
-  const files = await git.diffFiles({
-    repoPath: project.repo_path,
-    fromSha: ws.base_sha,
-    toSha: tip,
-  });
-  const relevant = files.filter((f) => isPathOwned(f, task.owned_paths));
-  if (relevant.length === 0) return ws;
-  const status = await git.status({ worktreePath: ws.path });
-  const pristine = status.clean && status.headSha === ws.base_sha && ws.head_sha === null;
-  if (pristine) {
-    await git.resetWorktree({ worktreePath: ws.path, toSha: tip });
-    return ctx.transact((tx) => {
-      const current = tx.r.workspaces.get(ws.id) ?? ws;
-      const next = saveWorkspace(tx, current, { base_sha: tip });
-      tx.emit('workspace.rebased', { workspace_id: ws.id, base_sha: tip }, { task_id: task.id });
-      tx.emit(
-        'task.base_drift',
-        { action: 'rebuilt', base_sha: ws.base_sha, new_base_sha: tip, files: relevant },
-        { task_id: task.id },
-      );
-      return next;
-    });
-  }
-  ctx.transact((tx) => {
-    const current = tx.r.tasks.get(task.id);
-    if (!current || current.version !== task.version) return;
-    tx.emit(
-      'task.base_drift',
-      { action: 'blocked', base_sha: ws.base_sha, new_base_sha: tip, files: relevant },
-      { task_id: task.id },
-    );
-    blockTask(ctx, tx, current, `基底分支 ${project.base_branch} 已變動且影響 owned_paths`);
-    openAttention(ctx, tx, {
-      task_id: task.id,
-      kind: 'decision',
-      question: `${task.title}（${task.id}）的基底分支已變動並影響 ${relevant.length} 個 owned 檔案，worktree 已有修改；要重建還是照舊繼續？`,
-      options: ['重建 worktree', '照舊繼續'],
-    });
-  });
-  return 'blocked';
 }
 
 function lastImplReceipt(tx: Tx, taskId: string): ImplReceipt | null {
@@ -217,6 +184,8 @@ function createRun(
     writable: kind !== 'review',
     logDir,
     timeoutMs: ctx.config.engine.run_timeout_ms,
+    // the runner adds the service-wide deny list (DATA, the service .env, credentials)
+    sandbox: { allowNetwork: project.allow_network, repoPath: project.repo_path },
   };
   if (resolved.effort !== undefined) spec.effort = resolved.effort;
   const run: Run = {
@@ -239,6 +208,8 @@ function createRun(
     cost_usd: null,
     log_dir: logDir,
     pid: null,
+    pid_started_at: null,
+    launched_at: null,
     started_at: tx.now,
     ended_at: null,
   };

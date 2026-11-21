@@ -17,6 +17,7 @@ export const EFFECT_KINDS = [
   'run.stop',
   'run.verify',
   'workspace.remove',
+  'workspace.rebuild',
   'outbox.send',
 ] as const;
 export const EffectKindSchema = z.enum(EFFECT_KINDS);
@@ -36,6 +37,11 @@ export const EffectPayloadSchemas = {
     path: z.string().min(1),
     reason: z.enum(['cleanup', 'orphan']),
   }),
+  /**
+   * Discard a task's worktree and recreate it from the current base tip (base drift answer
+   * "rebuild"); key = workspace id. The task is requeued as a fresh impl when it completes.
+   */
+  'workspace.rebuild': z.object({ task_id: TaskIdSchema, workspace_id: WorkspaceIdSchema }),
   /**
    * Deliver one outbox item; key = outbox id. Items of the same `lane` are delivered in order:
    * `reply:<grokmsg id>` for the replies to one Grok message, `notify:<task id or ->` for

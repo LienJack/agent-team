@@ -1,6 +1,6 @@
 # 0004 任務生命週期細節
 
-狀態：採用（phase 1）。spec §5–§8 沒寫死的部分。
+狀態：採用（phase 1；安全審查修正補充最後一節）。spec §5–§8 沒寫死的部分。
 
 - **新增欄位**：task 加 `current_run_id`（柵欄：只有它指向的 run 能改任務）、`retry_at`（退避）、
   `fix_notes`（下一輪修正單）、`recovery_note`（下一個提示附的復原說明）、`created_at`、`updated_at`；
@@ -19,3 +19,16 @@
 - 優先序：`priority` 大者先，再依建立時間。
 - 進行中（佔用 owned_paths）= `running`、`verifying`、`review`。
 - 機器檢查永遠在審查前執行；`rules.machine_checks_before_model_review` 目前只是保留欄位。
+
+**安全審查修正（補充）**：
+
+- 每個指令先檢查來源狀態並回清楚的 409：`queue` 只接受 `draft`（其他狀態有自己的回頭路，例如 retry）；`retry` 只接受
+  `blocked`／`failed`；approve／reject 只接受 `review`；reassign 不接受進行中的 run 與基底漂移阻塞。
+- 基底漂移（spec §8）：乾淨的 worktree 直接移到新基底——HEAD 已在新基底（重設後、存 `base_sha` 前當機）也算，只補存
+  `base_sha`。有修改的 worktree → `blocked`（`blocked_reason` 以 `base_drift:` 開頭）＋一筆兩選項的待決事項，回答即執行：
+  「重建 worktree」→ `workspace.rebuild` effect（捨棄 worktree 與分支上的提交——舊 head 留在
+  `refs/team-archive/<task>/<sha>`——在新基底重建，任務以全新 impl 重新排入，修正輪數與計數歸零）；「照舊繼續」→
+  `workspace.accepted_base_sha = 新基底`、任務重新排入。`base_sha` 刻意不改：它是 diff、越界核對與審查的比較點，改成
+  新基底而 HEAD 不動，基底自己的變更會被算成 worker 的變更（`packages/git/src/service-commit.test.ts` 示範）。漂移檢查改
+  與 `accepted_base_sha ?? base_sha` 比較。這類阻塞的一般 retry 被拒（只會再次阻塞），自由文字的回答也被拒。
+- `attempts` 的例外：leader 的重試不重置 attempts（ADR 0014）。

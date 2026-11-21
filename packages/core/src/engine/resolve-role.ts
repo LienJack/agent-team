@@ -18,6 +18,20 @@ export interface ResolveRoleOptions {
   now: Date;
   /** Aliases that must not be chosen (reviewer ≠ implementer). */
   excludeAliases?: readonly string[];
+  /**
+   * Runners whose half-open circuit already has its one trial run in flight (L9e): skipped
+   * until the trial closes or re-opens the circuit.
+   */
+  trialBusy?: ReadonlySet<string>;
+}
+
+/** Whether a runner's circuit is half-open (opened once, the open window has passed). */
+export function isHalfOpen(health: RunnerHealth | undefined, now: Date): boolean {
+  return (
+    health !== undefined &&
+    health.circuit_open_until !== null &&
+    !isAfter(health.circuit_open_until, now)
+  );
 }
 
 export interface ResolvedModel {
@@ -51,8 +65,12 @@ function utilization(state: QuotaState, runner: string): { util: number; exhaust
 function blockedUntil(
   health: (Pick<RunnerStatus, 'available'> & RunnerHealth) | undefined,
   now: Date,
+  trialBusy: ReadonlySet<string>,
 ): { reason: string; until: string | null } | undefined {
   if (!health) return { reason: 'not_registered', until: null };
+  if (isHalfOpen(health, now) && trialBusy.has(health.runner)) {
+    return { reason: 'circuit_trial_in_flight', until: null };
+  }
   if (isAfter(health.cooldown_until, now))
     return { reason: 'cooldown', until: health.cooldown_until };
   if (isAfter(health.circuit_open_until, now)) {
@@ -118,7 +136,7 @@ export function resolveRole(
       skipped.push({ alias, reason: 'not_a_text_runner' });
       continue;
     }
-    const blocked = blockedUntil(quotaState[runner.data], now);
+    const blocked = blockedUntil(quotaState[runner.data], now, options.trialBusy ?? new Set());
     if (blocked) {
       skipped.push({ alias, reason: blocked.reason });
       if (blocked.until && (retryAt === null || blocked.until < retryAt)) retryAt = blocked.until;

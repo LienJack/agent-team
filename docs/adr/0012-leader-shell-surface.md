@@ -1,6 +1,6 @@
 # 0012 leader 的 shell 範圍
 
-狀態：採用（整合收尾；補充 spec §9）
+狀態：採用（整合收尾；補充 spec §9；安全審查修正見最後一節）
 
 **問題**：leader 只有 Bash 一個工具，`--allowedTools` 只放行 `team`，`--permission-mode dontAsk` 拒絕其他指令。
 但 Claude Code 會自動核准它內建的唯讀指令（`echo`、`pwd`、限於工作目錄的 `ls`），不經 allow-list。
@@ -47,3 +47,9 @@
 
 **後果**：新的 `team` 子指令若要給 leader 用，要同時加進 allow-list 與 shim 的檢查；Claude Code 升級時
 重跑一次冒煙（haiku；這次單一 turn 的探測花費約 0.002 美元）。
+
+**安全審查修正（ADR 0014）**：shim 不再設 `AGENT_TEAM_ACTOR`，改設 `AGENT_TEAM_LISTENER_FILE=DATA/leader/listener.json`
+（leader 專用權杖，伺服器據此判定身分；`X-Team-Actor` 不再有效）。leader 不能 approve、reject、回答待決事項、改派
+（伺服器與 engine 都拒絕），重試有預算且不重置 attempts；系統提示升為 v2（新對話）說明這些限制。leader 的 claude
+本身不在 OS 沙箱內（它的 `team` 要讀 DATA 下的 listener 檔並連本機埠）：它若跑到清單外的指令，讀得到的不只空目錄，
+也包括 operator 權杖（剩餘風險，見 ADR 0014）。

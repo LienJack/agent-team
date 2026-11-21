@@ -1,5 +1,4 @@
 import { IDEMPOTENCY_HEADER } from '@agent-team/schema';
-import { ACTOR_HEADER } from '@agent-team/protocol/constants';
 import createClient, { type Client } from 'openapi-fetch';
 import { connectionError, errorFromResponse, TeamApiError } from './errors.js';
 import { subscribeEvents, type EventStreamOptions, type EventSubscription } from './events.js';
@@ -55,8 +54,6 @@ export interface TeamClientOptions {
   baseUrl: string;
   /** Bearer token of the local listener (from listener.json). Omit on the LAN (cookie). */
   token?: string;
-  /** Mark calls as made by the leader (local listener; ADR 0005 actor). */
-  actor?: 'leader';
   /** `fetch` to use (tests, custom agents). */
   fetch?: (input: Request) => Promise<Response>;
   /** Browser: `same-origin` sends the LAN session cookie. */
@@ -149,7 +146,6 @@ export function createTeamClient(options: TeamClientOptions): TeamClient {
   raw.use({
     onRequest({ request }) {
       if (options.token) request.headers.set('Authorization', `Bearer ${options.token}`);
-      if (options.actor) request.headers.set(ACTOR_HEADER, options.actor);
       if (MUTATING.has(request.method) && !request.headers.has(IDEMPOTENCY_HEADER)) {
         request.headers.set(IDEMPOTENCY_HEADER, newKey());
       }

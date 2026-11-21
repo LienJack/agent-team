@@ -1,5 +1,5 @@
 import { TeamError, type Clock, type Logger } from '@agent-team/core';
-import { ACTOR_HEADER, SESSION_COOKIE_NAME } from '@agent-team/protocol';
+import { SESSION_COOKIE_NAME } from '@agent-team/protocol';
 import type { Context, MiddlewareHandler } from 'hono';
 import { getCookie, setCookie } from 'hono/cookie';
 import type { AppEnv } from '../app/types.js';
@@ -7,21 +7,31 @@ import { Lockout } from './lockout.js';
 import { constantTimeEqual, shortHash } from './secrets.js';
 import { SessionSigner } from './session.js';
 
-/** Local listener: Bearer token from listener.json (spec §11). */
-export function bearerAuth(token: string): MiddlewareHandler<AppEnv> {
+/**
+ * Local listener: Bearer token (spec §11). The token decides the actor (docs/adr/0014): the
+ * operator token from `DATA/run/listener.json` is a human, the leader-scoped token from
+ * `DATA/leader/listener.json` is the leader. No header or body field can change that.
+ */
+export function bearerAuth(tokens: {
+  operator: string;
+  leader: string;
+}): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const match = /^Bearer\s+(\S+)\s*$/i.exec(c.req.header('authorization') ?? '');
-    if (!match || !constantTimeEqual(match[1]!, token)) {
+    const presented = match?.[1];
+    // compare against both every time (constant work whichever matches)
+    const operator = presented !== undefined && constantTimeEqual(presented, tokens.operator);
+    const leader = presented !== undefined && constantTimeEqual(presented, tokens.leader);
+    if (!operator && !leader) {
       throw new TeamError(
         'unauthorized',
         'missing or invalid bearer token',
         'the token is in DATA/run/listener.json (team commands read it automatically)',
       );
     }
-    c.set('caller', 'local');
-    // the leader runs `team` with this header so it never takes the reserved human slot (ADR 0005)
-    const leader = c.req.header(ACTOR_HEADER)?.toLowerCase() === 'leader';
+    c.set('caller', leader ? 'local:leader' : 'local');
     c.set('actor', { kind: leader ? 'leader' : 'human' });
+    c.set('channel', leader ? 'leader' : 'operator');
     await next();
   };
 }
@@ -90,6 +100,7 @@ export function createLanAuth(options: LanAuthOptions): LanAuth {
     }
     c.set('caller', `lan:${shortHash(sid)}`);
     c.set('actor', { kind: 'human' });
+    c.set('channel', 'lan');
     await next();
   };
 

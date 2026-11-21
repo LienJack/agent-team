@@ -111,7 +111,7 @@ describe('§14 每條拒絕路徑、越界檔案 — receipt verification', () =
     const run = firstRun(h, task.id);
     expect(run).toMatchObject({ outcome: 'rejected', reject_reason: 'no_changes' });
     expect(h.get(task.id).fix_notes).toContain('沒有任何變更');
-    expect(h.git.calls.some((c) => c.method === 'commitAll')).toBe(false);
+    expect(h.git.calls.some((c) => c.method === 'commitFiles')).toBe(false);
   });
 
   it('step 3: files outside owned_paths (per git, not the receipt) → rejected out_of_bounds', async () => {
@@ -173,7 +173,7 @@ describe('§14 每條拒絕路徑、越界檔案 — receipt verification', () =
 
   it('step 5: commit failures retry the verify effect; exhausted retries block the task', async () => {
     const { h, task } = setup();
-    h.git.failNext('commitAll', 1);
+    h.git.failNext('commitFiles', 1);
     h.runners.dsh.script(editing(h.git, ['src/feature/a.ts']));
     await h.engine.runUntilIdle();
     expect(h.get(task.id).status).toBe('verifying');
@@ -188,14 +188,14 @@ describe('§14 每條拒絕路徑、越界檔案 — receipt verification', () =
       config: { engine: { ...h.config.engine, effect_max_attempts: 2 } },
     });
     const t2 = h2.task();
-    h2.git.failNext('commitAll', 5);
+    h2.git.failNext('commitFiles', 5);
     h2.runners.dsh.script(editing(h2.git, ['src/feature/a.ts']));
     await h2.engine.runUntilIdle();
     h2.clock.advance(5000);
     await h2.engine.runUntilIdle();
     const blocked = h2.get(t2.id);
     expect(blocked.status).toBe('blocked');
-    expect(blocked.blocked_reason).toContain('commitAll');
+    expect(blocked.blocked_reason).toContain('commitFiles');
     expect(h2.store.runs.list({ task_id: t2.id })[0]?.reject_reason).toMatch(/^verify_error/);
     expect(h2.eventTypes()).toContain('effect.dead');
   });

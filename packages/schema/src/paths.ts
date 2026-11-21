@@ -6,8 +6,10 @@ export const DEFAULT_DATA_DIR = '~/.agent-team';
 /** Layout under the data directory (relative POSIX paths). */
 export const DATA_LAYOUT = {
   database: 'team.db',
-  /** Mode 0600; `{ addr, token }` for CLI/MCP auto-connect. */
+  /** Mode 0600; `{ addr, token }` for CLI/MCP auto-connect (the operator token: actor human). */
   listener: 'run/listener.json',
+  /** Mode 0600; `{ addr, token }` with the leader-scoped token, read by the leader's `team`. */
+  leaderListener: 'leader/listener.json',
   runs: 'runs',
 } as const;
 

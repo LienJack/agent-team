@@ -14,7 +14,12 @@ import { fileURLToPath } from 'node:url';
 import { errorMessage, randomIdGen, type Clock, type Store } from '@agent-team/core';
 import { createSqliteStore } from '@agent-team/db';
 import { createGitPort, type CliGitPort } from '@agent-team/git';
-import { createCheckExecutor, createRunnerRegistry } from '@agent-team/runners';
+import {
+  createCheckExecutor,
+  createProcessControl,
+  createRunnerRegistry,
+  type RunnerRegistryOptions,
+} from '@agent-team/runners';
 import { DATA_LAYOUT } from '@agent-team/schema';
 import { ConfigError, loadConfig, type LoadedConfig } from './config.js';
 import { createEnvReader, envFilePath, isKnownEnvVar } from './env.js';
@@ -26,6 +31,18 @@ const systemClock: Clock = { now: () => new Date() };
 /** The git adapter: worktrees under `paths.worktree_root`, commits as `git.author`. */
 export function createGit(config: LoadedConfig): CliGitPort {
   return createGitPort({ worktreeRoot: config.worktreeRoot, author: config.service.git.author });
+}
+
+/**
+ * Paths no worker sandbox may read or write (docs/adr/0014): DATA (database, listener files with
+ * the tokens, run logs), the service `.env` (TEAM_LAN_PASSWORD, API keys) and this checkout's
+ * `.env`. Credential directories under home are added by the runners.
+ */
+export function serviceDenyPaths(
+  config: Pick<LoadedConfig, 'dataDir' | 'projectRoot'>,
+  envFile: string,
+): string[] {
+  return [...new Set([config.dataDir, envFile, join(config.projectRoot, '.env')])];
 }
 
 /**
@@ -47,10 +64,19 @@ export function killLiveRunGroups(store: Pick<Store, 'runs'>): number {
   return killed;
 }
 
-export async function main(processEnv: NodeJS.ProcessEnv = process.env): Promise<Service> {
+export interface MainOptions {
+  /** Worker executables (argv prefix) — only the crash-recovery test entry sets this. */
+  runnerCommands?: RunnerRegistryOptions['commands'];
+}
+
+export async function main(
+  processEnv: NodeJS.ProcessEnv = process.env,
+  options: MainOptions = {},
+): Promise<Service> {
   const logger = createLogger({ write: (line) => void process.stderr.write(line) });
   const config = loadConfig({ env: processEnv });
-  const env = createEnvReader({ file: envFilePath(config.projectRoot, processEnv), processEnv });
+  const envFile = envFilePath(config.projectRoot, processEnv);
+  const env = createEnvReader({ file: envFile, processEnv });
 
   const store = createSqliteStore({ path: join(config.dataDir, DATA_LAYOUT.database) });
   const fake = processEnv['AGENT_TEAM_FAKE_RUNNERS'] === '1';
@@ -58,7 +84,14 @@ export async function main(processEnv: NodeJS.ProcessEnv = process.env): Promise
     env: (name) => (isKnownEnvVar(name) ? env.get(name) : undefined),
     logger,
     fake,
+    ...(options.runnerCommands ? { commands: options.runnerCommands } : {}),
+    // workers never see the service's state or secrets (docs/adr/0014)
+    sandbox: { denyPaths: serviceDenyPaths(config, envFile) },
   });
+  // the service's own ports, denied to machine checks (configured ones now, bound ones after start)
+  const servicePorts = new Set<number>(
+    [config.service.local.port, config.service.lan.port].filter((p) => p > 0),
+  );
   const caps = await runners.probeAll();
   logger.info('runners probed', {
     fake,
@@ -70,13 +103,20 @@ export async function main(processEnv: NodeJS.ProcessEnv = process.env): Promise
     store,
     runners,
     git: createGit(config),
-    checks: createCheckExecutor(),
+    // checks run worker-authored code: same deny list, Seatbelt on macOS (docs/adr/0014)
+    checks: createCheckExecutor({
+      sandbox: {
+        denyPaths: serviceDenyPaths(config, envFile),
+        servicePorts: () => [...servicePorts],
+      },
+    }),
     clock: systemClock,
     ids: randomIdGen,
     config,
     env,
     logger,
     onClose: () => store.close(),
+    processes: createProcessControl(),
     // the leader's `team` is this checkout's built CLI; `leader.enabled` is independent of
     // AGENT_TEAM_FAKE_RUNNERS (fake workers + the real leader is a supported setup)
     leader: {
@@ -84,7 +124,10 @@ export async function main(processEnv: NodeJS.ProcessEnv = process.env): Promise
       teamEntry: join(config.projectRoot, 'apps', 'cli', 'dist', 'bin.js'),
     },
   });
-  await service.start();
+  const running = await service.start();
+  for (const url of [running.localUrl, running.lanUrl]) {
+    if (url !== undefined) servicePorts.add(Number(new URL(url).port));
+  }
 
   let signals = 0;
   const onSignal = (signal: NodeJS.Signals) => {

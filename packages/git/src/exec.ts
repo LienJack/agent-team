@@ -3,6 +3,11 @@ import { spawn } from 'node:child_process';
 // Running git: argv arrays only (no shell), stdin closed, an allow-listed environment with every
 // GIT_* override scrubbed (an inherited GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE would make git
 // operate on the wrong repository), no prompts, C locale for parseable messages, a timeout.
+//
+// Every service-side git command runs with `core.hooksPath=/dev/null` and `core.fsmonitor=false`
+// (docs/adr/0016): worktrees are written by workers, and a hooksPath inside the working tree
+// (husky's `.husky/_`) or a planted hook would otherwise execute worker code as the service. The
+// service never talks to a remote, so no SSH agent socket is passed either.
 
 const PASS_ENV = [
   'PATH',
@@ -14,9 +19,11 @@ const PASS_ENV = [
   'LANG',
   'TERM',
   'TZ',
-  'SSH_AUTH_SOCK',
   '__CF_USER_TEXT_ENCODING',
 ] as const;
+
+/** Prepended to every git invocation of the service (docs/adr/0016). */
+export const SERVICE_GIT_CONFIG = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false'];
 
 const FALLBACK_PATH = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
 
@@ -76,7 +83,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 /** Run `git <args>`; throws GitError on a non-zero exit (unless listed in okCodes). */
 export function git(args: readonly string[], opts: GitRunOptions): Promise<GitResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn('git', [...args], {
+    const child = spawn('git', [...SERVICE_GIT_CONFIG, ...args], {
       cwd: opts.cwd,
       env: opts.env,
       stdio: ['ignore', 'pipe', 'pipe'],

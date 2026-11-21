@@ -7,9 +7,6 @@ export const API_PREFIX = '/api';
 /** HttpOnly, SameSite=Strict session cookie set by `POST /auth/login` on the LAN listener. */
 export const SESSION_COOKIE_NAME = 'team_session';
 
-/** Optional header the local listener honours to mark a call as made by the leader (ADR 0005). */
-export const ACTOR_HEADER = 'X-Team-Actor';
-
 /** OpenAPI extension marking routes that the LAN listener refuses with 403 `lan_forbidden`. */
 export const LOCAL_ONLY_EXTENSION = 'x-local-only';
 

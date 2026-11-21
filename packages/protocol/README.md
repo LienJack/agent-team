@@ -5,4 +5,4 @@ DTO 來自 `@agent-team/schema`。`buildOpenApiDocument()` 產生 OpenAPI 3.1 �
 
 - `pnpm --filter @agent-team/protocol generate`：重寫 `openapi.json`（以 oxfmt 格式化）。
 - `pnpm --filter @agent-team/protocol check:generated`：提交的檔案與產生結果不同就失敗（`src/openapi.test.ts` 也檢查）。
-- `@agent-team/protocol/constants`：不含執行期依賴的常數（cookie 名稱、`X-Team-Actor`），給瀏覽器端使用。
+- `@agent-team/protocol/constants`：不含執行期依賴的常數（cookie 名稱等），給瀏覽器端使用。

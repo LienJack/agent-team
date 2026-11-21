@@ -15,6 +15,13 @@
       "when": 1795246856542,
       "tag": "20261121074056_foreign_keys",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1795255707589,
+      "tag": "20261121100827_sandbox_and_recovery",
+      "breakpoints": true
     }
   ]
 }

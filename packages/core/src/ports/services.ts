@@ -24,8 +24,9 @@ export interface CheckOutcome {
  * Runs one project check command (spec §6 step 4). Implemented in `packages/runners` (it shares
  * the subprocess utilities). Writes the full output to `logPath`; resolves with `passed: false`
  * for a failing command and rejects only for infrastructure errors (the effect is retried).
- * `cmd` comes from the owner's project config and runs in `cwd` with a minimal environment
- * (no secrets).
+ * `cmd` comes from the owner's project config and runs in `cwd` with an allow-listed environment
+ * (no credentials, no SSH agent, no listener token, `GIT_TERMINAL_PROMPT=0`). The command runs
+ * worker-authored code (tests) unsandboxed as the service user (docs/adr/0014).
  */
 export interface CheckExecutor {
   run(input: {
@@ -34,6 +35,10 @@ export interface CheckExecutor {
     cmd: string;
     logPath: string;
     timeoutMs: number;
+    /** Abort (service shutdown): the check's process group is killed and the call rejects. */
+    signal?: AbortSignal;
+    /** Primary checkout of the project (its `.env` and git hooks are off limits to the check). */
+    repoPath?: string;
   }): Promise<CheckOutcome>;
 }
 

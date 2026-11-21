@@ -76,7 +76,7 @@ describe('§14 修正與升級 — review → fix → escalate', () => {
     const done = h.get(task.id);
     expect(done).toMatchObject({ status: 'done', fix_rounds: 1, fix_notes: null });
     // two service commits: impl and fix
-    expect(h.git.calls.filter((c) => c.method === 'commitAll')).toHaveLength(2);
+    expect(h.git.calls.filter((c) => c.method === 'commitFiles')).toHaveLength(2);
   });
 
   it('after max_fix_rounds_before_escalate the next failure escalates impl_C → impl_B', async () => {

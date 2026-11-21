@@ -25,7 +25,7 @@ import {
 } from './inputs.js';
 import { findReply, markDelivered, persistReply } from './persist.js';
 import { LeaderProcess, leaderModel } from './process.js';
-import { LEADER_PROMPT_VERSION } from './prompt/system-v1.js';
+import { LEADER_PROMPT_VERSION } from './prompt/system-v2.js';
 import { resumeBrief } from './resume.js';
 import {
   leaderStatus,

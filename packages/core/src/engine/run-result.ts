@@ -1,6 +1,9 @@
 import {
   isLiveRunState,
   parseReceipt,
+  RECEIPT_SUMMARY_MAX,
+  redactSecrets,
+  type Receipt,
   type ImplReceipt,
   type ReviewReceipt,
   type Run,
@@ -39,6 +42,24 @@ function classifyError(kind: NonNullable<RunResult['error']>['kind']): {
     default:
       return { state: 'failed', outcome: 'error' };
   }
+}
+
+/**
+ * The receipt as it is stored, shown on the board, handed to the leader, Grok and the reviewer:
+ * every string masked with the log redactor (M8), the summary clamped again afterwards.
+ */
+export function redactReceipt<T extends Receipt>(receipt: T): T {
+  const walk = (value: unknown): unknown => {
+    if (typeof value === 'string') return redactSecrets(value);
+    if (Array.isArray(value)) return value.map(walk);
+    if (value !== null && typeof value === 'object') {
+      return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, walk(v)]));
+    }
+    return value;
+  };
+  const out = walk(receipt) as T;
+  out.summary = out.summary.slice(0, RECEIPT_SUMMARY_MAX);
+  return out;
 }
 
 function resultFields(run: Run, result: RunResult) {
@@ -128,10 +149,11 @@ export function applyRunResult(ctx: EngineContext, tx: Tx, runId: string, result
   }
 
   const cleared = task.attempts === 0 ? task : saveTask(tx, task, { attempts: 0 });
+  const receipt = redactReceipt(parsed.receipt);
   if (run.kind === 'review') {
-    applyReviewReceipt(ctx, tx, run, cleared, parsed.receipt as ReviewReceipt, result);
+    applyReviewReceipt(ctx, tx, run, cleared, receipt as ReviewReceipt, result);
   } else {
-    applyImplReceipt(ctx, tx, run, cleared, parsed.receipt as ImplReceipt, result);
+    applyImplReceipt(ctx, tx, run, cleared, receipt as ImplReceipt, result);
   }
 }
 

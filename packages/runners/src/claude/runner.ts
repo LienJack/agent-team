@@ -7,6 +7,7 @@ import { capture, parseHelpFlags } from '../process/capture.js';
 import { childEnv, findExecutable } from '../process/env.js';
 import { redactSecrets } from '../redact.js';
 import { CLAUDE_OPTIONAL_FLAGS, CLAUDE_REQUIRED_FLAGS, claudeArgs } from './args.js';
+import { WORKER_GIT_ENV, type SandboxPolicy } from './sandbox.js';
 import { ClaudeStream } from './stream.js';
 
 export interface ClaudeRunnerOptions {
@@ -15,6 +16,8 @@ export interface ClaudeRunnerOptions {
   logger?: Logger;
   /** Environment the allow-list is taken from (default `process.env`). */
   sourceEnv?: NodeJS.ProcessEnv;
+  /** Service-wide sandbox deny list (docs/adr/0014); default: credentials under home only. */
+  sandbox?: SandboxPolicy;
 }
 
 /** Non-secret claude variables passed through (its own config home); no API keys. */
@@ -119,7 +122,7 @@ export class ClaudeRunner implements Runner, Resumable {
     const [exe, prefix] = cmd;
     let args: string[];
     try {
-      args = [...prefix, ...claudeArgs(spec, this.flags)];
+      args = [...prefix, ...claudeArgs(spec, this.flags, this.opts.sandbox ?? { denyPaths: [] })];
     } catch (err) {
       return errorResult('crash', (err as Error).message);
     }
@@ -129,7 +132,7 @@ export class ClaudeRunner implements Runner, Resumable {
       command: exe,
       args,
       spec,
-      env: this.env(spec.env ?? {}),
+      env: this.env({ ...spec.env, ...WORKER_GIT_ENV }),
       parser,
       signal,
       hooks,

@@ -10,6 +10,10 @@ export type {
   ScriptableFakeRunner,
 } from './types.js';
 export { redactSecrets } from './redact.js';
+export { createProcessControl, readProcessStart } from './process/control.js';
+export { HOME_DENY, workerDenyPaths, type SandboxPolicy } from './sandbox-policy.js';
+export { claudeWorkerSettings } from './claude/sandbox.js';
+export { codexSandboxArgs } from './codex/sandbox.js';
 
 // Shared pieces for the server's own headless processes (leader conversation, Grok bridge):
 // argv-only spawning in a process group, allow-listed child environments, probes, and one

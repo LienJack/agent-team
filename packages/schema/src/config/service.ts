@@ -80,6 +80,8 @@ export const ServiceConfigSchema = z.strictObject({
       reserved_human_slots: z.number().int().nonnegative().default(1),
       /** Failed attempts before a task becomes `failed`. */
       max_attempts: z.number().int().positive().default(3),
+      /** Retries the leader may request per task until a human retries it (docs/adr/0014). */
+      leader_retry_budget: z.number().int().nonnegative().default(2),
       retry_initial_ms: ms.default(5000),
       retry_max_ms: ms.default(300000),
       /** Cooldown after a rate limit without `resetsAt` (spec §8: 15 minutes). */

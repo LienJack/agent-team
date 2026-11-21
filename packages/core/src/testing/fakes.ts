@@ -6,6 +6,7 @@ import {
   type RunnerCapabilities,
   type RunnerName,
 } from '@agent-team/schema';
+import type { GroupTermination, ProcessControl } from '../ports/worker-processes.js';
 import type { Runner, RunnerRegistry } from '../ports/runner.js';
 import type {
   CheckExecutor,
@@ -83,7 +84,9 @@ export class InMemoryRunnerRegistry implements RunnerRegistry {
 
 export type CheckScript =
   | Partial<CheckOutcome>
-  | ((input: { name: string; cwd: string }) => Partial<CheckOutcome>);
+  | ((input: { name: string; cwd: string }) => Partial<CheckOutcome>)
+  /** Wait until the signal aborts (a long check during shutdown), then reject. */
+  | 'hang';
 
 /** Scripted machine checks: pass by default; `setResult(name, …)` changes one check. */
 export class FakeCheckExecutor implements CheckExecutor {
@@ -108,6 +111,7 @@ export class FakeCheckExecutor implements CheckExecutor {
     cmd: string;
     logPath: string;
     timeoutMs: number;
+    signal?: AbortSignal;
   }): Promise<CheckOutcome> {
     this.calls.push({ cwd: input.cwd, name: input.name, cmd: input.cmd, logPath: input.logPath });
     if (this.failInfra > 0) {
@@ -115,6 +119,13 @@ export class FakeCheckExecutor implements CheckExecutor {
       throw new Error(`check runner unavailable (${input.name})`);
     }
     const script = this.scripts.get(input.name);
+    if (script === 'hang') {
+      await new Promise<void>((resolve) => {
+        if (input.signal?.aborted) return resolve();
+        input.signal?.addEventListener('abort', () => resolve(), { once: true });
+      });
+      throw new Error(`check ${input.name} aborted`);
+    }
     const partial = typeof script === 'function' ? script(input) : (script ?? {});
     const passed = partial.passed ?? true;
     return {
@@ -156,5 +167,30 @@ export class RecordingPublisher implements EventPublisher {
   readonly events: EventRecord[] = [];
   publish(events: readonly EventRecord[]): void {
     this.events.push(...events);
+  }
+}
+
+/**
+ * Scripted process control for recovery tests: `alive` holds the groups that are still running
+ * (pid → start time; `null` = members left without their leader).
+ */
+export class FakeProcessControl implements ProcessControl {
+  readonly alive = new Map<number, string | null>();
+  readonly calls: Array<{ pid: number; startedAt: string | null }> = [];
+  /** Groups whose termination fails (they stay alive). */
+  readonly unkillable = new Set<number>();
+
+  async terminateGroup(input: {
+    pid: number;
+    startedAt: string | null;
+  }): Promise<GroupTermination> {
+    this.calls.push(input);
+    if (!this.alive.has(input.pid)) return 'not_running';
+    const leaderStart = this.alive.get(input.pid)!;
+    if (leaderStart === null || input.startedAt === null) return 'unconfirmed';
+    if (leaderStart !== input.startedAt) return 'not_running';
+    if (this.unkillable.has(input.pid)) return 'unconfirmed';
+    this.alive.delete(input.pid);
+    return 'terminated';
   }
 }

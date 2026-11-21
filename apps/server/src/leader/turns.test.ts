@@ -3,10 +3,10 @@ import { join } from 'node:path';
 import type { ServiceConfig } from '@agent-team/schema';
 import { afterEach, describe, expect, it } from 'vitest';
 import { bootLeader, compactSteps, type FakeClaude, turnSteps } from '../testing/fake-claude.js';
-import { local, type Loose, type TestService } from '../testing/harness.js';
+import { local, TEST_LEADER_TOKEN, type Loose, type TestService } from '../testing/harness.js';
 import type { LeaderImpl } from './leader.js';
 import { LEADER_ALLOW_RULES, LEADER_DENY_RULES } from './args.js';
-import { LEADER_SYSTEM_PROMPT } from './prompt/system-v1.js';
+import { LEADER_SYSTEM_PROMPT } from './prompt/system-v2.js';
 import { LEADER_EVENT_CURSOR_KEY, LEADER_SESSION_KEY } from './types.js';
 
 // spec §9 with the scripted fake CLI (never the real claude): argv, serial queue, priority,
@@ -104,7 +104,10 @@ describe('§9 leader turns (fake claude)', () => {
     // `team` resolves to a shim that runs this repo's CLI as the leader actor; no token inside
     const shim = join(h.dataDir, 'leader', 'bin', 'team');
     const text = readFileSync(shim, 'utf8');
-    expect(text).toContain('AGENT_TEAM_ACTOR=leader');
+    // the leader's own listener file (leader-scoped token), never the operator's
+    expect(text).toContain(
+      `AGENT_TEAM_LISTENER_FILE='${join(h.dataDir, 'leader', 'listener.json')}'`,
+    );
     expect(text).toContain(`AGENT_TEAM_HOME='${h.dataDir}'`);
     expect(text).toContain('team-bin.js');
     expect(text).not.toMatch(/token|Bearer|PASSWORD/i);
@@ -166,18 +169,16 @@ describe('§9 leader turns (fake claude)', () => {
     expect(Number(h.store.kv.get(LEADER_EVENT_CURSOR_KEY))).toBe(answered.seq);
   });
 
-  it('ignores its own actions: attention answered by the leader does not start a turn', async () => {
+  it('the leader token cannot answer attention items (humans only) and nothing starts a turn', async () => {
     await start((c) => {
       c.leader.event_window_ms = 20;
     });
     const q = h.service.engine.openAttention({ question: 'Q?', options: ['A'] });
     const res = await h
       .localApp()
-      .request(
-        `/api/attention/${q.id}/answer`,
-        local({ answer: 'A', via: 'cli' }, { 'X-Team-Actor': 'leader' }),
-      );
-    expect(((await res.json()) as Loose).attention.answered_via).toBe('leader');
+      .request(`/api/attention/${q.id}/answer`, local({ answer: 'A' }, {}, TEST_LEADER_TOKEN));
+    expect(res.status).toBe(403);
+    expect(h.store.attention.get(q.id)!.status).toBe('open');
     await new Promise((r) => setTimeout(r, 80));
     await leader().settled();
     expect(fake.turns()).toEqual([]);

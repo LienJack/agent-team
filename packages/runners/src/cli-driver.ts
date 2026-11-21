@@ -2,6 +2,7 @@ import type { RunHooks } from '@agent-team/core';
 import type { RunResult, RunSpec } from '@agent-team/schema';
 import { errorResult, startTimeoutResult, unstartedResult } from './classify.js';
 import { parseJsonLine } from './process/lines.js';
+import { readProcessStart } from './process/control.js';
 import { RunLog } from './process/run-log.js';
 import { runChild, type ChildResult } from './process/spawn.js';
 import { makeRedactor, type Redactor } from './redact.js';
@@ -65,14 +66,24 @@ export async function runCli(input: CliRunInput): Promise<RunResult> {
 
   const stderrTail: string[] = [];
   let pid: number | undefined;
+  let pidStartedAt: string | undefined;
   let started = false;
+  const safeHook = (fn: () => void) => {
+    try {
+      fn();
+    } catch {
+      // hooks run inside child-process handlers: never let them escape
+    }
+  };
   const markStarted = (info: { sessionRef?: string }) => {
     started = true;
-    try {
-      input.hooks?.onStarted?.({ ...(pid === undefined ? {} : { pid }), ...info });
-    } catch {
-      // runs inside the stdout handler: never let it escape
-    }
+    safeHook(() =>
+      input.hooks?.onStarted?.({
+        ...(pid === undefined ? {} : { pid }),
+        ...(pidStartedAt === undefined ? {} : { pidStartedAt }),
+        ...info,
+      }),
+    );
   };
   if (input.signal.aborted) {
     // aborted while the log dir was being prepared: never spawn
@@ -80,6 +91,8 @@ export async function runCli(input: CliRunInput): Promise<RunResult> {
     return errorResult('cancelled', `${label} run cancelled before start`);
   }
   try {
+    // recorded before the spawn: a crash right after it still leaves a trace (docs/adr/0015)
+    safeHook(() => input.hooks?.onLaunching?.());
     const child = await runChild({
       command: input.command,
       args: input.args,
@@ -92,6 +105,15 @@ export async function runCli(input: CliRunInput): Promise<RunResult> {
       ...(input.endGraceMs === undefined ? {} : { endGraceMs: input.endGraceMs }),
       onSpawn: (childPid) => {
         pid = childPid;
+        void readProcessStart(childPid).then((startedAt) => {
+          pidStartedAt = startedAt;
+          safeHook(() =>
+            input.hooks?.onSpawned?.({
+              pid: childPid,
+              ...(startedAt === undefined ? {} : { pidStartedAt: startedAt }),
+            }),
+          );
+        });
       },
       onStdoutLine: (raw) => {
         log?.event(raw);

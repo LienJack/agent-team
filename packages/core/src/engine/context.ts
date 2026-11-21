@@ -8,6 +8,7 @@ import {
   type NewEvent,
 } from '@agent-team/schema';
 import type { GitPort } from '../ports/git.js';
+import type { ProcessControl } from '../ports/worker-processes.js';
 import type { Repositories, Store } from '../ports/repositories.js';
 import type { RunnerRegistry } from '../ports/runner.js';
 import type {
@@ -47,6 +48,12 @@ export interface EngineDeps {
   leader?: LeaderNotifier;
   publisher?: EventPublisher;
   logger?: Logger;
+  /**
+   * Terminates worker process groups left by a previous service process (startup recovery).
+   * Without it, a recorded worker can never be confirmed dead: its task is blocked instead of
+   * requeued (docs/adr/0015).
+   */
+  processes?: ProcessControl;
 }
 
 type EventRefs = { task_id?: string | null; run_id?: string | null };
@@ -95,6 +102,14 @@ export class EngineContext {
   readonly runWork = new Set<Promise<unknown>>();
   /** Task ids currently being prepared for dispatch (count against slots). */
   readonly dispatching = new Map<string, string>();
+  /** Runner chosen for each task being prepared (a half-open circuit allows one trial). */
+  readonly dispatchingRunners = new Map<string, string>();
+  /** Tasks whose worker process may still be running here (runner.run not yet resolved). */
+  readonly workerTasks = new Map<string, number>();
+  /** Per project: does its filesystem ignore case (`core.ignorecase`; unknown = assume yes). */
+  readonly caseInsensitive = new Map<string, boolean>();
+  /** Aborted by `Engine.shutdown()`: long verification steps (checks) stop at once. */
+  readonly shutdownController = new AbortController();
   /** Tasks a human just acted on; they may use the reserved slot (in memory only). */
   readonly humanPriority = new Set<string>();
   /**

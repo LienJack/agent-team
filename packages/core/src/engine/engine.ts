@@ -27,11 +27,12 @@ import {
 } from './commands.js';
 import { EngineContext, type EngineDeps } from './context.js';
 import { dispatchPlanned, type DispatchReport } from './dispatch.js';
+import { DRIFT_OPTIONS, openDriftItem } from './drift.js';
 import { EffectExecutor } from './effects.js';
 import { recordMessage, setMessageStatus, type RecordMessageInput } from './messages.js';
 import { blockTask } from './outcomes.js';
 import { abandonLiveRuns, recover, sweepWorkspaces, type RecoveryReport } from './recovery.js';
-import { resolveRole, type QuotaState } from './resolve-role.js';
+import { isHalfOpen, resolveRole, type QuotaState } from './resolve-role.js';
 import { runnerStatuses } from './runner-health.js';
 import { planDispatch, PATH_HOLDING_STATUSES, type DeferReason } from './scheduler.js';
 
@@ -122,19 +123,38 @@ export class Engine {
     const now = ctx.now();
     const quota = this.quotaState();
     const tasks = ctx.store.tasks.list({ statuses: ['queued', ...PATH_HOLDING_STATUSES] });
+    const liveRuns = ctx.store.runs.list({ states: ['starting', 'running'] });
+    // a half-open circuit gets exactly one trial: a live run (or a dispatch being prepared) on
+    // that runner is the trial in flight; a trial planned in this pass takes it too (L9e)
+    const trialBusy = new Set<string>();
+    const halfOpen = (runner: string) => isHalfOpen(quota[runner], now);
+    for (const run of liveRuns) if (halfOpen(run.runner)) trialBusy.add(run.runner);
+    for (const runner of ctx.dispatchingRunners.values()) {
+      if (halfOpen(runner)) trialBusy.add(runner);
+    }
     const plan = planDispatch({
       tasks,
-      liveRuns: ctx.store.runs.list({ states: ['starting', 'running'] }),
+      liveRuns,
       dispatching: ctx.dispatching,
       dispatchingPaths: [...ctx.dispatching.keys()].map(
         (id) => ctx.store.tasks.get(id)?.owned_paths ?? [],
       ),
+      workerTasks: new Set(ctx.workerTasks.keys()),
+      ignoreCaseOf: (projectId) => ctx.caseInsensitive.get(projectId) ?? true,
       humanPriority: ctx.humanPriority,
       models: ctx.config.models,
       engine: ctx.config.engine,
       now,
-      resolve: (role, excludeAliases) =>
-        resolveRole(role, quota, { models: ctx.config.models, now, excludeAliases }),
+      resolve: (role, excludeAliases) => {
+        const resolved = resolveRole(role, quota, {
+          models: ctx.config.models,
+          now,
+          excludeAliases,
+          trialBusy,
+        });
+        if (resolved.ok && halfOpen(resolved.runner)) trialBusy.add(resolved.runner);
+        return resolved;
+      },
       implAliasOf: (taskId) =>
         ctx.store.runs.list({ task_id: taskId }).findLast((r) => r.kind !== 'review')?.model_alias,
     });
@@ -220,6 +240,8 @@ export class Engine {
    */
   async shutdown(): Promise<{ abandonedRuns: string[] }> {
     this.ctx.stopping = true;
+    // long verification steps (machine checks) stop now instead of running to their timeout
+    this.ctx.shutdownController.abort('service shutdown');
     // A pass in progress may still finish a dispatch (it starts no effects any more: `runDue`
     // is off) and a run.start already executing may still have spawned: abort and settle until
     // nothing is left, so no worker outlives the service and no run is created after the marking.
@@ -235,7 +257,7 @@ export class Engine {
     }
     try {
       return this.ctx.transact((tx) => ({
-        abandonedRuns: abandonLiveRuns(tx, 'shutdown').abandonedRuns,
+        abandonedRuns: abandonLiveRuns(this.ctx, tx, 'shutdown').abandonedRuns,
       }));
     } catch (err) {
       // the store may already be unusable; recovery on the next start covers it
@@ -247,8 +269,8 @@ export class Engine {
   // ------------------------------------------------------------ commands
   // Each command is one transaction; committing wakes the engine (no explicit tick needed).
 
-  createProject(input: ProjectCreateRequest): Project {
-    return createProject(this.ctx, input);
+  createProject(input: ProjectCreateRequest, actor: Actor = HUMAN): Project {
+    return createProject(this.ctx, input, actor);
   }
 
   createTask(input: TaskCreateRequest, actor: Actor = HUMAN): Task {
@@ -267,8 +289,8 @@ export class Engine {
     return retryTask(this.ctx, id, actor);
   }
 
-  approveTask(id: string, reason?: string): Task {
-    return approveTask(this.ctx, id, reason);
+  approveTask(id: string, reason?: string, actor: Actor = HUMAN): Task {
+    return approveTask(this.ctx, id, reason, actor);
   }
 
   rejectTask(id: string, note: string, actor: Actor = HUMAN): Task {
@@ -283,8 +305,20 @@ export class Engine {
     return createAttention(this.ctx, input);
   }
 
-  answerAttention(id: string, text: string, via: AnswerVia): Attention {
-    return answer(this.ctx, id, text, via);
+  answerAttention(id: string, text: string, via: AnswerVia, actor: Actor = HUMAN): Attention {
+    return answer(this.ctx, id, text, via, actor);
+  }
+
+  /** Base drift: discard the worktree, rebuild it on the new base, restart (human; M5). */
+  rebuildWorkspace(taskId: string, via: AnswerVia = 'cli', actor: Actor = HUMAN): Attention {
+    const item = this.ctx.transact((tx) => openDriftItem(tx, taskId));
+    return answer(this.ctx, item.id, DRIFT_OPTIONS[0], via, actor);
+  }
+
+  /** Base drift: accept the new base tip and continue on the old base (human; M5). */
+  acceptNewBase(taskId: string, via: AnswerVia = 'cli', actor: Actor = HUMAN): Attention {
+    const item = this.ctx.transact((tx) => openDriftItem(tx, taskId));
+    return answer(this.ctx, item.id, DRIFT_OPTIONS[1], via, actor);
   }
 
   recordMessage(input: RecordMessageInput): { message: Message; duplicate: boolean } {

@@ -7,7 +7,7 @@
 
 - `docs/spec.md`：要做什麼。沒寫到的，選最簡單的做法並寫進回報（重要的寫 ADR）。
 - `packages/schema`：所有資料結構（Zod）。新增欄位、事件、DTO 一律先改這裡。
-- `packages/core/src/ports/`：其他套件要實作的介面（repositories、Runner、GitPort、CheckExecutor、
+- `packages/core/src/ports/`：其他套件要實作的介面（repositories、Runner、GitPort、CheckExecutor、ProcessControl、
   Clock、IdGen、Notifier、LeaderNotifier、EventPublisher）。
 - `packages/core/src/testing/`：假 runner／git／checks、手動時鐘、`runRepositoryContract()`。
 

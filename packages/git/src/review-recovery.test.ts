@@ -12,7 +12,7 @@ import {
 import { taskWorktreePath, type Workspace } from '@agent-team/schema';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { fillReviewDiff, splitDiffSections } from './review-diff.js';
-import { cleanup, newWorktree, setup, type Fixture } from './test-fixture.js';
+import { cleanup, commitChanges, newWorktree, setup, type Fixture } from './test-fixture.js';
 
 let fx: Fixture;
 beforeEach(() => {
@@ -25,7 +25,7 @@ describe('git review diff (docs/adr/0008)', () => {
     const wt = await newWorktree(fx);
     writeFileSync(join(wt.worktreePath, 'a.txt'), 'a changed\n');
     writeFileSync(join(wt.worktreePath, 'new file.txt'), 'n\n');
-    const c = await fx.port.commitAll({ worktreePath: wt.worktreePath, message: 'work' });
+    const c = await commitChanges(fx, wt.worktreePath, 'work');
     // uncommitted edits are not part of the reviewed change
     writeFileSync(join(wt.worktreePath, 'b.txt'), 'dirty\n');
 
@@ -50,7 +50,7 @@ describe('git review diff (docs/adr/0008)', () => {
     const wt = await newWorktree(fx);
     writeFileSync(join(wt.worktreePath, 'a.txt'), `${'x'.repeat(5000)}\n`);
     writeFileSync(join(wt.worktreePath, 'b.txt'), 'small\n');
-    const c = await fx.port.commitAll({ worktreePath: wt.worktreePath, message: 'work' });
+    const c = await commitChanges(fx, wt.worktreePath, 'work');
     const d = await fx.port.reviewDiff({
       worktreePath: wt.worktreePath,
       baseSha: wt.baseSha,
@@ -119,6 +119,7 @@ describe('workspace removal through the engine (docs/adr/0009)', () => {
       branch: `team/${task.id}`,
       base_sha: res.baseSha,
       head_sha: null,
+      accepted_base_sha: null,
       state: 'active',
       created_at: '2026-11-21T00:00:00.000Z',
       removed_at: null,

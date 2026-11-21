@@ -26,9 +26,18 @@
               "required": ["name", "cmd"]
             }
           },
+          "allow_network": { "type": "boolean" },
           "created_at": { "type": "string", "format": "date-time" }
         },
-        "required": ["id", "name", "repo_path", "base_branch", "checks", "created_at"]
+        "required": [
+          "id",
+          "name",
+          "repo_path",
+          "base_branch",
+          "checks",
+          "allow_network",
+          "created_at"
+        ]
       },
       "Task": {
         "type": "object",
@@ -39,7 +48,7 @@
           "title": { "type": "string", "minLength": 1, "maxLength": 200 },
           "tier": { "type": "string", "enum": ["A", "B", "C"] },
           "ticket_md": { "type": "string" },
-          "owned_paths": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "owned_paths": { "type": "array", "items": { "type": "string" } },
           "priority": { "type": "integer" },
           "status": {
             "type": "string",
@@ -57,6 +66,7 @@
           },
           "impl_role": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9_]*$" },
           "fix_rounds": { "type": "integer", "minimum": 0 },
+          "leader_retries": { "type": "integer", "minimum": 0 },
           "attempts": { "type": "integer", "minimum": 0 },
           "blocked_reason": { "type": ["string", "null"] },
           "version": { "type": "integer", "exclusiveMinimum": 0 },
@@ -79,6 +89,7 @@
           "status",
           "impl_role",
           "fix_rounds",
+          "leader_retries",
           "attempts",
           "blocked_reason",
           "version",
@@ -99,7 +110,7 @@
           "title": { "type": "string", "minLength": 1, "maxLength": 200 },
           "tier": { "type": "string", "enum": ["A", "B", "C"] },
           "ticket_md": { "type": "string" },
-          "owned_paths": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "owned_paths": { "type": "array", "items": { "type": "string" } },
           "priority": { "type": "integer" },
           "status": {
             "type": "string",
@@ -117,6 +128,7 @@
           },
           "impl_role": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9_]*$" },
           "fix_rounds": { "type": "integer", "minimum": 0 },
+          "leader_retries": { "type": "integer", "minimum": 0 },
           "attempts": { "type": "integer", "minimum": 0 },
           "blocked_reason": { "type": ["string", "null"] },
           "version": { "type": "integer", "exclusiveMinimum": 0 },
@@ -206,6 +218,7 @@
           "status",
           "impl_role",
           "fix_rounds",
+          "leader_retries",
           "attempts",
           "blocked_reason",
           "version",
@@ -229,6 +242,7 @@
           "branch": { "type": "string", "minLength": 1 },
           "base_sha": { "type": "string", "pattern": "^[0-9a-f]{4,64}$" },
           "head_sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{4,64}$" },
+          "accepted_base_sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{4,64}$" },
           "state": { "type": "string", "enum": ["active", "kept", "removed"] },
           "created_at": { "type": "string", "format": "date-time" },
           "removed_at": { "type": ["string", "null"], "format": "date-time" }
@@ -240,6 +254,7 @@
           "branch",
           "base_sha",
           "head_sha",
+          "accepted_base_sha",
           "state",
           "created_at",
           "removed_at"
@@ -349,6 +364,8 @@
           "cost_usd": { "type": ["number", "null"], "minimum": 0 },
           "log_dir": { "type": "string", "minLength": 1 },
           "pid": { "type": ["integer", "null"], "exclusiveMinimum": 0 },
+          "pid_started_at": { "type": ["string", "null"] },
+          "launched_at": { "type": ["string", "null"], "format": "date-time" },
           "started_at": { "type": "string", "format": "date-time" },
           "ended_at": { "type": ["string", "null"], "format": "date-time" }
         },
@@ -372,6 +389,8 @@
           "cost_usd",
           "log_dir",
           "pid",
+          "pid_started_at",
+          "launched_at",
           "started_at",
           "ended_at"
         ]
@@ -933,7 +952,8 @@
                       "required": ["name", "cmd"]
                     },
                     "default": []
-                  }
+                  },
+                  "allow_network": { "type": "boolean", "default": false }
                 },
                 "required": ["name", "repo_path"]
               }
@@ -1020,11 +1040,7 @@
                   "title": { "type": "string", "minLength": 1, "maxLength": 200 },
                   "tier": { "type": "string", "enum": ["A", "B", "C"] },
                   "ticket_md": { "type": "string", "minLength": 1 },
-                  "owned_paths": {
-                    "type": "array",
-                    "items": { "type": "string", "minLength": 1 },
-                    "minItems": 1
-                  },
+                  "owned_paths": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
                   "priority": { "type": "integer", "default": 0 },
                   "impl_role": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9_]*$" },
                   "queue": { "type": "boolean", "default": false }
@@ -1439,7 +1455,7 @@
                   "client_msg_id": { "type": "string", "minLength": 1, "maxLength": 200 },
                   "wait": { "type": "boolean", "default": true }
                 },
-                "required": ["text", "source", "client_msg_id"]
+                "required": ["text", "client_msg_id"]
               }
             }
           }
@@ -1805,7 +1821,7 @@
                   "answer": { "type": "string", "minLength": 1, "maxLength": 4000 },
                   "via": { "type": "string", "enum": ["web", "cli", "mcp", "grok", "leader"] }
                 },
-                "required": ["answer", "via"]
+                "required": ["answer"]
               }
             }
           }

@@ -87,7 +87,11 @@ describe('git author wiring', () => {
       baseBranch: 'main',
     });
     writeFileSync(join(worktreePath, 'a.txt'), 'b\n');
-    const commit = await git.commitAll({ worktreePath, message: 'team(t_000001): x' });
+    const commit = await git.commitFiles({
+      worktreePath,
+      message: 'team(t_000001): x',
+      files: ['a.txt'],
+    });
     expect(commit.created).toBe(true);
     expect(sh(worktreePath, 'log', '-1', '--format=%an <%ae>|%cn <%ce>')).toBe(
       'Team Bot <bot@example.invalid>|Team Bot <bot@example.invalid>',

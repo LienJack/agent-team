@@ -16,6 +16,7 @@ export { FakeGit } from './fake-git.js';
 export {
   FakeCheckExecutor,
   FakeNotifier,
+  FakeProcessControl,
   InMemoryRunnerRegistry,
   ManualClock,
   RecordingLeaderNotifier,

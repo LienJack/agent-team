@@ -13,7 +13,10 @@ import { siblingScript } from '../process/module-path.js';
 import { RunLog } from '../process/run-log.js';
 import { groupAlive, killGroup } from '../process/spawn.js';
 import { makeRedactor, redactSecrets } from '../redact.js';
+import type { SandboxPolicy } from '../sandbox-policy.js';
+import { readProcessStart } from '../process/control.js';
 import { resolveBundledCodex, type CodexBinary } from './binary.js';
+import { codexSandboxArgs } from './sandbox.js';
 import { CodexStream } from './stream.js';
 
 export interface CodexRunnerOptions {
@@ -25,6 +28,8 @@ export interface CodexRunnerOptions {
   logger?: Logger;
   sourceEnv?: NodeJS.ProcessEnv;
   killGraceMs?: number;
+  /** Service-wide sandbox deny list (docs/adr/0014). */
+  sandbox?: SandboxPolicy;
 }
 
 /** Codex keeps its ChatGPT login under CODEX_HOME (default ~/.codex); no API keys are passed. */
@@ -182,7 +187,10 @@ export class CodexRunner implements Runner, Resumable {
     const env = this.env(bin.pathDirs, {
       ...spec.env,
       AGENT_TEAM_REAL_CMD: JSON.stringify(bin.cmd),
-      AGENT_TEAM_EXEC_ARGS: JSON.stringify(this.isolation),
+      AGENT_TEAM_EXEC_ARGS: JSON.stringify([
+        ...this.isolation,
+        ...codexSandboxArgs(spec, this.opts.sandbox ?? { denyPaths: [] }),
+      ]),
       AGENT_TEAM_PGID_FILE: pgidFile,
       AGENT_TEAM_KILL_GRACE_MS: String(this.opts.killGraceMs ?? 5000),
     });
@@ -204,7 +212,7 @@ export class CodexRunner implements Runner, Resumable {
       const codex = new Codex({ codexPathOverride: shim, env, config: CODEX_CONFIG_OVERRIDES });
       const options: ThreadOptions = {
         workingDirectory: spec.cwd,
-        sandboxMode: spec.writable ? 'workspace-write' : 'read-only',
+        // no sandboxMode: `--sandbox` would replace the permission profile (codex/sandbox.ts)
         approvalPolicy: 'never',
         model: spec.model,
         skipGitRepoCheck: true,
@@ -213,6 +221,12 @@ export class CodexRunner implements Runner, Resumable {
       const thread = spec.resumeRef
         ? codex.resumeThread(spec.resumeRef, options)
         : codex.startThread(options);
+      // the SDK spawns the wrapper inside runStreamed: record the launch first (docs/adr/0015)
+      try {
+        hooks?.onLaunching?.();
+      } catch {
+        // a throwing hook must not turn into an unhandled error
+      }
       const { events } = await thread.runStreamed(spec.prompt, {
         outputSchema: spec.schema,
         signal: ac.signal,
@@ -223,8 +237,14 @@ export class CodexRunner implements Runner, Resumable {
         if (threadId !== undefined && !started) {
           started = true;
           const pid = readPgid(pgidFile);
+          const pidStartedAt = pid === undefined ? undefined : await readProcessStart(pid);
+          const known = pidStartedAt === undefined ? {} : { pidStartedAt };
           try {
-            hooks?.onStarted?.({ sessionRef: threadId, ...(pid === undefined ? {} : { pid }) });
+            if (pid !== undefined) hooks?.onSpawned?.({ pid, ...known });
+            hooks?.onStarted?.({
+              sessionRef: threadId,
+              ...(pid === undefined ? {} : { pid, ...known }),
+            });
           } catch {
             // a throwing hook must not turn into an unhandled error
           }

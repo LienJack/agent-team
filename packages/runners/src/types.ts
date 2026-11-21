@@ -1,5 +1,6 @@
 import type { RunnerRegistry, Logger, Runner } from '@agent-team/core';
 import type { RunnerCapabilities, RunnerName, RunResult, RunSpec } from '@agent-team/schema';
+import type { SandboxPolicy } from './sandbox-policy.js';
 
 /** Reads one environment variable (the server's single `.env`/process reader). Never logged. */
 export type EnvReader = (name: string) => string | undefined;
@@ -18,6 +19,11 @@ export interface RunnerRegistryOptions {
    * it replaces the SDK's bundled binary (still started by the SDK, through the group wrapper).
    */
   commands?: Partial<Record<'claude' | 'codex' | 'dsh', string[]>>;
+  /**
+   * Service-wide sandbox deny list (DATA, the service `.env`; docs/adr/0014) for the claude and
+   * codex workers. Credential directories under home are always added.
+   */
+  sandbox?: SandboxPolicy;
 }
 
 /**

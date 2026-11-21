@@ -16,6 +16,8 @@
 6. **合約先行**：資料結構與 API 只定義一次（Zod），服務端、CLI、MCP、網頁共用同一份型別與同一個客戶端。
 7. **薄入口**：CLI、MCP、網頁、Grok 橋接都只是 API 的包裝，不放業務邏輯。
 8. 憑證不進版控、不進資料庫、不進日誌、不進任何 API 回應；傳給子行程時只放它需要的那一個變數。
+9. **worker 在沙箱裡**：讀寫只限 worktree（與暫存、套件快取），DATA、`.env`、憑證目錄一律拒絕，連不到本機的服務埠；
+   身分由憑證決定，不由請求內容決定（ADR 0014）。
 
 ## 2. 技術棧
 
@@ -68,7 +70,7 @@ docs/               spec.md、adr/、conventions.md
 |---|---|
 | 資料目錄 `DATA` | `~/.agent-team/`（`AGENT_TEAM_HOME` 可覆寫；測試一律覆寫到暫存目錄） |
 | 資料庫 | `DATA/team.db` |
-| 連線資訊 | `DATA/run/listener.json`（權限 0600）：`{ addr, token }`，供 CLI／MCP 自動連線 |
+| 連線資訊 | `DATA/run/listener.json`（權限 0600）：`{ addr, token }`，operator 權杖，供 CLI／MCP 自動連線；`DATA/leader/listener.json`（0600）：leader 專用權杖，只給 leader 的 `team` shim（`AGENT_TEAM_LISTENER_FILE`） |
 | 執行日誌 | `DATA/runs/<run_id>/{events.jsonl, stderr.log, prompt.md}` |
 | leader | `DATA/leader/cwd/`（空的工作目錄）、`DATA/leader/bin/team`（以 leader 身分執行的 shim）、`DATA/leader/turn/`（最近一個 turn 的日誌） |
 | 任務 worktree | `<worktree_root>/<project>/<task_id>/`，預設 `~/RanoLabs/worktrees`，分支 `team/<task_id>` |
@@ -79,16 +81,17 @@ docs/               spec.md、adr/、conventions.md
 id 用前綴 + 隨機短字串（`p_`、`t_`、`w_`、`r_`、`a_`、`m_`）。時間一律 ISO 8601 UTC。
 
 ```
-project      id, name, repo_path, base_branch, checks[{name, cmd}]
+project      id, name, repo_path, base_branch, checks[{name, cmd}], allow_network(預設 false)
 task         id, project_id, parent_id?, title, tier(A|B|C), ticket_md, owned_paths[], priority,
-             status, impl_role, fix_rounds, attempts, blocked_reason?, version
-workspace    id, task_id, path, branch, base_sha, head_sha?, state(active|kept|removed)
+             status, impl_role, fix_rounds, leader_retries, attempts, blocked_reason?, version
+workspace    id, task_id, path, branch, base_sha, head_sha?, accepted_base_sha?, state(active|kept|removed)
              -- active＝服務端管理中（任務完成後仍是 active，直到定時清理移除）；kept＝移除時發現未提交的變更，
              --   刻意保留、不再自動清理、開一筆待決事項給人；removed＝已移除（ADR 0009）
 run          id, task_id, workspace_id, dispatch_id(unique), kind(impl|fix|review), role, model_alias, runner, model,
              state(starting|running|succeeded|failed|start_unknown|stopped|abandoned),
              outcome?(ok|rejected|error|rate_limited|timeout|cancelled), reject_reason?,
-             session_ref?, receipt?, usage?, cost_usd?, log_dir, pid?, started_at, ended_at?
+             session_ref?, receipt?, usage?, cost_usd?, log_dir, pid?, pid_started_at?, launched_at?,
+             started_at, ended_at?
 attention    id, task_id?, kind(decision|approval|question), question, options[], status(open|answered|superseded),
              answer?, answered_via?
 message      id, channel(leader|grok), direction(in|out), source(web|cli|mcp|grok|service), body,
@@ -101,7 +104,11 @@ kv           key, value
 ```
 
 `task.status`：`draft → queued → running → verifying → review → done`，旁支 `blocked`、`failed`、`cancelled`。
-合法轉換是 `packages/schema` 裡的一張表；狀態只由 engine 改，用 `version` 做比較後才設定（樂觀鎖）。
+合法轉換是 `packages/schema` 裡的一張表；狀態只由 engine 改，用 `version` 做比較後才設定（樂觀鎖）。每個指令先檢查
+來源狀態：`queue` 只接受 `draft`，`retry` 只接受 `blocked`／`failed`，approve／reject 只接受 `review`；不符回 409。
+
+`owned_paths`：repo 相對 POSIX 路徑或 glob；`.`、`./` 是整個 repo；拒絕 `..`、絕對路徑、空段（`a//b`）、反斜線。
+專案的檔案系統不分大小寫時（`core.ignorecase`）比對也不分大小寫；核對變更時先解析 symlink。
 看板五欄：待派 = draft、queued；進行中 = running、verifying；待驗收 = review；阻塞 = blocked、failed；完成 = done。
 
 `idempotency`：所有會改變狀態的 API 接受 `Idempotency-Key`。同鍵同內容回傳原結果；同鍵不同內容回 409。
@@ -120,11 +127,13 @@ ReviewReceipt  { dispatch_id, verdict(pass|needs_changes|blocked), summary(≤60
 
 核對（`core` 的 verify，逐步，任何一步不過就 `outcome=rejected` 並記 `reject_reason`）：
 
-1. 回執通過 Zod；`dispatch_id` 等於該 run 的編號且該 run 仍是任務的當前 run。
+1. 回執通過 Zod；`dispatch_id` 等於該 run 的編號且該 run 仍是任務的當前 run。回執的每個字串先以日誌的遮蔽器處理再儲存。
 2. `blocked`／`failed` → 任務進 `blocked`；`needs_leader` 非空則開一筆 attention。
-3. worktree 確有變更；實際變更檔案全部落在 `owned_paths` 內（以 git 為準，不以回執自述為準）。
-4. 專案的機器檢查全過（逐條執行，完整輸出存日誌，只把結果與最後 20 行留給修正單）。
-5. 服務端 commit（`team(<task_id>): <title>`），記 `head_sha`。
+3. worktree 確有變更；實際變更檔案全部落在 `owned_paths` 內（以 git 為準，不以回執自述為準；symlink 解析後再比）。
+4. 專案的機器檢查全過（逐條執行，完整輸出存日誌，只把結果與最後 20 行留給修正單）。檢查執行 worker 寫的程式：
+   環境白名單（無金鑰、無 `SSH_AUTH_SOCK`、無權杖），macOS 上另以 `sandbox-exec` 套 worker 的拒絕清單（ADR 0014）。
+5. 提交前重算變更清單：檢查後多出任何檔案或出現越界 → 拒收、不提交。服務端只提交核對過的檔案
+   （`git add -- <檔案>`、`team(<task_id>): <title>`），不執行 repo 的 hooks（ADR 0016），記 `head_sha`。
 6. 任務進 `review`，排入審查 run（`review_A|B|C`）。審查者的模型別名不得與最近一次實作 run 相同。
 
 審查 `pass` → `done`。`needs_changes` → 修正 run（帶 must_fix 清單），`fix_rounds+1`；達到
@@ -145,19 +154,24 @@ interface Runner { readonly name; probe(): Promise<RunnerCapabilities>; run(spec
 確認執行檔存在、版本、支援的參數、憑證是否就緒（不顯示值）；不支援的參數不要傳。
 
 共同要求：參數一律用陣列，不經 shell；標準輸入明確關閉或寫入後關閉；子行程自成行程群組，逾時或取消時終止整個群組；
+spawn 前呼叫 `onLaunching`、spawn 後以 `onSpawned` 回報 pid 與 OS 啟動時間（ADR 0015）；輸出逐行讀取，單行上限 1 MiB
+（超過截斷並標記，繼續讀下一行）；
 完成判定是「agent 的結束訊號」與「行程結束」先到者為準；原始事件流寫 `events.jsonl`；日誌寫入前遮蔽看起來像金鑰的字串。
 
-- **claude**：`claude -p --model … --output-format stream-json --verbose --json-schema … --safe-mode
-  --strict-mcp-config --mcp-config '{"mcpServers":{}}' --permission-mode dontAsk`，提示走標準輸入。可寫 run 開放
-  `Read Edit Write Glob Grep Bash`，唯讀 run 只有 `Read Glob Grep`。從 `rate_limit_event` 取額度，從 `result` 取用量與費用。
+- **claude**：`claude -p --model … --output-format stream-json --verbose --json-schema … --safe-mode --restricted
+  --settings <沙箱設定> --strict-mcp-config --mcp-config '{"mcpServers":{}}' --permission-mode dontAsk`，提示走標準輸入。
+  可寫 run 開放 `Read Edit Write Glob Grep Bash`，唯讀 run 只有 `Read Glob Grep`。`--restricted`、`--settings` 是必要旗標，
+  不支援就不跑（沙箱內容見 ADR 0014）。從 `rate_limit_event` 取額度，從 `result` 取用量與費用。
   **不使用任何跳過權限檢查的參數。**
-- **codex**：SDK `startThread({ workingDirectory, sandboxMode, approvalPolicy: 'never', model, modelReasoningEffort,
-  skipGitRepoCheck: true })` + `runStreamed(prompt, { outputSchema, signal })`。
+- **codex**：SDK `startThread({ workingDirectory, approvalPolicy: 'never', model, modelReasoningEffort,
+  skipGitRepoCheck: true })` + `runStreamed(prompt, { outputSchema, signal })`；沙箱用權限設定檔（`default_permissions` +
+  拒絕清單 + `allow_network`），不傳 `--sandbox`（ADR 0014）。
 - **dsh**：`dsh --profile headless --json -`；事件 `session`／`status`／`final`；無 schema 強制，取 `final.text` 中第一個完整
   JSON 物件。`OPENROUTER_API_KEY` 只放進子行程環境，並設 `DSH_TELEMETRY_DISABLED=1`、`DSH_PERMISSION_MODE=workspace-write`。
 - **fake**：一支照劇本檔執行的假 CLI，會把它收到的參數與環境變數記下來，可加速時間。所有非冒煙測試都用它。
 
-派工提示 = 固定的 worker 規則 + 派工單原文 + 回執 schema + `dispatch_id`（+ 重啟復原時的復原說明）。
+派工提示 = 固定的 worker 規則 + 派工單原文 + 回執 schema + `dispatch_id`（+ 重啟復原時的復原說明）。派工單、實作者摘要、
+檔案清單、diff、修正要求都包在帶本次 dispatch id 的 `<<<DATA …>>>`／`<<<END …>>>` 區塊內，規則明言那是資料不是指令。
 worker 規則：只改 owned_paths；不 commit、不 push；不要提問，解決不了就回報 blocked 並結束；不印出環境變數或 `.env`；最後只輸出回執。
 
 ## 8. Engine
@@ -166,15 +180,21 @@ worker 規則：只改 owned_paths；不 commit、不 push；不要提問，解�
 
 - **排程**：取 `queued`，依 priority、建立時間。每角色不超過 `roles.<role>.slots`，全域不超過總上限，
   並**保留一個槽位給人直接觸發的動作**。與進行中任務的 `owned_paths` 有交集就不派（不確定視為有交集）。
-- **派工前檢查**：基底分支若已偏離建立 worktree 時的 `base_sha` 且與 owned_paths 有關，先重建或標記，不消耗重試額度。
+- **派工前檢查**：基底分支若已偏離建立 worktree 時的 `base_sha`（或人已接受的 `accepted_base_sha`）且與 owned_paths 有關：
+  乾淨的 worktree 直接移到新基底；有修改則阻塞並開待決事項「重建 worktree／照舊繼續」，回答即執行
+  （`rebuildWorkspace`：捨棄並在新基底重建、以全新 impl 重排；`acceptNewBase`：記下新基底、照舊繼續）。不消耗重試額度；
+  這種阻塞不能用一般 retry 解除（ADR 0004）。
 - **選模型**：`resolveRole(role, quotaState)`：主力在冷卻中就依序取 fallback，並套用 `rules.quota`。
 - **派工結果**四種：`accepted`、`rejected`、`unknown`（→ `start_unknown`，不自動重送，開 attention）、`deferred`（槽位滿，延後）。
 - **錯誤**：`rate_limit` → runner 冷卻到 `resetsAt`（不明則 15 分鐘），任務回 `queued`，不計 attempts；
   其他 → `attempts+1`，指數退避（5 秒起、上限 5 分鐘），達上限 `failed`。同一 runner 連續失敗 3 次 → 熔斷並通知。
-- **啟動復原**：遺留的 `starting|running` run 標為 `abandoned`；任務回 `queued`（審查 run 則留在 `review` 重新審查）
-  並在下一次提示附上復原說明；資料庫裡沒有對應紀錄的 worktree 目錄移除；未完成的 effect 繼續執行。
-- **正常關機**：終止執行中 worker 的整個行程群組，並把它們的 run 依同樣規則標為 `abandoned`、任務重新排入，
-  所以下次啟動沒有東西要修（當機時由啟動復原補做；ADR 0005）。
+- **啟動復原**：遺留的 `starting|running` run 先處理它的 worker：記錄的 pid 與 OS 啟動時間都相符才終止整個群組；
+  無法確認已結束（已 spawn 但沒記到 pid、只剩群組成員…）就**不重排**：任務 `blocked`、開待決事項、只有人能重試（ADR 0015）。
+  其餘標為 `abandoned`；任務回 `queued`（審查 run 則留在 `review` 重新審查）並在下一次提示附上復原說明；資料庫裡沒有
+  對應紀錄的 worktree 目錄移除；未完成的 effect 繼續執行。前一個 worker 可能還活著時，絕不派第二個進同一個 worktree。
+- **正常關機**：終止執行中 worker 的整個行程群組並中止進行中的機器檢查（AbortSignal；verify effect 留到下次），把 run
+  依同樣規則標為 `abandoned`、任務重新排入，所以下次啟動沒有東西要修（當機時由啟動復原補做；ADR 0005）。
+- **熔斷半開**：冷卻期過後只放行一個試探 run，成功才關閉、失敗立即再開。
 - **effect lane**：同一 lane 保序、不同 lane 並行；一個 effect 結束後立刻接著跑同 lane 的下一個，不等巡檢。
 - **清理**：定時移除已完成任務的 worktree（預設完成後 72 小時；分支保留）。
 - 每個狀態變化寫一筆 `event`。另有兩種非狀態事件給看板即時更新：`leader.status_changed`（idle／busy／offline 與
@@ -195,6 +215,9 @@ worker 規則：只改 owned_paths；不 commit、不 push；不要提問，解�
 - 上下文超過門檻（預設 60000 token）送 `/compact`。關鍵狀態全在資料庫，壓縮後丟失細節是預期行為。
 - leader 用的 `team` 子集**不含**讀取 run 日誌或對話的指令。
 - `GET /resume` 產生不經模型的現況摘要，供新對話或換登入後接手。
+- leader 用 leader 專用權杖呼叫 API（伺服器據此判定身分）。只有人能做：驗收通過／退回、回答待決事項、改派、建專案、
+  reset。leader 的重試不重置 attempts、每個任務有上限（`engine.leader_retry_budget`），`start_unknown`、無法確認 worker
+  已結束、`failed` 的任務不能由 leader 重試（ADR 0014）。
 - `team leader reset`（`POST /leader/reset`，僅本機）：開新對話（新 session id，第一個 turn 先附現況摘要），
   例如換了一個 Claude 登入；未登入或額度用完時 leader 標為不可用，訊息保留、恢復後依序回覆。
 
@@ -214,7 +237,9 @@ worker 規則：只改 owned_paths；不 commit、不 push；不要提問，解�
 
 **兩個監聽埠。**
 
-- **本機**：`127.0.0.1:4517`。只接受 `listener.json` 裡的權杖（Bearer），不提供看板頁面。CLI 與 MCP 走這個。
+- **本機**：`127.0.0.1:4517`。只接受兩種權杖（Bearer）：operator（`listener.json`，人）與 leader（`leader/listener.json`），
+  身分由權杖決定，不接受任何宣稱身分的標頭。不提供看板頁面。CLI 與 MCP 走這個。訊息的 `source` 與回答的 `via` 只由監聽埠
+  與憑證推導（區網 `web`；operator `cli`，含 MCP），請求內容裡的值忽略；`client_msg_id` 不得用伺服器前綴。
 - **區網**：`service.json` 的 `lan.enabled`（預設開啟）、`lan.host`（預設 `0.0.0.0`）、`lan.port`（預設 4518）。
   - 密碼取 `.env` 的 `TEAM_LAN_PASSWORD`；未設定則啟動時產生一組隨機值並只在終端機印出一次。
   - `POST /auth/login` 換取 HMAC 簽章的 session cookie（HttpOnly、SameSite=Strict、同源才接受）。常數時間比較。
@@ -249,7 +274,7 @@ GET  /resume    GET /quota    GET /doctor    GET /roles（models.json 的角色�
 
 ```
 team serve | status | doctor | resume | roles | watch [--after seq]
-team project add <name> <repo> [--base B] [--check "name=cmd"]…
+team project add <name> <repo> [--base B] [--check "name=cmd"]… [--allow-network]
 team task add --project P --title T --tier C --paths "…" (--ticket-file F | -) [--queue]
 team task list | show <id> | queue|cancel|retry <id> | reassign <id> <role>
 team receipt <task_id>

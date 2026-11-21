@@ -44,14 +44,42 @@ export interface GitPort {
   changedFiles(input: { worktreePath: string; sinceSha: string }): Promise<string[]>;
 
   /**
-   * Stage everything (respecting .gitignore) and commit with `message` under the service's
-   * identity, without hooks that could prompt. When there is nothing to commit, returns the
-   * current HEAD with `created: false` (idempotent re-run after a crash).
+   * Commit exactly `files` (repo-relative, the verified list) with `message` under the service's
+   * identity: only the listed paths that still have changes are staged (`git add -- <file>…`);
+   * nothing else is ever committed, and the call throws if the index holds any other path.
+   * Repository hooks never run (`core.hooksPath=/dev/null`, docs/adr/0016). When none of the
+   * files has changes, returns the current HEAD with `created: false` (idempotent re-run).
    */
-  commitAll(input: {
+  commitFiles(input: {
     worktreePath: string;
     message: string;
+    files: readonly string[];
   }): Promise<{ sha: string; created: boolean }>;
+
+  /**
+   * Discard the worktree (uncommitted changes included) and recreate it on the current tip of
+   * `baseBranch`; the branch is reset to that tip (its previous head is kept under
+   * `refs/team-archive/`). Idempotent: a clean worktree already at the tip is left as is.
+   */
+  rebuildWorktree(input: {
+    repoPath: string;
+    worktreePath: string;
+    branch: string;
+    baseBranch: string;
+  }): Promise<{ baseSha: string }>;
+
+  /**
+   * Where each existing file really lives, resolved through symlinks (the file itself or a
+   * parent directory): repo-relative POSIX path, `null` when it resolves outside the worktree.
+   * Files that do not exist (deleted) are omitted. Read-only.
+   */
+  resolvePaths(input: {
+    worktreePath: string;
+    files: readonly string[];
+  }): Promise<Record<string, string | null>>;
+
+  /** Whether the repository's filesystem is case-insensitive (`core.ignorecase`). */
+  ignoresCase(input: { repoPath: string }): Promise<boolean>;
 
   /** Resolve a ref (branch name, sha) in the primary checkout to a full sha. */
   resolveRef(input: { repoPath: string; ref: string }): Promise<string>;

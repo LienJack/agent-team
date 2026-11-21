@@ -1,6 +1,11 @@
 import type { RunSpec } from '@agent-team/schema';
+import { claudeWorkerSettings, type SandboxPolicy } from './sandbox.js';
+
+export { claudeWorkerSettings, type SandboxPolicy } from './sandbox.js';
 
 // `claude -p` argv (spec §7). The prompt goes to stdin; nothing here can skip permission checks.
+// Every run is sandboxed (docs/adr/0014): `--restricted` plus `--settings` with the worker
+// policy. Both are required flags — a CLI without them is unavailable, never run unsandboxed.
 
 /** Writable runs: edit the worktree and run commands. Review runs: read only. */
 export const CLAUDE_WRITE_TOOLS = ['Read', 'Edit', 'Write', 'Glob', 'Grep', 'Bash'] as const;
@@ -15,6 +20,8 @@ export const CLAUDE_REQUIRED_FLAGS = [
   '--json-schema',
   '--permission-mode',
   '--allowedTools',
+  '--settings',
+  '--restricted',
 ] as const;
 
 /** Flags passed only when `claude --help` lists them. */
@@ -48,12 +55,21 @@ export function assertNoPermissionBypass(args: readonly string[]): void {
 }
 
 /** Assemble the argv after the executable; `flags` = what the probe found supported. */
-export function claudeArgs(spec: RunSpec, flags: ReadonlySet<string>): string[] {
+export function claudeArgs(
+  spec: RunSpec,
+  flags: ReadonlySet<string>,
+  policy: SandboxPolicy,
+): string[] {
   const has = (f: string) => flags.has(f);
+  for (const f of ['--settings', '--restricted']) {
+    if (!has(f)) throw new Error(`claude does not support ${f}; refusing to run unsandboxed`);
+  }
   const tools = (spec.writable ? CLAUDE_WRITE_TOOLS : CLAUDE_READ_TOOLS).join(',');
   const args = ['-p', '--model', spec.model, '--output-format', 'stream-json', '--verbose'];
   args.push('--json-schema', JSON.stringify(spec.schema));
   if (has('--safe-mode')) args.push('--safe-mode');
+  args.push('--restricted');
+  args.push('--settings', JSON.stringify(claudeWorkerSettings(spec, policy)));
   if (has('--strict-mcp-config')) args.push('--strict-mcp-config');
   if (has('--mcp-config')) args.push('--mcp-config', EMPTY_MCP);
   args.push('--permission-mode', 'dontAsk');

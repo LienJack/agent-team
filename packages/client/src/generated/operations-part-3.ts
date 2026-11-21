@@ -93,7 +93,7 @@ export interface operations_part3 {
         'application/json': {
           answer: string;
           /** @enum {string} */
-          via: 'web' | 'cli' | 'mcp' | 'grok' | 'leader';
+          via?: 'web' | 'cli' | 'mcp' | 'grok' | 'leader';
         };
       };
     };

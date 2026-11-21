@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createTestService, local, type Loose, type TestService } from '../testing/harness.js';
+import {
+  createTestService,
+  local,
+  TEST_LEADER_TOKEN,
+  type Loose,
+  type TestService,
+} from '../testing/harness.js';
 
 // spec §1 principle 1 / §9: the leader's `team` subset excludes run logs and transcripts. The
-// server enforces it for the leader actor (X-Team-Actor: leader on the local listener).
+// server enforces it for the leader actor — the leader-scoped token on the local listener.
 
 let h: TestService;
 
@@ -13,10 +19,10 @@ afterEach(async () => {
   await h.cleanup();
 });
 
-const LEADER = { 'X-Team-Actor': 'leader' };
+const LEADER = TEST_LEADER_TOKEN;
 
-async function call(path: string, body?: unknown, headers: Record<string, string> = {}) {
-  const res = await h.localApp().request(path, local(body, headers));
+async function call(path: string, body?: unknown, token?: string) {
+  const res = await h.localApp().request(path, local(body, {}, token));
   const text = await res.text();
   return { status: res.status, body: (text ? JSON.parse(text) : null) as Loose };
 }
@@ -56,12 +62,11 @@ describe('§9 leader-forbidden routes', () => {
     expect((await call('/api/runs/r_000001/log')).status).toBe(404);
   });
 
-  it('records attention answers made by the leader as via leader', async () => {
+  it('attention answers are human-only; the channel comes from the credential', async () => {
     const q = h.service.engine.openAttention({ question: 'Q?', options: ['A', 'B'] });
     const res = await call(`/api/attention/${q.id}/answer`, { answer: 'A', via: 'cli' }, LEADER);
-    expect(res.body.attention).toMatchObject({ answer: 'A', answered_via: 'leader' });
-    const human = h.service.engine.openAttention({ question: 'R?', options: ['A'] });
-    const own = await call(`/api/attention/${human.id}/answer`, { answer: 'A', via: 'cli' });
+    expect(res.status).toBe(403);
+    const own = await call(`/api/attention/${q.id}/answer`, { answer: 'A', via: 'cli' });
     expect(own.body.attention.answered_via).toBe('cli');
   });
 });

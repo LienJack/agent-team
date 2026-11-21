@@ -191,7 +191,7 @@ describe('§14 啟動復原 — startup recovery', () => {
   it('continues unfinished effects (verification) after a restart', async () => {
     const store = new InMemoryStore();
     const before = createTestEngine({ store });
-    before.git.failNext('commitAll', 1);
+    before.git.failNext('commitFiles', 1);
     before.runners.dsh.script(editing(before.git, ['src/feature/a.ts']));
     const task = before.task();
     await before.engine.runUntilIdle();

@@ -6,15 +6,34 @@
 // - globs: `*` matches within one segment, `**` matches zero or more segments, `?` one character.
 // Anything else (`[`, `{`, `!`) is treated literally by the matcher and as "uncertain" for
 // overlap checks.
+// - `.` and `./` are the repository root: they own every file and overlap every task (M7).
+// - `{ ignoreCase: true }` compares case-insensitively (a case-insensitive filesystem, e.g. the
+//   macOS default, where `src/A` and `src/a` are the same directory).
 
 const GLOB_CHARS = /[*?[\]{}!]/;
 
-function normalize(path: string): string {
-  let p = path.trim().replace(/\\/g, '/');
-  while (p.startsWith('./')) p = p.slice(2);
-  p = p.replace(/\/{2,}/g, '/');
-  if (p.length > 1 && p.endsWith('/')) p = p.slice(0, -1);
-  return p;
+export interface PathMatchOptions {
+  /** Compare case-insensitively (the project's filesystem ignores case). */
+  ignoreCase?: boolean;
+}
+
+/**
+ * Canonical form of a repo-relative path: no leading `./`, no `.` segments, no repeated or
+ * trailing `/`; the repository root is `''`. `..` segments are kept (the schema refuses them in
+ * owned paths; a file path containing one never matches a literal owned path).
+ */
+export function normalizeOwnedPath(path: string): string {
+  const segments = path
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((seg) => seg !== '' && seg !== '.');
+  return segments.join('/');
+}
+
+function normalize(path: string, opts: PathMatchOptions = {}): string {
+  const p = normalizeOwnedPath(path);
+  return opts.ignoreCase ? p.toLowerCase() : p;
 }
 
 function isGlob(path: string): boolean {
@@ -46,24 +65,38 @@ function globToRegExp(glob: string): RegExp {
 }
 
 /** True when `file` (repo-relative) is covered by at least one owned path. */
-export function isPathOwned(file: string, ownedPaths: readonly string[]): boolean {
-  const f = normalize(file);
+export function isPathOwned(
+  file: string,
+  ownedPaths: readonly string[],
+  opts: PathMatchOptions = {},
+): boolean {
+  const f = normalize(file, opts);
+  // a path that climbs out (`a/../../x`) is never owned by a literal or a glob
+  if (f.split('/').includes('..')) return false;
   return ownedPaths.some((raw) => {
-    const owned = normalize(raw);
-    if (owned === '' || owned === '.') return true;
+    const owned = normalize(raw, opts);
+    if (owned === '') return true;
     if (isGlob(owned)) return globToRegExp(owned).test(f);
     return f === owned || f.startsWith(`${owned}/`);
   });
 }
 
 /** Files not covered by `ownedPaths`. */
-export function filesOutside(files: readonly string[], ownedPaths: readonly string[]): string[] {
-  return files.filter((f) => !isPathOwned(f, ownedPaths));
+export function filesOutside(
+  files: readonly string[],
+  ownedPaths: readonly string[],
+  opts: PathMatchOptions = {},
+): string[] {
+  return files.filter((f) => !isPathOwned(f, ownedPaths, opts));
 }
 
 /** Literal directory prefix of a pattern (segments before the first glob segment). */
-function literalPrefix(pattern: string): { prefix: string[]; exact: boolean } {
-  const segments = normalize(pattern).split('/');
+function literalPrefix(
+  pattern: string,
+  opts: PathMatchOptions,
+): { prefix: string[]; exact: boolean } {
+  const normalized = normalize(pattern, opts);
+  const segments = normalized === '' ? [] : normalized.split('/');
   const out: string[] = [];
   for (const seg of segments) {
     if (GLOB_CHARS.test(seg)) return { prefix: out, exact: false };
@@ -76,12 +109,13 @@ function isPrefix(a: string[], b: string[]): boolean {
   return a.length <= b.length && a.every((seg, i) => seg === b[i]);
 }
 
-function patternsOverlap(a: string, b: string): boolean {
-  const pa = literalPrefix(a);
-  const pb = literalPrefix(b);
-  // A pattern that starts with a glob, is empty or escapes the repo is uncertain → overlap.
+function patternsOverlap(a: string, b: string, opts: PathMatchOptions): boolean {
+  const pa = literalPrefix(a, opts);
+  const pb = literalPrefix(b, opts);
+  // The repo root (`.`), a pattern starting with a glob or one that escapes the repo is
+  // uncertain → overlap.
   if (pa.prefix.length === 0 || pb.prefix.length === 0) return true;
-  if (pa.prefix[0] === '' || pb.prefix[0] === '') return true;
+  if (pa.prefix.includes('..') || pb.prefix.includes('..')) return true;
   // Literal paths own their whole subtree, and a glob's literal prefix bounds what it can match,
   // so two patterns can overlap only if one prefix is a path-prefix of the other.
   return isPrefix(pa.prefix, pb.prefix) || isPrefix(pb.prefix, pa.prefix);
@@ -91,7 +125,11 @@ function patternsOverlap(a: string, b: string): boolean {
  * Whether two tasks' owned paths may touch the same file. Conservative: anything uncertain
  * (globs at the root, empty lists) counts as overlapping (spec §8).
  */
-export function ownedPathsOverlap(a: readonly string[], b: readonly string[]): boolean {
+export function ownedPathsOverlap(
+  a: readonly string[],
+  b: readonly string[],
+  opts: PathMatchOptions = {},
+): boolean {
   if (a.length === 0 || b.length === 0) return true;
-  return a.some((pa) => b.some((pb) => patternsOverlap(pa, pb)));
+  return a.some((pa) => b.some((pb) => patternsOverlap(pa, pb, opts)));
 }

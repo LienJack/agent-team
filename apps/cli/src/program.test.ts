@@ -19,6 +19,7 @@ const project: Project = {
   repo_path: '/repos/demo',
   base_branch: 'main',
   checks: [{ name: 'test', cmd: 'pnpm test' }],
+  allow_network: false,
   created_at: T0,
 };
 const task: Task = {
@@ -33,6 +34,7 @@ const task: Task = {
   status: 'draft',
   impl_role: 'impl_C',
   fix_rounds: 0,
+  leader_retries: 0,
   attempts: 0,
   blocked_reason: null,
   version: 1,
@@ -175,8 +177,24 @@ describe('team — argument parsing', () => {
         { name: 'test', cmd: 'pnpm test' },
         { name: 'lint', cmd: 'pnpm lint' },
       ],
+      allow_network: false,
     });
     expect(io.text()).toBe('p_000001 demo /repos/demo (main, 1 check)\n');
+  });
+
+  it('project add --allow-network lets sandboxed workers of the project use the network', async () => {
+    const bodies: unknown[] = [];
+    const client = fakeClient({
+      createProject: async (b) => {
+        bodies.push(b);
+        return project;
+      },
+    });
+    expect(
+      await runCli(['project', 'add', 'demo', '/demo', '--allow-network'], captureIo(client)),
+    ).toBe(0);
+    expect(await runCli(['project', 'add', 'demo', '/demo'], captureIo(client))).toBe(0);
+    expect(bodies).toMatchObject([{ allow_network: true }, { allow_network: false }]);
   });
 
   it('attention open/answer pass question and options verbatim', async () => {

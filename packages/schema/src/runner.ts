@@ -46,8 +46,22 @@ export const RunSpecSchema = z.object({
   env: z.record(z.string(), z.string()).optional(),
   /** Session to resume (only for runners implementing `Resumable`). */
   resumeRef: z.string().optional(),
+  /**
+   * Per-run sandbox facts (docs/adr/0014). The runner adds the service-wide deny list (DATA, the
+   * service `.env`, credential directories) it was built with. Missing (a spec stored by an older
+   * version) = the strictest policy: no network, no repository paths.
+   */
+  sandbox: z
+    .object({
+      /** Project setting `allow_network` (never this machine's own addresses). */
+      allowNetwork: z.boolean(),
+      /** Primary checkout: its `.git` is readable (worktree git data), its `.env` is not. */
+      repoPath: z.string().min(1).optional(),
+    })
+    .optional(),
 });
 export type RunSpec = z.infer<typeof RunSpecSchema>;
+export type RunSandbox = NonNullable<RunSpec['sandbox']>;
 
 /**
  * Error kinds a runner reports. `start_unknown` = cannot tell whether the agent started (the
@@ -92,9 +106,18 @@ export type RunResult = z.infer<typeof RunResultSchema>;
 /** Reported through `RunHooks.onStarted` once the agent process is known to be running. */
 export const RunStartedInfoSchema = z.object({
   pid: PositiveIntSchema.optional(),
+  /** OS start time of `pid` (`ps -o lstart`), when known. */
+  pidStartedAt: z.string().optional(),
   sessionRef: z.string().optional(),
 });
 export type RunStartedInfo = z.infer<typeof RunStartedInfoSchema>;
+
+/** Reported through `RunHooks.onSpawned` right after the worker process exists. */
+export const RunSpawnInfoSchema = z.object({
+  pid: PositiveIntSchema,
+  pidStartedAt: z.string().optional(),
+});
+export type RunSpawnInfo = z.infer<typeof RunSpawnInfoSchema>;
 
 /** What `Runner.probe()` found (spec §7). Never contains credential values. */
 export const RunnerCapabilitiesSchema = z.object({

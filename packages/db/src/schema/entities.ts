@@ -26,6 +26,7 @@ export const project = sqliteTable('project', {
   repo_path: text().notNull(),
   base_branch: text().notNull(),
   checks: text({ mode: 'json' }).$type<Project['checks']>().notNull(),
+  allow_network: integer({ mode: 'boolean' }).notNull().default(false),
   created_at: text().notNull(),
 });
 
@@ -45,6 +46,7 @@ export const task = sqliteTable(
     status: text().$type<Task['status']>().notNull(),
     impl_role: text().notNull(),
     fix_rounds: integer().notNull(),
+    leader_retries: integer().notNull().default(0),
     attempts: integer().notNull(),
     blocked_reason: text(),
     version: integer().notNull(),
@@ -74,6 +76,7 @@ export const workspace = sqliteTable(
     branch: text().notNull(),
     base_sha: text().notNull(),
     head_sha: text(),
+    accepted_base_sha: text(),
     state: text().$type<Workspace['state']>().notNull(),
     created_at: text().notNull(),
     removed_at: text(),
@@ -114,6 +117,8 @@ export const run = sqliteTable(
     cost_usd: real(),
     log_dir: text().notNull(),
     pid: integer(),
+    pid_started_at: text(),
+    launched_at: text(),
     started_at: text().notNull(),
     ended_at: text(),
   },

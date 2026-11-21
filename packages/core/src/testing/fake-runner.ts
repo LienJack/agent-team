@@ -51,6 +51,10 @@ export interface FakeStep {
   onRun?: (spec: RunSpec) => void | Promise<void>;
   result?: RunResult | ((spec: RunSpec) => RunResult);
   pid?: number;
+  /** Behave like a process runner: `onLaunching`, then `onSpawned` with this pid/start time. */
+  spawn?: { pid: number; pidStartedAt?: string };
+  /** `onLaunching` only (a crash right after spawning, before the pid was reported). */
+  launchOnly?: boolean;
 }
 
 interface Held {
@@ -115,6 +119,8 @@ export class FakeRunner implements Runner {
   async run(spec: RunSpec, signal: AbortSignal, hooks?: RunHooks): Promise<RunResult> {
     this.calls.push(spec);
     const step = this.queue.shift() ?? this.defaultStep;
+    if (step.spawn || step.launchOnly) hooks?.onLaunching?.();
+    if (step.spawn) hooks?.onSpawned?.(step.spawn);
     const start = step.start ?? 'accepted';
     if (start === 'unknown') {
       return { error: { kind: 'start_unknown', message: 'spawn did not report' } };
@@ -123,7 +129,8 @@ export class FakeRunner implements Runner {
       const result = typeof step.result === 'function' ? step.result(spec) : step.result;
       return result?.error ? result : { error: { kind: 'crash', message: 'spawn failed' } };
     }
-    hooks?.onStarted?.(step.pid === undefined ? {} : { pid: step.pid });
+    const pid = step.pid ?? step.spawn?.pid;
+    hooks?.onStarted?.(pid === undefined ? {} : { pid });
 
     let override: RunResult | undefined;
     if (step.hold) {

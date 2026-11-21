@@ -2,6 +2,8 @@ import { TeamError } from '@agent-team/core';
 import { OpenAPIHono, type RouteHandler } from '@hono/zod-openapi';
 import {
   ALL_ROUTES,
+  answerAttention,
+  approveTask,
   createProject,
   getLeaderMessage,
   getRunLog,
@@ -9,6 +11,8 @@ import {
   listLeaderMessages,
   login,
   postLeaderMessage,
+  reassignTask,
+  rejectTask,
   resetLeader,
   streamEvents,
 } from '@agent-team/protocol';
@@ -23,7 +27,9 @@ import { registerWorkRoutes } from './routes-work.js';
 import { registerStatic } from './static.js';
 import type { AppContext, AppEnv } from './types.js';
 
-export type AppOptions = { listener: 'local'; token: string } | { listener: 'lan'; lan: LanAuth };
+export type AppOptions =
+  | { listener: 'local'; token: string; leaderToken: string }
+  | { listener: 'lan'; lan: LanAuth };
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -48,13 +54,19 @@ function lanForbidden(): MiddlewareHandler<AppEnv> {
 const routePattern = (path: string) => new RegExp(`^${path.replace(/\{[^}]+\}/g, '[^/]+')}$`);
 
 /**
- * Routes the leader actor may not call (spec §1 principle 1, §9): run logs and conversation
- * transcripts are for humans only; `team ask` (its own queue) and `team watch` (never ends) would
- * hang its turn; resetting its own conversation and registering local repositories (paths on this
- * machine, like the LAN rule of §11) are the owner's calls.
+ * Routes the leader actor may not call (spec §1 principle 1, §9; docs/adr/0014): run logs and
+ * conversation transcripts are for humans only; `team ask` (its own queue) and `team watch`
+ * (never ends) would hang its turn; decisions that bypass review or change what runs where —
+ * approve, reject, reassign, answering attention items — resetting its own conversation and
+ * registering local repositories are the owner's calls. The engine refuses the human-only
+ * commands to the leader as well; this list answers early with a clear hint.
  */
 export const LEADER_FORBIDDEN = [
   createProject,
+  approveTask,
+  rejectTask,
+  reassignTask,
+  answerAttention,
   getRunLog,
   listLeaderMessages,
   getLeaderMessage,
@@ -76,7 +88,7 @@ function leaderForbidden(): MiddlewareHandler<AppEnv> {
       throw new TeamError(
         'forbidden',
         `${c.req.method} ${c.req.path} is not available to the leader`,
-        'the leader works from receipts and `team task show`; run logs, transcripts and project registration are for humans',
+        'the leader works from receipts and `team task show`; approvals, answers, reassignment, run logs, transcripts and project registration are for humans (open an attention item)',
       );
     }
     await next();
@@ -102,7 +114,7 @@ export function createApp(ctx: AppContext, options: AppOptions): OpenAPIHono<App
   app.use('/auth/*', bodyLimit({ maxSize: 16 * 1024 }));
 
   if (options.listener === 'local') {
-    app.use('/api/*', bearerAuth(options.token));
+    app.use('/api/*', bearerAuth({ operator: options.token, leader: options.leaderToken }));
     app.use('/api/*', leaderForbidden());
   } else {
     app.use('/api/*', options.lan.originGuard);

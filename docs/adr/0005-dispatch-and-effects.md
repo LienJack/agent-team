@@ -24,7 +24,9 @@
   不套用它們的結果，而是把所有仍是 `starting`／`running` 的 run 標為 `abandoned`（`abandoned: service stopped`），
   任務回 `queued`（審查 run 則留在 `review`）並附復原說明、不耗 attempts——與啟動復原同一個函式
   （`abandonLiveRuns`），所以正常關機後下次啟動沒有東西要修。當機時沒有這一步，由下次的 `recover()` 補做。
-  第二次 Ctrl-C 強制結束前，伺服器先對每個 live run 的 pid 群組送 SIGKILL。
-- 指令的 `actor` 預設是 human（可用保留槽）；leader 透過 API 呼叫時伺服器必須明確傳 `{ kind: 'leader' }`。
+  第二次 Ctrl-C 強制結束前，伺服器先對每個 live run 的 pid 群組送 SIGKILL。關機也中止進行中的機器檢查（AbortSignal），
+  verify effect 保留到下次啟動；當機後的復原先終止殘留的 worker 群組（ADR 0015）。
+- 指令的 `actor` 預設是 human（可用保留槽）；leader 透過 API 呼叫時伺服器必須明確傳 `{ kind: 'leader' }`——由 leader 專用
+  的權杖決定，不看任何標頭（ADR 0014）。approve、reject、回答待決事項、改派、建專案只接受 human。
 - 冷卻、熔斷與額度狀態存在 `kv` 的 `runner_health:<runner>`（JSON）。熔斷：同一 runner 連續 3 次
   非限流、非取消的失敗 → 開路 `circuit_open_ms`；之後半開，一次成功即關閉，失敗立即再開。

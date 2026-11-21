@@ -31,13 +31,14 @@
 
 ## Ports（phase 2 各自實作，彼此不需溝通）
 
-| Port                                                                       | 檔案                                      | 實作者                               |
-| -------------------------------------------------------------------------- | ----------------------------------------- | ------------------------------------ |
-| `Store` + 11 個 repository                                                 | `packages/core/src/ports/repositories.ts` | `packages/db`（SQLite）              |
-| `Runner`、`RunHooks`、`RunnerRegistry`、`Resumable`、`QuotaReporting`      | `packages/core/src/ports/runner.ts`       | `packages/runners`                   |
-| `CheckExecutor`                                                            | `packages/core/src/ports/services.ts`     | `packages/runners`（共用子行程工具） |
-| `GitPort`                                                                  | `packages/core/src/ports/git.ts`          | `packages/git`                       |
-| `Clock`、`IdGen`、`Notifier`、`LeaderNotifier`、`EventPublisher`、`Logger` | `packages/core/src/ports/services.ts`     | `apps/server`（組裝）                |
+| Port                                                                       | 檔案                                          | 實作者                               |
+| -------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------ |
+| `Store` + 11 個 repository                                                 | `packages/core/src/ports/repositories.ts`     | `packages/db`（SQLite）              |
+| `ProcessControl`（復原時終止殘留 worker，ADR 0015）                        | `packages/core/src/ports/worker-processes.ts` | `packages/runners`                   |
+| `Runner`、`RunHooks`、`RunnerRegistry`、`Resumable`、`QuotaReporting`      | `packages/core/src/ports/runner.ts`           | `packages/runners`                   |
+| `CheckExecutor`                                                            | `packages/core/src/ports/services.ts`         | `packages/runners`（共用子行程工具） |
+| `GitPort`                                                                  | `packages/core/src/ports/git.ts`              | `packages/git`                       |
+| `Clock`、`IdGen`、`Notifier`、`LeaderNotifier`、`EventPublisher`、`Logger` | `packages/core/src/ports/services.ts`         | `apps/server`（組裝）                |
 
 重點契約（完整說明在各介面的 TSDoc）：
 
@@ -49,7 +50,8 @@
 - `Runner.run` 一定 resolve；收到 agent 的第一個事件時呼叫一次 `hooks.onStarted`；無法判斷是否啟動回
   `start_unknown`；收到 abort 終止整個行程群組並回 `cancelled`；自己執行 `timeoutMs`。
 - `RunSpec` 不放秘密（會存進 effect 表）；runner 自己取得它需要的那一個憑證。
-- `GitPort` 的方法要能重複執行（effect 可能在重啟後重跑）；檔案清單為 repo 相對 POSIX 路徑，排序去重。
+- `GitPort` 的方法要能重複執行（effect 可能在重啟後重跑）；檔案清單為 repo 相對 POSIX 路徑，排序去重。服務端只用
+  `commitFiles` 提交核對過的清單，不執行 repo 的 hooks（ADR 0016）。
 - `owned_paths` 的比對語意只有一份：`isPathOwned`／`ownedPathsOverlap`（`@agent-team/core`）。
 
 ## Engine 使用方式（apps/server）

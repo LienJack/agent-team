@@ -14,7 +14,10 @@ import { createTeamClient, type TeamClient, type TeamClientOptions } from './cli
 import { TeamApiError } from './errors.js';
 
 export interface DiscoverOptions {
-  /** Environment to read `AGENT_TEAM_HOME` from (default `process.env`). */
+  /**
+   * Environment to read `AGENT_TEAM_LISTENER_FILE` / `AGENT_TEAM_HOME` from (default
+   * `process.env`).
+   */
   env?: Readonly<Record<string, string | undefined>>;
 }
 
@@ -29,8 +32,14 @@ export function resolveDataDir(env: DiscoverOptions['env'] = process.env): strin
   return expandHome(fromEnv !== undefined && fromEnv !== '' ? fromEnv : DEFAULT_DATA_DIR);
 }
 
-/** Path of `DATA/run/listener.json`. */
-export function listenerFilePath(env?: DiscoverOptions['env']): string {
+/**
+ * The listener file to use: `AGENT_TEAM_LISTENER_FILE` when set (the leader's `team` points at
+ * `DATA/leader/listener.json`, which holds the leader-scoped token), else
+ * `DATA/run/listener.json` (the operator token).
+ */
+export function listenerFilePath(env: DiscoverOptions['env'] = process.env): string {
+  const explicit = env['AGENT_TEAM_LISTENER_FILE'];
+  if (explicit !== undefined && explicit !== '') return expandHome(explicit);
   return join(resolveDataDir(env), DATA_LAYOUT.listener);
 }
 

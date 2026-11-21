@@ -31,6 +31,16 @@ import { RunKindSchema, RunStateSchema, TaskStatusSchema } from '../status.js';
 
 // Request/response bodies for the routes under /api (spec §11). Wire shapes are snake_case.
 
+/**
+ * `client_msg_id` prefixes the server uses for messages it stores itself (leader replies, event
+ * digests, generated ids); a client id with one of them could shadow or pre-empt a server
+ * message, so the API refuses it.
+ */
+export const RESERVED_CLIENT_MSG_ID_PREFIXES = ['reply:', 'events:', 'm_'] as const;
+export function isReservedClientMsgId(id: string): boolean {
+  return RESERVED_CLIENT_MSG_ID_PREFIXES.some((p) => id.startsWith(p));
+}
+
 const queryInt = (min: number, max: number) => z.coerce.number().int().min(min).max(max);
 
 // -------------------------------------------------------------------- state
@@ -144,6 +154,8 @@ export const ProjectCreateRequestSchema = z.object({
   repo_path: z.string().startsWith('/', 'must be an absolute path'),
   base_branch: z.string().min(1).default('main'),
   checks: z.array(ProjectCheckSchema).default([]),
+  /** Let sandboxed worker commands use the network (never this machine's own ports). */
+  allow_network: z.boolean().default(false),
 });
 export type ProjectCreateRequest = z.input<typeof ProjectCreateRequestSchema>;
 export const ProjectResponseSchema = z.object({ project: ProjectSchema });
@@ -233,8 +245,18 @@ export const RunLogResponseSchema = z.object({
  */
 export const LeaderMessageRequestSchema = z.object({
   text: z.string().min(1).max(20000),
-  source: MessageSourceSchema,
-  client_msg_id: z.string().min(1).max(200),
+  /**
+   * Ignored (accepted for old clients): the server derives the source from the listener and the
+   * credential — LAN session → `web`, operator token → `cli`.
+   */
+  source: MessageSourceSchema.optional(),
+  client_msg_id: z
+    .string()
+    .min(1)
+    .max(200)
+    .refine((id) => !isReservedClientMsgId(id), {
+      message: `must not start with a server prefix (${RESERVED_CLIENT_MSG_ID_PREFIXES.join(', ')})`,
+    }),
   wait: z.boolean().default(true),
 });
 export type LeaderMessageRequest = z.input<typeof LeaderMessageRequestSchema>;
@@ -288,10 +310,13 @@ export const AttentionCreateRequestSchema = z.object({
 export type AttentionCreateRequest = z.input<typeof AttentionCreateRequestSchema>;
 export const AttentionListQuerySchema = z.object({ status: AttentionStatusSchema.optional() });
 export const AttentionListResponseSchema = z.object({ attention: z.array(AttentionSchema) });
-/** POST /attention/:id/answer */
+/**
+ * POST /attention/:id/answer (humans only). `via` is ignored (accepted for old clients) and
+ * derived like a message source: LAN → `web`, operator token → `cli`.
+ */
 export const AttentionAnswerRequestSchema = z.object({
   answer: z.string().min(1).max(4000),
-  via: AnswerViaSchema,
+  via: AnswerViaSchema.optional(),
 });
 export type AttentionAnswerRequest = z.infer<typeof AttentionAnswerRequestSchema>;
 export const AttentionResponseSchema = z.object({ attention: AttentionSchema });
