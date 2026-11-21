@@ -1,5 +1,6 @@
 // Test support: the scripted fake CLI (a real child process driven by a scenario file) and the
 // in-process fake runner. Safe to import from other packages' tests (no vitest import).
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -52,6 +53,11 @@ export function readRecords(recordPath: string): FakeCliRecord[] {
 export function lastRecord(recordPath: string): FakeCliRecord | undefined {
   const all = readRecords(recordPath);
   return all[all.length - 1];
+}
+
+/** The digest a `FakeCliRecord.envDigests` entry holds for `value`. */
+export function envDigest(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex').slice(0, 16);
 }
 
 /** Whether a process is still alive (signal 0). */

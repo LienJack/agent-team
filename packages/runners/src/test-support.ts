@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { receiptJsonSchema, type RunSpec } from '@agent-team/schema';
+import type { ModelKeyBroker } from './types.js';
 
 export function tempDir(prefix = 'agent-team-runners-'): { dir: string; cleanup: () => void } {
   const dir = mkdtempSync(join(tmpdir(), prefix));
@@ -45,4 +46,31 @@ export async function eventually(fn: () => boolean, ms = 3000): Promise<boolean>
     await sleep(25);
   }
   return fn();
+}
+
+/** A model-key broker double (docs/adr/0020): records leases; never holds a real key. */
+export function fakeKeys(opts: { hasKey?: boolean; port?: number; listening?: boolean } = {}) {
+  const port = opts.port ?? 47_001;
+  const opened: Array<{ runId: string; token: string; revoked: boolean }> = [];
+  const broker: ModelKeyBroker = {
+    hasKey: () => opts.hasKey ?? true,
+    open(runId) {
+      if (opts.listening === false) return undefined;
+      const lease = {
+        runId,
+        token: `at-run-test${opened.length}-${'t'.repeat(32)}`,
+        revoked: false,
+      };
+      opened.push(lease);
+      return {
+        token: lease.token,
+        port,
+        baseUrl: `http://127.0.0.1:${port}/api/v1`,
+        revoke: () => {
+          lease.revoked = true;
+        },
+      };
+    },
+  };
+  return { broker, opened, port };
 }

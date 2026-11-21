@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ClaudeRunner } from './claude/runner.js';
 import { CODEX_EXEC_FLAGS, CODEX_ISOLATION_FLAGS, CodexRunner } from './codex/runner.js';
 import { DshRunner } from './dsh/runner.js';
-import { fixtureLines, fixtureText, makeSpec, tempDir } from './test-support.js';
+import { fakeKeys, fixtureLines, fixtureText, makeSpec, tempDir } from './test-support.js';
 import {
   readRecords,
   writeScenario,
@@ -20,7 +20,6 @@ import {
 // the engine never resends it and asks a human.
 
 const fixtures = (runner: string) => new URL(`./${runner}/runner.ts`, import.meta.url).href;
-const KEY = ['sk', 'or', 'v1', 'e'.repeat(48)].join('-');
 
 interface Kind {
   name: 'claude' | 'codex' | 'dsh';
@@ -70,7 +69,7 @@ const KINDS: Kind[] = [
       },
     ],
     first: fixtureLines(fixtures('dsh'), 'success.jsonl')[0]!,
-    make: (command) => new DshRunner({ env: () => KEY, command, allowUnsandboxed: true }),
+    make: (command) => new DshRunner({ keys: fakeKeys().broker, command, allowUnsandboxed: true }),
     model: 'deepseek/deepseek-v4.1-flash',
   },
 ];

@@ -108,7 +108,7 @@ describe.skipIf(!enabled)('smoke: the real leader conversation', () => {
 
     service = createService({
       store,
-      runners: createRunnerRegistry({ env: () => undefined, fake: true }),
+      runners: createRunnerRegistry({ fake: true }),
       git: createGitPort({ worktreeRoot: loaded.worktreeRoot, author: loaded.service.git.author }),
       checks: createCheckExecutor({ allowUnsandboxed: true }),
       clock: { now: () => new Date() },

@@ -3,7 +3,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ConfigError, loadConfig, resolveDataDir } from './config.js';
-import { createEnvReader, envFilePath, findInDotenv } from './env.js';
+import { createEnvReader, envFilePath, findInDotenv, secretsInProcessEnv } from './env.js';
 
 let dir: string;
 
@@ -50,6 +50,22 @@ describe('env reader (spec §4: one variable at a time, process env wins)', () =
     const env = createEnvReader({ file: join(dir, 'missing.env'), processEnv: {} });
     expect(env.get('OPENROUTER_API_KEY')).toBeUndefined();
     expect(() => env.get('PATH' as never)).toThrow(/unknown env var/);
+  });
+
+  it('names the secrets set in the process environment, never their values (docs/adr/0020)', () => {
+    const names = secretsInProcessEnv({
+      OPENROUTER_API_KEY: 'sk-or-v1-from-process-env-0000',
+      TEAM_LAN_PASSWORD: 'pw-from-process',
+      JEV_API_KEY: '',
+      JEV_URL: 'http://jev.local',
+      AGENT_TEAM_HOME: '/tmp/x',
+    });
+    expect(names).toEqual(['OPENROUTER_API_KEY', 'TEAM_LAN_PASSWORD']);
+    expect(secretsInProcessEnv({})).toEqual([]);
+    // every secret the service uses is covered
+    expect(
+      secretsInProcessEnv({ OPENROUTER_API_KEY: 'x', JEV_API_KEY: 'x', TEAM_LAN_PASSWORD: 'x' }),
+    ).toEqual(['OPENROUTER_API_KEY', 'JEV_API_KEY', 'TEAM_LAN_PASSWORD']);
   });
 
   it('AGENT_TEAM_ENV_FILE overrides the project-root .env', () => {

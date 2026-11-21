@@ -1,9 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as CliDriver from '../cli-driver.js';
+import type { CliRunInput } from '../cli-driver.js';
 import { checkSandboxAvailable, SANDBOX_EXEC } from '../checks/sandbox.js';
-import { fixtureLines, makeSpec, tempDir } from '../test-support.js';
+import { fakeKeys, fixtureLines, makeSpec, tempDir } from '../test-support.js';
 import { lastRecord, readRecords, writeScenario, type FakeCliResponse } from '../testing/index.js';
 import { DSH_PATCH_FILE, DSH_STATE_DIR } from './args.js';
 import { DSH_UNSANDBOXED_PROBLEM, DshRunner, dshGitEnv } from './runner.js';
@@ -12,7 +15,18 @@ import { dshSandboxProfile } from './sandbox.js';
 // docs/adr/0019: dsh runs under Seatbelt with the worker deny list; without sandbox-exec it is
 // unavailable unless `runners.dsh.allow_unsandboxed` is set.
 
-const KEY = 'sk-or-v1-0123456789abcdef0123456789abcdef';
+// what the runner hands to the spawn (command and argv), recorded around the real driver
+const launches = vi.hoisted(() => [] as Array<Pick<CliRunInput, 'command' | 'args'>>);
+vi.mock('../cli-driver.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof CliDriver>();
+  return {
+    ...actual,
+    runCli: (input: CliRunInput) => {
+      launches.push({ command: input.command, args: input.args });
+      return actual.runCli(input);
+    },
+  };
+});
 const probe: FakeCliResponse[] = [
   { argv: ['--version'], stdout: '0.2.1-rc.5' },
   { argv: ['--help'], stdout: '  --profile <name>\n  --patch <path>' },
@@ -35,7 +49,7 @@ describe('dsh without a sandbox fails closed', () => {
       ),
     });
     const closed = new DshRunner({
-      env: () => KEY,
+      keys: fakeKeys().broker,
       command: s.command,
       sandboxAvailable: () => false,
     });
@@ -49,7 +63,7 @@ describe('dsh without a sandbox fails closed', () => {
     expect(readRecords(s.recordPath)).toHaveLength(spawnsBefore); // nothing ran
 
     const open = new DshRunner({
-      env: () => KEY,
+      keys: fakeKeys().broker,
       command: s.command,
       sandboxAvailable: () => false,
       allowUnsandboxed: true,
@@ -64,29 +78,44 @@ describe.skipIf(!checkSandboxAvailable())('dsh under Seatbelt (macOS)', () => {
   function layout() {
     const home = join(tmp.dir, 'home');
     const data = join(tmp.dir, 'data');
+    const dsh = join(home, '.dsh');
     const logDir = join(data, 'runs', 'r_1');
     const state = join(logDir, DSH_STATE_DIR);
-    for (const d of [
-      join(home, '.dsh', 'profiles'),
-      join(home, '.ssh'),
-      join(data, 'run'),
-      state,
-    ]) {
+    for (const d of [join(home, '.ssh'), join(data, 'run'), state]) {
       mkdirSync(d, { recursive: true });
     }
+    // ~/.dsh as a real one looks (docs/adr/0019 round 3): only profiles/headless is the run's
+    const files: Record<string, string> = {
+      'profiles/headless/cordis.yml': '[]\n',
+      'profiles/headless/cordis.patch.yml': '- id: x\n',
+      'profiles/headless/package.json': '{}\n',
+      'profiles/web/cordis.patch.yml': 'other profile\n',
+      '.credentials.yaml': 'secret\n',
+      '.env': 'OPENROUTER_API_KEY=x\n',
+      '.anonymous-user-id': 'id\n',
+      '.agent-presets/p/agent.cordis.yml': 'preset\n',
+      'sessions/s/a.jsonl': 'other session\n',
+      'storages/x.json': '{}\n',
+      'attachments/a.png': 'img\n',
+      'cache/attachments/request-images/ab/c.jpg': 'img\n',
+      'llm-deepseek/files-v3.json': '{}\n',
+    };
+    for (const [rel, text] of Object.entries(files)) {
+      mkdirSync(join(dsh, rel, '..'), { recursive: true });
+      writeFileSync(join(dsh, rel), text);
+    }
     writeFileSync(join(data, 'run', 'listener.json'), '{"token":"t"}\n');
-    writeFileSync(join(home, '.dsh', '.credentials.yaml'), 'secret\n');
-    writeFileSync(join(home, '.dsh', 'profiles', 'p.yml'), 'profile\n');
     writeFileSync(join(home, '.ssh', 'id'), 'key\n');
     writeFileSync(join(logDir, DSH_PATCH_FILE), 'patch\n');
     const cwd = join(tmp.dir, 'work');
     writeFileSync(join(cwd, '.git'), 'gitdir: /x\n');
     writeFileSync(join(cwd, 'a.txt'), 'a\n');
-    return { home, data, logDir, state, cwd };
+    return { home, data, dsh, logDir, state, cwd, files };
   }
   const sh = (profile: string, cmd: string, cwd: string) =>
     spawnSync(SANDBOX_EXEC, ['-p', profile, '/bin/sh', '-c', cmd], { cwd, encoding: 'utf8' })
       .status;
+  const cat = (p: string) => `cat ${JSON.stringify(p)}`;
 
   it('denies DATA, credentials and other writes; allows the worktree and its own state', () => {
     const l = layout();
@@ -97,26 +126,32 @@ describe.skipIf(!checkSandboxAvailable())('dsh under Seatbelt (macOS)', () => {
           writable,
           stateDir: l.state,
           patchPath: join(l.logDir, DSH_PATCH_FILE),
-          dshHome: join(l.home, '.dsh'),
+          dshHome: l.dsh,
         },
         { home: l.home, denyPaths: [l.data] },
       );
     const rw = profile(true);
-    expect(sh(rw, `cat ${JSON.stringify(join(l.data, 'run', 'listener.json'))}`, l.cwd)).not.toBe(
-      0,
-    );
-    expect(
-      sh(rw, `cat ${JSON.stringify(join(l.home, '.dsh', '.credentials.yaml'))}`, l.cwd),
-    ).not.toBe(0);
-    expect(sh(rw, `cat ${JSON.stringify(join(l.home, '.ssh', 'id'))}`, l.cwd)).not.toBe(0);
+    expect(sh(rw, cat(join(l.data, 'run', 'listener.json')), l.cwd)).not.toBe(0);
+    expect(sh(rw, cat(join(l.home, '.ssh', 'id')), l.cwd)).not.toBe(0);
     expect(sh(rw, `echo x > ${JSON.stringify(join(l.home, '.zshrc'))}`, l.cwd)).not.toBe(0);
     expect(sh(rw, 'printf "gitdir: /primary\\n" > .git', l.cwd)).not.toBe(0);
     expect(readFileSync(join(l.cwd, '.git'), 'utf8')).toBe('gitdir: /x\n');
+    // ~/.dsh is an allow-list: the booted profile's directory only
+    for (const rel of Object.keys(l.files)) {
+      expect({ rel, read: sh(rw, cat(join(l.dsh, rel)), l.cwd) === 0 }).toEqual({
+        rel,
+        read: rel.startsWith('profiles/headless/'),
+      });
+    }
+    expect(sh(rw, `ls ${JSON.stringify(join(l.dsh, 'sessions'))}`, l.cwd)).not.toBe(0);
+    expect(sh(rw, `ls ${JSON.stringify(l.dsh)}`, l.cwd)).not.toBe(0);
+    // dsh resets its root config on boot: that file is writable, its patch layer is not
+    const root = join(l.dsh, 'profiles/headless/cordis.yml');
+    expect(sh(rw, `echo '[]' > ${JSON.stringify(root)}`, l.cwd)).toBe(0);
+    const patchLayer = join(l.dsh, 'profiles/headless/cordis.patch.yml');
+    expect(sh(rw, `echo x > ${JSON.stringify(patchLayer)}`, l.cwd)).not.toBe(0);
     // what dsh needs
-    expect(sh(rw, `cat ${JSON.stringify(join(l.home, '.dsh', 'profiles', 'p.yml'))}`, l.cwd)).toBe(
-      0,
-    );
-    expect(sh(rw, `cat ${JSON.stringify(join(l.logDir, DSH_PATCH_FILE))}`, l.cwd)).toBe(0);
+    expect(sh(rw, cat(join(l.logDir, DSH_PATCH_FILE)), l.cwd)).toBe(0);
     expect(sh(rw, `echo s > ${JSON.stringify(join(l.state, 's.jsonl'))}`, l.cwd)).toBe(0);
     expect(sh(rw, 'cat a.txt && echo b > b.txt', l.cwd)).toBe(0);
     expect(existsSync(join(l.cwd, 'b.txt'))).toBe(true);
@@ -135,13 +170,50 @@ describe.skipIf(!checkSandboxAvailable())('dsh under Seatbelt (macOS)', () => {
       ),
     });
     const spec = makeSpec(tmp.dir);
-    const r = await new DshRunner({ env: () => KEY, command: s.command }).run(
-      spec,
-      new AbortController().signal,
-    );
+    const keys = fakeKeys({ port: 47_123 });
+    const data = join(tmp.dir, 'data');
+    mkdirSync(data);
+    launches.length = 0;
+    const r = await new DshRunner({
+      keys: keys.broker,
+      command: s.command,
+      sandbox: { denyPaths: [data], servicePorts: () => [47_100, keys.port] },
+    }).run(spec, new AbortController().signal);
     expect(r.error).toBeUndefined();
+    // the spawn: sandbox-exec -p <profile> <dsh> <dsh argv>
+    expect(launches).toHaveLength(1);
+    const { command, args } = launches[0]!;
+    const patchPath = join(spec.logDir, DSH_PATCH_FILE);
+    expect(command).toBe(SANDBOX_EXEC);
+    expect(args.slice(0, 1)).toEqual(['-p']);
+    expect(args.slice(2)).toEqual([
+      ...s.command,
+      '--profile',
+      'headless',
+      '--patch',
+      patchPath,
+      '--json',
+      '-',
+    ]);
+    const profile = args[1]!;
+    expect(profile.startsWith('(version 1)\n(allow default)\n')).toBe(true);
+    for (const rule of [
+      '(deny signal)',
+      '(allow signal (target same-sandbox))',
+      '(deny file-write* (subpath "/"))',
+      `(deny file-read* (subpath ${JSON.stringify(realpathSync(homedir()))}))`,
+      `(subpath ${JSON.stringify(realpathSync(data))})`,
+      `(allow file-read* file-write* (subpath ${JSON.stringify(join(realpathSync(spec.logDir), DSH_STATE_DIR))}))`,
+      '(deny network-outbound (remote ip "*:47100"))',
+    ]) {
+      expect(profile).toContain(rule);
+    }
+    // the key proxy's port is the one service port dsh may reach
+    expect(profile).not.toContain(`*:${keys.port}`);
+    // it ran inside: the fake dsh recorded its invocation
     expect(lastRecord(s.recordPath)!.argv.at(-1)).toBe('-');
-    const patch = readFileSync(join(spec.logDir, DSH_PATCH_FILE), 'utf8');
+    expect(keys.opened).toEqual([expect.objectContaining({ revoked: true })]);
+    const patch = readFileSync(patchPath, 'utf8');
     expect(patch).toContain('- id: session-persistence-jsonl');
     // dsh's own bash sandbox cannot nest inside Seatbelt: off, the outer profile confines it
     expect(patch).toContain('mode: "danger-full-access"');
@@ -152,6 +224,7 @@ describe.skipIf(!checkSandboxAvailable())('dsh under Seatbelt (macOS)', () => {
     expect(patch).toContain(
       `root: ${JSON.stringify(join(spec.logDir, DSH_STATE_DIR, 'storages'))}`,
     );
+    expect(patch).toContain(`baseURL: "http://127.0.0.1:${keys.port}/api/v1"`);
   });
 });
 
@@ -190,10 +263,11 @@ describe('git inside dsh (2026-11-21 sanity pass: "missing config key GIT_CONFIG
         (out) => ({ out }),
       ),
     });
-    await new DshRunner({ env: () => KEY, command: s.command, allowUnsandboxed: true }).run(
-      makeSpec(tmp.dir),
-      new AbortController().signal,
-    );
+    await new DshRunner({
+      keys: fakeKeys().broker,
+      command: s.command,
+      allowUnsandboxed: true,
+    }).run(makeSpec(tmp.dir), new AbortController().signal);
     const names = lastRecord(s.recordPath)!.envNames;
     expect(names).toEqual(expect.arrayContaining(['GIT_CONFIG_GLOBAL', 'XDG_CONFIG_HOME']));
     expect(names.filter((n) => n.startsWith('GIT_CONFIG_') && n !== 'GIT_CONFIG_GLOBAL')).toEqual(

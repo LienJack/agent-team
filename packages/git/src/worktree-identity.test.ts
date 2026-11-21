@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { isWorktreeIntegrityError } from '@agent-team/core';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -108,6 +116,44 @@ describe('worktree identity before every service git command', () => {
     expect(rebuilt.baseSha).toBe(mainBefore);
     await expect(fx.port.status(wt.ref)).resolves.toMatchObject({ clean: true });
     expect(fx.sh(fx.repo, 'rev-parse', 'main')).toBe(mainBefore);
+  });
+
+  it("rebuilding a worktree whose .git names another worktree's admin dir leaves that one intact", async () => {
+    const a = await newWorktree(fx, 't_aaaaaa');
+    const b = await newWorktree(fx, 't_bbbbbb');
+    const mainBefore = fx.sh(fx.repo, 'rev-parse', 'main');
+    writeFileSync(join(b.worktreePath, 'wip.txt'), "b's uncommitted work\n");
+    // the attack: A's pointer names B's admin dir (`git worktree repair A` would then rewrite
+    // B's admin `gitdir` to A, `worktree remove A` fail and the next prune delete B's admin dir)
+    writeFileSync(join(a.worktreePath, '.git'), readFileSync(join(b.worktreePath, '.git')));
+
+    const rebuilt = await fx.port.rebuildWorktree({ ...a.ref, baseBranch: 'main' });
+    expect(rebuilt.baseSha).toBe(mainBefore);
+    await expect(fx.port.status(a.ref)).resolves.toMatchObject({ clean: true });
+    // B: still a worktree of its own branch, its uncommitted file kept, its admin dir alive
+    fx.sh(fx.repo, 'worktree', 'prune');
+    await expect(fx.port.status(b.ref)).resolves.toMatchObject({ clean: false });
+    expect(readFileSync(join(b.worktreePath, 'wip.txt'), 'utf8')).toBe("b's uncommitted work\n");
+    expect(fx.sh(b.worktreePath, 'status', '--porcelain')).toBe('?? wip.txt');
+    expect(fx.sh(b.worktreePath, 'symbolic-ref', 'HEAD')).toBe('refs/heads/team/t_bbbbbb');
+    const list = fx.sh(fx.repo, 'worktree', 'list', '--porcelain');
+    expect(list).toContain(`worktree ${realpathSync(a.worktreePath)}\n`);
+    expect(list).toContain(`worktree ${realpathSync(b.worktreePath)}\n`);
+    expect(list).toContain('branch refs/heads/team/t_aaaaaa');
+    expect(list).toContain('branch refs/heads/team/t_bbbbbb');
+    expect(list).not.toContain('prunable');
+    expect(fx.sh(fx.repo, 'rev-parse', 'main')).toBe(mainBefore);
+  });
+
+  it('rebuild never writes through a .git symlink planted by the worker', async () => {
+    const wt = await newWorktree(fx);
+    const outside = join(fx.dir, 'outside.txt');
+    writeFileSync(outside, 'untouched\n');
+    rmSync(join(wt.worktreePath, '.git'));
+    symlinkSync(outside, join(wt.worktreePath, '.git'));
+    await fx.port.rebuildWorktree({ ...wt.ref, baseBranch: 'main' });
+    expect(readFileSync(outside, 'utf8')).toBe('untouched\n');
+    await expect(fx.port.status(wt.ref)).resolves.toMatchObject({ clean: true });
   });
 
   it('an intact worktree passes and commits on its own branch only', async () => {

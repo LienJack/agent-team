@@ -20,6 +20,13 @@ describe('schema: redactSecrets', () => {
     expect(() => JSON.parse(JSON.parse(JSON.parse(out) as string) as string)).not.toThrow();
   });
 
+  it("masks the model-key proxy's run tokens wherever they appear (docs/adr/0020)", () => {
+    const token = 'at-run-Zk3_9-qL0aBcDeFgHiJkLmNoPqRsTuVwXyZ012345';
+    expect(redactSecrets(`dsh said: invalid key ${token}.`)).toBe(
+      `dsh said: invalid key ${REDACTED}.`,
+    );
+  });
+
   it('still masks plain assignments and leaves counts alone', () => {
     expect(redactSecrets('API_KEY=supersecretvalue1')).toBe(`API_KEY=${REDACTED}`);
     expect(redactSecrets('"token": "abcdefghij123"')).toBe(`"token": "${REDACTED}"`);

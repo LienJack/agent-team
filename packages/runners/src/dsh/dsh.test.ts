@@ -6,8 +6,14 @@ import { extractFirstJsonObject, unwrapSchemaEcho } from '../json.js';
 import { parseJsonLine } from '../process/lines.js';
 import type { ChildResult } from '../process/spawn.js';
 import { REDACTED } from '../redact.js';
-import { fixtureLines, fixtureText, makeSpec, tempDir } from '../test-support.js';
-import { lastRecord, writeScenario, type FakeCliResponse } from '../testing/index.js';
+import { fakeKeys, fixtureLines, fixtureText, makeSpec, tempDir } from '../test-support.js';
+import {
+  envDigest,
+  lastRecord,
+  readRecords,
+  writeScenario,
+  type FakeCliResponse,
+} from '../testing/index.js';
 import { DSH_PATCH_FILE, dshPatch } from './args.js';
 import { DshRunner } from './runner.js';
 import { DshStream } from './stream.js';
@@ -104,25 +110,34 @@ beforeEach(() => {
 afterEach(() => tmp.cleanup());
 
 describe('runners: dsh argv', () => {
-  it('runs headless with the generated patch, the key only in the child env, and redacts it', async () => {
+  it('runs headless with the generated patch; the child gets a run token, never the key (docs/adr/0020)', async () => {
     const spec = makeSpec(tmp.dir, {
       model: 'deepseek/deepseek-v4.1-flash',
       dispatchId: 'd_fixture0002',
     });
+    const keys = fakeKeys();
     const s = await writeScenario(tmp.dir, {
       responses: probe,
       steps: [
-        { err: `debug: using key ${KEY}` },
+        { err: `debug: using key ${keys.broker.open('peek')!.token}` },
         ...fixtureLines(import.meta.url, 'success.jsonl').map((out) => ({ out })),
       ],
     });
+    keys.opened.length = 0;
     const runner = new DshRunner({
-      env: (name) => (name === 'OPENROUTER_API_KEY' ? KEY : undefined),
+      keys: keys.broker,
       command: s.command,
       // dsh's own sandbox modes (the opt-in without Seatbelt); the wrapper: dsh-sandbox.test.ts
       allowUnsandboxed: true,
       sandboxAvailable: () => false,
-      sourceEnv: { ...process.env, OPENROUTER_API_KEY: 'from-service-env', GIT_WORK_TREE: '/x' },
+      sourceEnv: {
+        ...process.env,
+        OPENROUTER_API_KEY: KEY,
+        TEAM_LAN_PASSWORD: 'lan-password-value',
+        GIT_WORK_TREE: '/x',
+        NO_PROXY: 'corp.example',
+        HTTPS_PROXY: 'http://proxy.corp.example:3128',
+      },
     });
     const r = await runner.run(spec, new AbortController().signal);
     expect(r.error).toBeUndefined();
@@ -139,14 +154,29 @@ describe('runners: dsh argv', () => {
       ]),
     );
     expect(rec.envNames).not.toContain('GIT_WORK_TREE');
+    expect(rec.envNames).not.toContain('TEAM_LAN_PASSWORD');
+    // one lease for the run, revoked when it ended; its token is the child's key
+    expect(keys.opened).toEqual([
+      { runId: 'd_fixture0002', token: expect.stringMatching(/^at-run-/), revoked: true },
+    ]);
+    const token = keys.opened[0]!.token;
+    expect(rec.envDigests['OPENROUTER_API_KEY']).toBe(envDigest(token));
+    expect(Object.values(rec.envDigests)).not.toContain(envDigest(KEY));
+    // loopback never goes through an outer proxy
+    expect(rec.envDigests['NO_PROXY']).toBe(envDigest('corp.example,127.0.0.1,localhost,::1'));
+    expect(rec.envDigests['no_proxy']).toBe(envDigest('corp.example,127.0.0.1,localhost,::1'));
     const patch = readFileSync(patchPath, 'utf8');
     expect(patch).toContain('model: "deepseek/deepseek-v4.1-flash"');
     expect(patch).toContain('provider: "openrouter"');
     expect(patch).toContain('mode: "workspace-write"');
+    expect(patch).toContain(
+      `- id: llm-pi-ai\n  config:\n    providers:\n      openrouter:\n        apiKeyEnv: "OPENROUTER_API_KEY"\n        baseURL: "http://127.0.0.1:${keys.port}/api/v1"\n`,
+    );
     expect(patch).not.toContain(KEY);
+    expect(patch).not.toContain(token);
     const stderr = readFileSync(join(spec.logDir, 'stderr.log'), 'utf8');
     expect(stderr).toContain(REDACTED);
-    expect(stderr).not.toContain(KEY);
+    expect(stderr).not.toContain('at-run-test');
   });
 
   it('uses a read-only sandbox for review runs and --session-id for resume', async () => {
@@ -157,7 +187,7 @@ describe('runners: dsh argv', () => {
       steps: fixtureLines(import.meta.url, 'no-json.jsonl').map((out) => ({ out })),
     });
     const runner = new DshRunner({
-      env: () => KEY,
+      keys: fakeKeys().broker,
       command: s.command,
       allowUnsandboxed: true,
       sandboxAvailable: () => false,
@@ -176,22 +206,46 @@ describe('runners: dsh argv', () => {
     ]);
   });
 
-  it('fails with auth before spawning when the key is missing', async () => {
+  it('fails with auth before spawning when the server has no key, no proxy or a stopped one', async () => {
     const s = await writeScenario(tmp.dir, { responses: probe });
-    const runner = new DshRunner({
-      env: () => undefined,
+    for (const [keys, problem] of [
+      [fakeKeys({ hasKey: false }).broker, 'OPENROUTER_API_KEY is not set'],
+      [undefined, 'the model-key proxy is not running (docs/adr/0020)'],
+    ] as const) {
+      const runner = new DshRunner({
+        ...(keys ? { keys } : {}),
+        command: s.command,
+        allowUnsandboxed: true,
+        // the real key in the service's environment is never a fallback
+        sourceEnv: { ...process.env, OPENROUTER_API_KEY: KEY },
+      });
+      const r = await runner.run(makeSpec(tmp.dir), new AbortController().signal);
+      expect(r.error).toMatchObject({ kind: 'auth', message: problem });
+      const caps = await runner.probe();
+      expect(caps).toMatchObject({ available: false, credentials: 'missing' });
+      expect(caps.problems).toContain(problem);
+      expect(caps.flags).toEqual(['--json', '--patch', '--profile', '--session-id']);
+    }
+    const stopped = fakeKeys({ listening: false });
+    const r = await new DshRunner({
+      keys: stopped.broker,
       command: s.command,
       allowUnsandboxed: true,
-    });
-    const r = await runner.run(makeSpec(tmp.dir), new AbortController().signal);
+    }).run(makeSpec(tmp.dir), new AbortController().signal);
     expect(r.error?.kind).toBe('auth');
-    const caps = await runner.probe();
-    expect(caps).toMatchObject({ available: false, credentials: 'missing' });
-    expect(caps.flags).toEqual(['--json', '--patch', '--profile', '--session-id']);
+    // probes only: nothing ran
+    expect(
+      readRecords(s.recordPath).every(
+        (x) => x.argv.includes('--help') || x.argv.includes('--version'),
+      ),
+    ).toBe(true);
   });
 
   it('reports a missing binary as unavailable', async () => {
-    const runner = new DshRunner({ env: () => KEY, sourceEnv: { PATH: join(tmp.dir, 'nothing') } });
+    const runner = new DshRunner({
+      keys: fakeKeys().broker,
+      sourceEnv: { PATH: join(tmp.dir, 'nothing') },
+    });
     expect(await runner.probe()).toMatchObject({
       available: false,
       problems: ['dsh executable not found on PATH'],

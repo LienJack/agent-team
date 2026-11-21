@@ -7,6 +7,8 @@ export const REDACTED = '[REDACTED]';
 const PATTERNS: RegExp[] = [
   // provider keys: sk-..., sk-or-v1-..., sk-ant-..., sk-proj-...
   /\bsk-[A-Za-z0-9_-]{16,}/g,
+  // the model-key proxy's per-run tokens (docs/adr/0020)
+  /\bat-run-[A-Za-z0-9_-]{16,}/g,
   // GitHub tokens
   /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}/g,
   /\bgithub_pat_[A-Za-z0-9_]{20,}/g,

@@ -15,8 +15,11 @@ import { denyPathsFor, strip, type SandboxPolicy } from '../sandbox-policy.js';
 // - no connections to the service's own ports (local and LAN listener, on any address). Other
 //   loopback ports stay usable (test suites start their own servers) and so does the network:
 //   check commands such as `pnpm install` are the project owner's configuration. The tokens and
-//   the LAN password are unreadable anyway; the port rule is defence in depth.
-// Elsewhere (Linux) checks run without this sandbox; the ADR lists that as a residual risk.
+//   the LAN password are unreadable anyway; the port rule is defence in depth. The model-key
+//   proxy's port is one of those ports (docs/adr/0020);
+// - signals only to the sandbox's own processes, no unix sockets into home, DATA or the
+//   agent/container sockets (`confinedProcess`, docs/adr/0019 round 3).
+// Elsewhere (Linux) checks do not run unless `checks.allow_unsandboxed` (docs/adr/0019).
 
 export const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 
@@ -55,6 +58,56 @@ export function confinedWrites(home: string, writable: readonly string[]): strin
   ];
 }
 
+/** Container runtimes' socket directories under home (Docker Desktop's `~/.docker` is in HOME_DENY). */
+export const HOME_SOCKET_DIRS = [
+  '.orbstack',
+  '.colima',
+  '.lima',
+  '.rd',
+  '.local/share/containers',
+  'Library/Containers/com.docker.docker',
+] as const;
+
+/** The Docker socket path outside home (often a symlink into one of the dirs above). */
+export const DOCKER_SOCKET = '/var/run/docker.sock';
+
+/**
+ * Process and IPC confinement shared by the check and dsh profiles (docs/adr/0019, round 3):
+ * - signals only to processes in the same sandbox (the run's own children): nothing outside it
+ *   (the service, the user's shells, other runs) can be stopped or killed;
+ * - no unix-socket connections into home (except the worktree), the deny list (DATA holds the
+ *   leader's API socket), container runtimes (`/var/run/docker.sock` and its real target),
+ *   launchd's per-user socket dirs (the ssh-agent `SSH_AUTH_SOCK`: `/private/var/run/` on current
+ *   macOS, `/private/tmp/` before) and tmux servers. File rules do not cover a socket `connect`
+ *   (measured), so each needs its own rule; Seatbelt matches the resolved path, so a symlinked
+ *   socket is denied by its target, and one `(remote unix-socket …)` filter per path (several
+ *   paths inside one filter do not match as alternatives — measured too).
+ */
+export function confinedProcess(input: {
+  home: string;
+  cwd: string;
+  deny: readonly string[];
+}): string[] {
+  const remote = (paths: readonly string[], kind: 'subpath' | 'literal') =>
+    [...new Set(paths)].map((p) => `(remote unix-socket (${kind} ${q(p)}))`).join(' ');
+  const docker = [...new Set([real(DOCKER_SOCKET), `/private${DOCKER_SOCKET}`])];
+  return [
+    '(deny signal)',
+    '(allow signal (target same-sandbox))',
+    `(deny network-outbound ${remote([input.home], 'subpath')})`,
+    `(allow network-outbound ${remote([input.cwd], 'subpath')})`,
+    `(deny network-outbound ${remote([...input.deny, ...HOME_SOCKET_DIRS.map((p) => real(join(input.home, p)))], 'subpath')} ${remote(docker, 'literal')})`,
+    '(deny network-outbound (remote unix-socket (path-regex #"^/private/(tmp|var/run)/com\\.apple\\.launchd\\.[^/]+/")))',
+    `(deny network-outbound ${[...new Set(['/private/tmp', real(tmpdir())])]
+      .filter((d) => !d.includes('"'))
+      .map((d) => `(remote unix-socket (path-regex #"^${escapeRegex(d)}/tmux-[0-9]+/"))`)
+      .join(' ')})`,
+  ];
+}
+
+/** `s` as a literal inside an SBPL `#"…"` regex. */
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /** The SBPL profile of one check run in `cwd` (the worktree). */
 export function checkSandboxProfile(
   input: { cwd: string; repoPath?: string },
@@ -81,6 +134,7 @@ export function checkSandboxProfile(
         ]
       : []),
     `(deny file-read* file-write* ${deny.map((p) => `(subpath ${q(p)})`).join(' ')})`,
+    ...confinedProcess({ home, cwd, deny }),
     ...ports.map((p) => `(deny network-outbound (remote ip "*:${p}"))`),
   ].join('\n');
 }

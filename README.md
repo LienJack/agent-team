@@ -40,13 +40,19 @@ alias team="node /ABS/PATH/agent-team/apps/cli/dist/bin.js"
 
 複製 `.env.example` 成 `.env`（git 忽略；`AGENT_TEAM_ENV_FILE` 可改指別的位置），只填你用得到的：
 
-| 變數                                     | 用途                                                                       |
-| ---------------------------------------- | -------------------------------------------------------------------------- |
-| `OPENROUTER_API_KEY`                     | dsh worker 與 `hub_summarizer`（經 OpenRouter）；只會放進 dsh 子行程的環境 |
-| `TEAM_LAN_PASSWORD`                      | 看板登入密碼；留空則每次啟動產生一組，只在終端機印一次                     |
-| `JEV_API_KEY`、`JEV_URL`、`JEV_PROVIDER` | Jev 判定關卡（預設關閉，v1 不用）                                          |
+| 變數                                     | 用途                                                                                       |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `OPENROUTER_API_KEY`                     | dsh worker 與 `hub_summarizer`（經 OpenRouter）；留在服務端的金鑰代理，dsh 只拿到 run 權杖 |
+| `TEAM_LAN_PASSWORD`                      | 看板登入密碼；留空則每次啟動產生一組，只在終端機印一次                                     |
+| `JEV_API_KEY`、`JEV_URL`、`JEV_PROVIDER` | Jev 判定關卡（預設關閉，v1 不用）                                                          |
 
-秘密不會進資料庫、日誌、API 回應或 worker 的派工單。`team doctor` 只顯示「有／沒有」，不顯示值。
+秘密不會進資料庫、日誌、API 回應、worker 的派工單或任何子行程的環境。`team doctor` 只顯示「有／沒有」，不顯示值。
+
+**秘密只放在 `.env`，不要 `export` 到啟動服務的 shell。** 同一個使用者的任何行程都讀得到另一個行程啟動時的環境
+（`sysctl KERN_PROCARGS2`，Seatbelt 也擋不住）：服務啟動時若在自己的行程環境裡看到 `OPENROUTER_API_KEY`、
+`TEAM_LAN_PASSWORD`、`JEV_API_KEY`，會對每一個記一條 `secret in the process environment` 警告（只寫名稱）。事後清掉
+`process.env` 沒有用——被讀的是啟動時的那份。dsh 同理拿不到真金鑰：服務端在 `127.0.0.1` 的臨時埠跑一個金鑰代理，
+每個 dsh run 只拿到一個 run 結束就撤銷的權杖（ADR 0020）。
 
 ## 啟動
 
@@ -244,38 +250,41 @@ team leader reset
 
 先跑 `team doctor`：各 runner 是否可用、版本與支援的參數、憑證有沒有就緒（只顯示有無）、資料目錄與資料庫。
 
-| 症狀                                             | 處理                                                                                                                         |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `agent-team is not running (no …/listener.json)` | 服務沒開：`team serve`；或 `AGENT_TEAM_HOME` 與服務不一致                                                                    |
-| `127.0.0.1:4517 is already in use`               | 另一個 agent-team 還在跑，或改 `service.json` 的埠                                                                           |
-| 看板 403 `origin … is not allowed`               | 用服務印出的網址開；反向代理或開發伺服器的來源加進 `lan.allowed_origins`                                                     |
-| 看板登入 429                                     | 連續輸錯 5 次，鎖 15 分鐘                                                                                                    |
-| leader 顯示離線 `auth`                           | `claude` 重新登入後 `team leader reset`                                                                                      |
-| leader 顯示離線 `rate_limit`                     | 額度用完，會在顯示的時間自動重試；或換帳號後 `team leader reset`                                                             |
-| leader 顯示離線 `not_installed`                  | 找不到 `claude` 或 `apps/cli/dist`：安裝／`pnpm build` 後 `team leader reset`                                                |
-| leader 顯示離線 `disabled`                       | `service.json` 的 `leader.enabled` 是 false                                                                                  |
-| 任務 `blocked`，原因 `start_unknown`             | worker 是否已開始工作無法判定，不會自動重送；確認 worktree 後 `team task retry`                                              |
-| worktree 標為 `kept`                             | 移除時發現未提交的變更（或沒通過身分檢查），已保留並開一筆待決事項，請手動處理                                               |
-| 任務 `blocked`，原因 `worktree_integrity:`       | worktree 的 `.git` 被改寫（ADR 0018），服務端拒絕在其中執行 git、沒有提交；檢查後在主 repo `git worktree repair`，再由人重試 |
-| 任務 `blocked`，原因「機器檢查沒有執行」         | 這台電腦沒有 `sandbox-exec`（Linux）：檢查不在沙箱外執行；確定要跑就設 `checks.allow_unsandboxed: true`（ADR 0019）          |
-| `team doctor` 顯示 dsh 不可用（sandbox-exec）    | dsh 只在 Seatbelt 內執行；Linux 上要明確設 `runners.dsh.allow_unsandboxed: true`（ADR 0019）                                 |
-| leader 顯示離線 `not_installed`（socket path）   | `AGENT_TEAM_HOME` 太長，`DATA/leader/api.sock` 超過 unix socket 的 103 位元組：改用較短的路徑                                |
-| 卡片顯示「等待：…」                              | 排隊的任務為什麼還沒派出（路徑重疊、沒有槽位、runner 冷卻、退避、基底漂移）；事件 `task.waiting`                             |
+| 症狀                                             | 處理                                                                                                                                                                                                |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent-team is not running (no …/listener.json)` | 服務沒開：`team serve`；或 `AGENT_TEAM_HOME` 與服務不一致                                                                                                                                           |
+| `127.0.0.1:4517 is already in use`               | 另一個 agent-team 還在跑，或改 `service.json` 的埠                                                                                                                                                  |
+| 看板 403 `origin … is not allowed`               | 用服務印出的網址開；反向代理或開發伺服器的來源加進 `lan.allowed_origins`                                                                                                                            |
+| 看板登入 429                                     | 連續輸錯 5 次，鎖 15 分鐘                                                                                                                                                                           |
+| leader 顯示離線 `auth`                           | `claude` 重新登入後 `team leader reset`                                                                                                                                                             |
+| leader 顯示離線 `rate_limit`                     | 額度用完，會在顯示的時間自動重試；或換帳號後 `team leader reset`                                                                                                                                    |
+| leader 顯示離線 `not_installed`                  | 找不到 `claude` 或 `apps/cli/dist`：安裝／`pnpm build` 後 `team leader reset`                                                                                                                       |
+| leader 顯示離線 `disabled`                       | `service.json` 的 `leader.enabled` 是 false                                                                                                                                                         |
+| 任務 `blocked`，原因 `start_unknown`             | worker 是否已開始工作無法判定，不會自動重送；確認 worktree 後 `team task retry`                                                                                                                     |
+| worktree 標為 `kept`                             | 移除時發現未提交的變更（或沒通過身分檢查），已保留並開一筆待決事項，請手動處理                                                                                                                      |
+| 任務 `blocked`，原因 `worktree_integrity:`       | worktree 的 `.git` 被改寫（ADR 0018），服務端拒絕在其中執行 git、沒有提交；檢查後由人選「重建 worktree」（刪掉重建，不跟隨被改的指標），或在主 repo 執行**不帶路徑**的 `git worktree repair` 再重試 |
+| 任務 `blocked`，原因「機器檢查沒有執行」         | 這台電腦沒有 `sandbox-exec`（Linux）：檢查不在沙箱外執行；確定要跑就設 `checks.allow_unsandboxed: true`（ADR 0019）                                                                                 |
+| `team doctor` 顯示 dsh 不可用（sandbox-exec）    | dsh 只在 Seatbelt 內執行；Linux 上要明確設 `runners.dsh.allow_unsandboxed: true`（ADR 0019）                                                                                                        |
+| leader 顯示離線 `not_installed`（socket path）   | `AGENT_TEAM_HOME` 太長，`DATA/leader/api.sock` 超過 unix socket 的 103 位元組：改用較短的路徑                                                                                                       |
+| 卡片顯示「等待：…」                              | 排隊的任務為什麼還沒派出（路徑重疊、沒有槽位、runner 冷卻、退避、基底漂移）；事件 `task.waiting`                                                                                                    |
 
 ## 已知限制
 
 - **持有區網密碼的人就能讓 agent 在這台電腦上執行程式碼**（派工、退回、回答待決事項都能從看板做）。區網密碼等同
   這台電腦上一個受限的 shell，只給信任的人。
-- 沙箱擋什麼（ADR 0014、0018、0019）：三家 worker 讀寫只限 worktree（與暫存、套件快取），讀不到 DATA（資料庫、含權杖
+- 沙箱擋什麼（ADR 0014、0018、0019、0020）：三家 worker 讀寫只限 worktree（與暫存、套件快取），讀不到 DATA（資料庫、含權杖
   的 listener 檔）、`.env`、`~/.ssh` 等憑證目錄，也不能改寫 worktree 的 `.git` 指標檔：claude worker 在 Claude Code 的
   沙箱內（連不到任何本機埠）、codex 用權限設定檔、dsh 整個行程在 macOS Seatbelt（`sandbox-exec`）內（服務自己的埠在
   任何位址都連不到）。服務端在 worktree 裡的每一個 git 指令之前都先核對 worktree 的身分，`.git` 被改寫就拒絕、不提交、
-  阻塞並開待決事項。macOS 上機器檢查也在 Seatbelt 內（可起自己的本機測試伺服器，連不到服務的埠）；沒有
+  阻塞並開待決事項。macOS 上機器檢查也在 Seatbelt 內（可起自己的本機測試伺服器，連不到服務的埠）。dsh 與機器檢查
+  都不能對沙箱外的行程送訊號，也連不到家目錄（worktree 除外）、DATA（leader 的 API socket）、ssh-agent、Docker／
+  OrbStack 與 tmux 的 unix socket；dsh 在 `~/.dsh` 只讀得到 `profiles/headless`。沒有
   `sandbox-exec` 的平台（Linux）上，檢查與 dsh **預設不執行**，要明確設 `checks.allow_unsandboxed`／
   `runners.dsh.allow_unsandboxed` 才會不經沙箱執行。leader 的 Bash 也在 Claude Code 的沙箱內，只開放 `team` shim 需要
   的檔案與一個 unix socket（ADR 0012）。
 - **不擋**：`allow_network` 開啟時 worker 能把 worktree 內容送到公開網站；dsh 的網路沒有網域白名單（Seatbelt 只能寫
-  `localhost` 或 `*`），只擋服務的埠；worker 讀得到主 repo 的 `.git/config`（遠端網址若含權杖會外洩）；dsh 在沙箱內
+  `localhost` 或 `*`），只擋服務的埠；dsh run 進行中，同一使用者的其他行程讀得到該 run 的權杖、在 run 結束前可經金鑰
+  代理花用額度（但拿不到金鑰本身，ADR 0020）；金鑰代理直接連 OpenRouter，不經環境裡的 `HTTPS_PROXY`；worker 讀得到主 repo 的 `.git/config`（遠端網址若含權杖會外洩）；dsh 在沙箱內
   每次啟動都會改寫自己設定檔裡的空白根設定（`~/.dsh/profiles/headless/cordis.yml`，內容由 dsh 重設）。listener 檔只靠
   0600 權限保護：同一個使用者、**不在任何沙箱內**的行程（你自己的工具，以及 leader 的 claude 行程本身——沙箱套在它執行
   的 Bash 上）都讀得到 operator 權杖。Linux 上的 Claude Code 沙箱（bubblewrap）沒有在本機驗證過，且 Claude Code 在
@@ -297,7 +306,8 @@ team leader reset
   完全相同的請求由伺服器去重（Idempotency-Key 由訊息 id 與內容推導）；內容稍有不同的重複建立仍要靠 leader 先查
   `team task list`（ADR 0012）。
 - codex 與 dsh 的費用是**估算**（token 用量 × 牌價，cache 讀取以 10% 計），不是帳單。
-- `AGENT_TEAM_HOME` 不要太長：`DATA/leader/api.sock` 必須在 103 位元組內，否則 leader 不可用。
+- `AGENT_TEAM_HOME` 不要太長：`DATA/leader/api.sock` 必須在 103 位元組內，否則 leader 不可用；socket 因任何原因綁不起來
+  時 leader 也標為不可用（`not_installed`，提示寫原因），訊息照常保存，修好後重啟服務。
 - 看板與 Grok 主動通知是單一使用者設計；沒有帳號與權限分級。
 
 ## 開發

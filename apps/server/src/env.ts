@@ -26,6 +26,21 @@ export function isKnownEnvVar(name: string): name is EnvVarName {
   return ENV_VARS.some((v) => v.name === name);
 }
 
+/**
+ * Names of the secret variables the service uses that are set in its own process environment
+ * (not only in `.env`). Any process of the same user can read another process's exec
+ * environment (`sysctl KERN_PROCARGS2`), so the server warns about each at startup (docs/adr/0020);
+ * scrubbing `process.env` would not help — the original exec block is what is read.
+ */
+export function secretsInProcessEnv(processEnv: ProcessEnv): string[] {
+  return ENV_VARS.filter((v) => v.secret)
+    .map((v) => v.name)
+    .filter((name) => {
+      const value = processEnv[name];
+      return value !== undefined && value !== '';
+    });
+}
+
 /** Parse one value of a dotenv line (quotes, escapes in double quotes, inline comments). */
 function parseValue(raw: string): string {
   const value = raw.trim();

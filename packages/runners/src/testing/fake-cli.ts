@@ -4,10 +4,12 @@
 //
 // Invocation: `node fake-cli.(ts|js) --fake-scenario <scenario.json> <args the runner passes…>`.
 // It records (appending one JSON line per invocation to `scenario.recordPath`) the argv it
-// received, the NAMES of its environment variables (never values), its cwd, the stdin text and
+// received, the NAMES of its environment variables (never values; a short sha-256 digest of each
+// value, so tests can prove which secret is or is not there), its cwd, the stdin text and
 // whether stdin reached EOF (was closed), then either answers a probe `response` whose argv
 // matches exactly or plays the scenario `steps`.
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
@@ -51,6 +53,8 @@ export interface FakeScenario {
 export interface FakeCliRecord {
   argv: string[];
   envNames: string[];
+  /** name → first 16 hex chars of sha-256(value) (`envDigest`). */
+  envDigests: Record<string, string>;
   cwd: string;
   pid: number;
   stdin: string;
@@ -81,6 +85,11 @@ function readStdin(waitMs: number): Promise<{ text: string; closed: boolean }> {
   });
 }
 
+/** The digest the record keeps of an environment value (same as `envDigest` in index.ts). */
+function envDigest(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex').slice(0, 16);
+}
+
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 async function main(): Promise<void> {
@@ -100,6 +109,9 @@ async function main(): Promise<void> {
   const record: FakeCliRecord = {
     argv,
     envNames: Object.keys(process.env).sort(),
+    envDigests: Object.fromEntries(
+      Object.entries(process.env).map(([k, v]) => [k, envDigest(v ?? '')]),
+    ),
     cwd: process.cwd(),
     pid: process.pid,
     stdin: stdin.text,

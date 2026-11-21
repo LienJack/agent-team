@@ -15,10 +15,12 @@
 5. **核心不碰 IO**：領域邏輯只依賴介面（ports），有一套純記憶體實作供測試。
 6. **合約先行**：資料結構與 API 只定義一次（Zod），服務端、CLI、MCP、網頁共用同一份型別與同一個客戶端。
 7. **薄入口**：CLI、MCP、網頁、Grok 橋接都只是 API 的包裝，不放業務邏輯。
-8. 憑證不進版控、不進資料庫、不進日誌、不進任何 API 回應；傳給子行程時只放它需要的那一個變數。
+8. 憑證不進版控、不進資料庫、不進日誌、不進任何 API 回應，**也不進任何子行程的環境**（同一使用者的行程讀得到別的
+   行程的環境）：dsh 拿到的是只在該 run 期間有效的權杖，真正的金鑰留在服務端的金鑰代理（ADR 0020）。
 9. **worker 在沙箱裡**：讀寫只限 worktree（與暫存、套件快取），DATA、`.env`、憑證目錄一律拒絕，worktree 的 `.git`
-   指標檔不可改寫，連不到本機的服務埠；沙箱起不來就不執行（fail closed）：claude、codex、dsh、機器檢查、leader 的 Bash
-   都一樣（ADR 0014、0018、0019、0012）。身分由憑證決定，不由請求內容決定（ADR 0014）。
+   指標檔不可改寫，連不到本機的服務埠；dsh 與機器檢查另外不能對沙箱外的行程送訊號、不能連家目錄／DATA／ssh-agent／
+   Docker 的 unix socket；沙箱起不來就不執行（fail closed）：claude、codex、dsh、機器檢查、leader 的 Bash
+   都一樣（ADR 0014、0018、0019、0020、0012）。身分由憑證決定，不由請求內容決定（ADR 0014）。
 
 ## 2. 技術棧
 
@@ -75,7 +77,7 @@ docs/               spec.md、adr/、conventions.md
 | 執行日誌 | `DATA/runs/<run_id>/{events.jsonl, stderr.log, prompt.md}` |
 | leader | `DATA/leader/cwd/`（空的工作目錄）、`DATA/leader/bin/team`（以 leader 身分執行的 shim）、`DATA/leader/turn-key`（目前 turn 的冪等種子）、`DATA/leader/turn/`（最近一個 turn 的日誌） |
 | 任務 worktree | `<worktree_root>/<project>/<task_id>/`，預設 `~/RanoLabs/worktrees`，分支 `team/<task_id>` |
-| 金鑰 | 專案根目錄 `.env`（git 忽略；`AGENT_TEAM_ENV_FILE` 可改指）。`packages/schema` 定義需要哪些變數，`apps/server` 提供唯一的讀取函式，一次只回傳被要求的那一個 |
+| 金鑰 | 專案根目錄 `.env`（git 忽略；`AGENT_TEAM_ENV_FILE` 可改指）。`packages/schema` 定義需要哪些變數，`apps/server` 提供唯一的讀取函式，一次只回傳被要求的那一個。秘密只放 `.env`：出現在服務自己的行程環境裡時，啟動時對每個變數記一條警告（只寫名稱；ADR 0020） |
 
 ## 5. 領域模型
 
@@ -137,7 +139,9 @@ ReviewReceipt  { dispatch_id, verdict(pass|needs_changes|blocked), summary(≤60
 3. worktree 確有變更（修正 run 已有服務端提交時可以不再修改：照常檢查、不新增提交、回到審查；ADR 0017）；實際變更檔案
    全部落在 `owned_paths` 內（以 git 為準，不以回執自述為準；symlink 解析後再比）。
 4. 專案的機器檢查全過（逐條執行，完整輸出存日誌，只把結果與最後 20 行留給修正單）。檢查執行 worker 寫的程式：
-   環境白名單（無金鑰、無 `SSH_AUTH_SOCK`、無權杖），以 `sandbox-exec` 套 worker 的拒絕清單（ADR 0014）。沒有沙箱
+   環境白名單（無金鑰、無 `SSH_AUTH_SOCK`、無權杖），以 `sandbox-exec` 套 worker 的拒絕清單（ADR 0014）：訊號只能送給
+   沙箱內的行程，家目錄（worktree 除外）、DATA、ssh-agent、Docker 與 tmux 的 unix socket 連不到，服務的埠與金鑰代理的
+   埠都連不到（ADR 0019 第三輪、0020）。沒有沙箱
    （Linux）就不執行：任務阻塞並說明原因，不開修正輪；`service.json` 的 `checks.allow_unsandboxed: true` 才在沙箱外
    執行（ADR 0019）。
 5. 提交前重算變更清單：檢查後多出任何檔案或出現越界 → 拒收、不提交。服務端只提交核對過的檔案
@@ -186,10 +190,14 @@ spawn 前呼叫 `onLaunching`、spawn 後以 `onSpawned` 回報 pid 與 OS 啟�
 - **dsh**：`sandbox-exec -p <worker 設定檔> dsh --profile headless --patch <run>/dsh.patch.yml --json -`；事件
   `session`／`status`／`final`；無 schema 強制，最後一個 `turn_end` 是 `completed` 才取 `final.text` 中第一個完整 JSON
   物件。整個 dsh 行程在 Seatbelt 內：讀寫只限 worktree、run 自己的 `dsh-state/`（patch 把 session 與 storage 導到這裡）
-  與暫存目錄，`~/.dsh` 只開放執行期需要的部分，DATA、`.env`、憑證目錄拒絕，服務的埠在任何位址都連不到；dsh 自己的
+  與暫存目錄，`~/.dsh` 只開放 `profiles/headless`（允許清單），DATA、`.env`、憑證目錄拒絕，服務的埠在任何位址都連不到，
+  訊號與 unix socket 同機器檢查；dsh 自己的
   bash 沙箱無法巢狀（macOS 拒絕），在外層沙箱內改用 `danger-full-access`。沒有 `sandbox-exec` → runner 不可用，除非
   `runners.dsh.allow_unsandboxed: true`（此時用 dsh 自己的 workspace-write／read-only）。hub 的整理呼叫走同一個 runner
-  （唯讀、沒有 worktree）。`OPENROUTER_API_KEY` 只放進子行程環境，並設 `DSH_TELEMETRY_DISABLED=1`；git 用
+  （唯讀、沒有 worktree）。**dsh 拿不到 `OPENROUTER_API_KEY`**：服務端在 127.0.0.1 跑金鑰代理，每個 run 發一個隨機權杖
+  （run 結束即撤銷），patch 把 OpenRouter 路由的 `baseURL` 指到代理、`apiKeyEnv` 讀這個權杖；代理只接受有效權杖、只轉送
+  `POST /api/v1/chat/completions` 到固定的 `https://openrouter.ai`，換上真金鑰後串流回傳；dsh 的設定檔只放行代理這一個
+  埠（ADR 0020）。另設 `DSH_TELEMETRY_DISABLED=1`、`NO_PROXY` 含 loopback；git 用
   `GIT_CONFIG_GLOBAL=/dev/null` 與空的 `XDG_CONFIG_HOME`（dsh 會丟掉名稱含 KEY 的變數；ADR 0019）。
 - **fake**：一支照劇本檔執行的假 CLI，會把它收到的參數與環境變數記下來，可加速時間。所有非冒煙測試都用它。
 

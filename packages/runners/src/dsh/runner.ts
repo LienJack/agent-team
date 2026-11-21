@@ -15,7 +15,7 @@ import { capture, parseHelpFlags } from '../process/capture.js';
 import { childEnv, findExecutable } from '../process/env.js';
 import { redactSecrets } from '../redact.js';
 import type { SandboxPolicy } from '../sandbox-policy.js';
-import type { EnvReader } from '../types.js';
+import type { ModelKeyBroker, ModelKeyLease } from '../types.js';
 import {
   DSH_OPTIONAL_FLAGS,
   DSH_PATCH_FILE,
@@ -28,8 +28,11 @@ import { dshSandboxProfile } from './sandbox.js';
 import { DshStream } from './stream.js';
 
 export interface DshRunnerOptions {
-  /** Reads `OPENROUTER_API_KEY` (the only credential dsh gets). */
-  env: EnvReader;
+  /**
+   * The server's model-key proxy (docs/adr/0020): each run gets a per-run token and the proxy's
+   * loopback base URL, never the real `OPENROUTER_API_KEY`. Without it dsh has no credentials.
+   */
+  keys?: ModelKeyBroker;
   /** argv prefix of the executable (default: `dsh` on PATH). */
   command?: readonly string[];
   logger?: Logger;
@@ -60,9 +63,25 @@ export function dshGitEnv(stateDir: string): Record<string, string> {
 export const DSH_UNSANDBOXED_PROBLEM =
   'dsh runs only under sandbox-exec (macOS): its own sandbox cannot deny reads; set runners.dsh.allow_unsandboxed: true in service.json to run it unsandboxed';
 
-const KEY_NAME = 'OPENROUTER_API_KEY';
+/** The variable dsh's OpenRouter route reads (`apiKeyEnv`); it holds the run token. */
+export const DSH_KEY_ENV = 'OPENROUTER_API_KEY';
 /** dsh's own home (profiles, sessions); not a credential. */
 const DSH_ENV_NAMES = ['DSH_HOME'];
+const NO_KEY_PROBLEM = `${DSH_KEY_ENV} is not set`;
+const NO_PROXY_PROBLEM = 'the model-key proxy is not running (docs/adr/0020)';
+
+/**
+ * `NO_PROXY`/`no_proxy` with loopback added: the run token goes to the key proxy on 127.0.0.1,
+ * never through an outer HTTP proxy from the environment (dsh bypasses loopback itself too).
+ */
+export function withLoopbackNoProxy(env: Record<string, string>): Record<string, string> {
+  const entries = [env.NO_PROXY, env.no_proxy]
+    .flatMap((v) => (v ?? '').split(','))
+    .map((e) => e.trim())
+    .filter(Boolean);
+  const merged = [...new Set([...entries, '127.0.0.1', 'localhost', '::1'])].join(',');
+  return { ...env, NO_PROXY: merged, no_proxy: merged };
+}
 
 export class DshRunner implements Runner, Resumable {
   readonly name = 'dsh' as const;
@@ -88,9 +107,10 @@ export class DshRunner implements Runner, Resumable {
     return (this.opts.sandboxAvailable ?? checkSandboxAvailable)();
   }
 
-  private key(): string | undefined {
-    const v = this.opts.env(KEY_NAME);
-    return v === undefined || v.trim() === '' ? undefined : v;
+  /** Why dsh has no credentials, if it has none (never reads the key itself). */
+  private credentialProblem(): string | undefined {
+    if (!this.opts.keys) return NO_PROXY_PROBLEM;
+    return this.opts.keys.hasKey() ? undefined : NO_KEY_PROBLEM;
   }
 
   get capabilities(): RunnerCapabilities | undefined {
@@ -98,7 +118,8 @@ export class DshRunner implements Runner, Resumable {
   }
 
   async probe(): Promise<RunnerCapabilities> {
-    const credentials = this.key() ? 'ready' : 'missing';
+    const noCredentials = this.credentialProblem();
+    const credentials = noCredentials ? 'missing' : 'ready';
     const cmd = this.command();
     const unavailable = (problem: string): RunnerCapabilities => ({
       runner: 'dsh',
@@ -130,7 +151,7 @@ export class DshRunner implements Runner, Resumable {
     for (const f of DSH_OPTIONAL_FLAGS) {
       if (!found.has(f)) problems.push(`optional flag ${f} not supported; not passed`);
     }
-    if (credentials === 'missing') problems.push(`${KEY_NAME} is not set`);
+    if (noCredentials) problems.push(noCredentials);
     const unsandboxed = !this.sandboxed();
     if (unsandboxed) {
       problems.push(
@@ -163,27 +184,46 @@ export class DshRunner implements Runner, Resumable {
   }
 
   async run(spec: RunSpec, signal: AbortSignal, hooks?: RunHooks): Promise<RunResult> {
-    const key = this.key();
-    if (!key) return errorResult('auth', `${KEY_NAME} is not set`);
+    const noCredentials = this.credentialProblem();
+    if (noCredentials) return errorResult('auth', noCredentials);
     const caps = this.last ?? (await this.probe());
     const cmd = this.command();
     if (!caps.available || !cmd) {
       return errorResult('crash', `dsh unavailable: ${caps.problems.join('; ')}`);
     }
-    const [exe, prefix] = cmd;
-    const logDir = spec.logDir.replace(/\/+$/, '');
-    const patchPath = `${logDir}/${DSH_PATCH_FILE}`;
-    const stateDir = join(logDir, DSH_STATE_DIR);
     const sandboxed = this.sandboxed();
     if (!sandboxed && this.opts.allowUnsandboxed !== true) {
       return errorResult('crash', `dsh unavailable: ${DSH_UNSANDBOXED_PROBLEM}`);
     }
-    const env = this.baseEnv({
-      ...spec.env,
-      [KEY_NAME]: key,
-      ...DSH_CHILD_ENV,
-      ...dshGitEnv(stateDir),
-    });
+    // a token for this run only, revoked when it ends (docs/adr/0020)
+    const lease = this.opts.keys?.open(spec.dispatchId);
+    if (!lease) return errorResult('auth', NO_PROXY_PROBLEM);
+    try {
+      return await this.runWith(spec, signal, hooks, cmd, sandboxed, lease);
+    } finally {
+      lease.revoke();
+    }
+  }
+
+  private async runWith(
+    spec: RunSpec,
+    signal: AbortSignal,
+    hooks: RunHooks | undefined,
+    [exe, prefix]: [string, string[]],
+    sandboxed: boolean,
+    lease: ModelKeyLease,
+  ): Promise<RunResult> {
+    const logDir = spec.logDir.replace(/\/+$/, '');
+    const patchPath = `${logDir}/${DSH_PATCH_FILE}`;
+    const stateDir = join(logDir, DSH_STATE_DIR);
+    const env = withLoopbackNoProxy(
+      this.baseEnv({
+        ...spec.env,
+        [DSH_KEY_ENV]: lease.token,
+        ...DSH_CHILD_ENV,
+        ...dshGitEnv(stateDir),
+      }),
+    );
     const dshArgv = [...prefix, ...dshArgs(spec, patchPath, this.flags)];
     let command = exe;
     let args = dshArgv;
@@ -205,12 +245,17 @@ export class DshRunner implements Runner, Resumable {
           patchPath,
           dshHome: this.baseEnv().DSH_HOME,
           executables: [exe, ...prefix.filter((p) => isAbsolute(p))],
+          proxyPort: lease.port,
         },
         this.opts.sandbox ?? { denyPaths: [] },
       );
       command = SANDBOX_EXEC;
       args = ['-p', profile, exe, ...dshArgv];
     }
+    const patch = dshPatch(spec, stateDir, {
+      outerSandbox: sandboxed,
+      endpoint: { baseUrl: lease.baseUrl, apiKeyEnv: DSH_KEY_ENV },
+    });
     const result = await runCli({
       label: 'dsh',
       command,
@@ -220,12 +265,10 @@ export class DshRunner implements Runner, Resumable {
       parser: new DshStream(),
       signal,
       hooks,
-      secrets: [key],
+      secrets: [lease.token],
       prepare: async () => {
         await mkdir(join(stateDir, 'xdg'), { recursive: true, mode: 0o700 });
-        await writeFile(patchPath, dshPatch(spec, stateDir, { outerSandbox: sandboxed }), {
-          mode: 0o600,
-        });
+        await writeFile(patchPath, patch, { mode: 0o600 });
       },
     });
     this.opts.logger?.debug('dsh run finished', {

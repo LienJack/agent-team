@@ -7,7 +7,10 @@ import type { RunSpec } from '@agent-team/schema';
 // worktree). The overlay also sets approval `never` (an unattended worker must not wait for a
 // prompt) and the sandbox mode: workspace-write for impl/fix runs, read-only for review runs.
 // The permission-presets plugin requires the composed sandbox/approval to match a preset, so
-// the overlay replaces the preset table with exactly one matching preset.
+// the overlay replaces the preset table with exactly one matching preset. With `endpoint`, the
+// OpenRouter route (`llm-pi-ai` → `providers.openrouter`) goes to the server's key proxy on
+// loopback and reads the run token from `apiKeyEnv` (docs/adr/0020): dsh 0.2.1-rc.5 sends every
+// model request of that route to `POST {baseURL}/chat/completions`.
 
 export const DSH_PATCH_FILE = 'dsh.patch.yml';
 /** The dsh profile every run boots. */
@@ -33,7 +36,7 @@ export const DSH_STATE_DIR = 'dsh-state';
 export function dshPatch(
   spec: RunSpec,
   stateDir?: string,
-  opts: { outerSandbox?: boolean } = {},
+  opts: { outerSandbox?: boolean; endpoint?: { baseUrl: string; apiKeyEnv: string } } = {},
 ): string {
   // Inside the Seatbelt wrapper (docs/adr/0019) dsh's own bash sandbox cannot start: macOS
   // refuses a nested `sandbox_apply` under any profile with a deny rule (measured 2026-11-21:
@@ -52,6 +55,16 @@ export function dshPatch(
     '  config:',
     `    provider: ${q('openrouter')}`,
     `    model: ${q(dshModel(spec.model))}`,
+    ...(opts.endpoint === undefined
+      ? []
+      : [
+          '- id: llm-pi-ai',
+          '  config:',
+          '    providers:',
+          '      openrouter:',
+          `        apiKeyEnv: ${q(opts.endpoint.apiKeyEnv)}`,
+          `        baseURL: ${q(opts.endpoint.baseUrl)}`,
+        ]),
     '- id: approval',
     '  config:',
     `    policy: ${q('never')}`,

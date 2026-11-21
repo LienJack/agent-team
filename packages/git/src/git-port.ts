@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, readdirSync, readlinkSync, rmdirSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { isWorktreeIntegrityError, type GitPort, type WorktreeRef } from '@agent-team/core';
 import { git, gitEnv, withLockRetry } from './exec.js';
@@ -276,17 +276,15 @@ export function createGitPort(opts: GitPortOptions): CliGitPort {
       const tip = await revParse(repoPath, baseBranch);
       const ref = `refs/heads/${branch}`;
       const here = (await worktrees(repoPath)).find((w) => samePath(w.path, worktreePath));
+      let tampered = false;
       if (here && existsSync(worktreePath)) {
-        let intact = true;
         try {
           await verify({ worktreePath, repoPath, branch });
         } catch (err) {
           if (!isWorktreeIntegrityError(err)) throw err;
-          intact = false;
-          // point `.git` back at its admin dir so git lets the worktree be removed and re-added
-          await run(repoPath, ['worktree', 'repair', '--', worktreePath]);
+          tampered = true;
         }
-        if (intact) {
+        if (!tampered) {
           const head = await revParse(worktreePath, 'HEAD');
           if (head === tip && (await statusEntries(worktreePath)).length === 0) {
             return { baseSha: tip };
@@ -300,7 +298,14 @@ export function createGitPort(opts: GitPortOptions): CliGitPort {
         const archive = `refs/team-archive/${branch.slice('team/'.length)}/${old.slice(0, 12)}`;
         await run(repoPath, ['update-ref', archive, old]);
       }
-      if (here) {
+      if (tampered) {
+        // Never `git worktree repair` here: it follows the worker-written `.git` pointer, which
+        // may name another worktree's admin dir (repair would rewrite that one to point here and
+        // the prune below would delete it). The rebuild discards the directory anyway: delete it
+        // (symlinks inside are unlinked, never followed) and let the prune drop its own admin
+        // dir, whose `gitdir` now names a missing path (docs/adr/0018).
+        await rm(worktreePath, { recursive: true, force: true });
+      } else if (here) {
         await withLockRetry(() => run(repoPath, ['worktree', 'remove', '--force', worktreePath]));
       }
       await prune(repoPath);

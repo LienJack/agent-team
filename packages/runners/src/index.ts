@@ -3,9 +3,10 @@
 export { createRunnerRegistry } from './registry.js';
 export { createCheckExecutor } from './checks/executor.js';
 export type {
-  EnvReader,
   FakeRunStep,
   ManagedRunnerRegistry,
+  ModelKeyBroker,
+  ModelKeyLease,
   RunnerRegistryOptions,
   ScriptableFakeRunner,
 } from './types.js';

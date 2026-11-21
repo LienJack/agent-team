@@ -1,5 +1,6 @@
-import { rmSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DATA_LAYOUT } from '@agent-team/schema';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   bootLeader,
@@ -178,6 +179,26 @@ describe('§9 leader availability (fake claude)', () => {
     expect((await send('hi', 'n')).status).toBe(503);
     expect(h.store.messages.findByClientMsgId('leader', 'n')).toBeDefined();
     expect(fake.turns()).toEqual([]);
+  });
+
+  it('a leader socket that cannot be bound keeps the leader offline, also after a reset', async () => {
+    ({ h, fake } = bootLeader());
+    await fake.set(turnSteps());
+    // something that is not a socket sits where the leader's API socket goes: the bind fails
+    mkdirSync(join(h.dataDir, 'leader'), { recursive: true });
+    writeFileSync(join(h.dataDir, DATA_LAYOUT.leaderSocket), 'not a socket\n');
+    await h.service.start();
+    expect(h.service.leader.status()).toMatchObject({
+      state: 'offline',
+      available: false,
+      reason: 'not_installed',
+    });
+    expect(h.service.leader.status().hint).toMatch(/API socket could not be bound/);
+    expect((await send('hi', 's')).status).toBe(503);
+    await h.service.leader.resetSession();
+    expect(h.service.leader.status()).toMatchObject({ available: false, reason: 'not_installed' });
+    expect(fake.turns()).toEqual([]);
+    expect(h.store.messages.findByClientMsgId('leader', 's')?.status).toBe('new');
   });
 
   it('stopping during a turn keeps the message for the next start', async () => {

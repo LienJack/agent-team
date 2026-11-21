@@ -91,7 +91,21 @@ describe('smoke: real runners', () => {
   it.skipIf(!want('dsh') || !process.env.OPENROUTER_API_KEY)(
     'dsh headless writes a file and returns a receipt',
     async () => {
-      const runner = new DshRunner({ env: (n) => process.env[n] });
+      // Smoke only: the runners package has no key proxy (apps/server owns it, docs/adr/0020),
+      // so this lease hands the tester's own key straight to dsh and points it at OpenRouter.
+      // The service never does this; its dsh runs get a run token for the proxy.
+      const key = process.env.OPENROUTER_API_KEY!;
+      const runner = new DshRunner({
+        keys: {
+          hasKey: () => true,
+          open: () => ({
+            token: key,
+            baseUrl: 'https://openrouter.ai/api/v1',
+            port: 443,
+            revoke: () => {},
+          }),
+        },
+      });
       const caps = await runner.probe();
       expect(caps.available).toBe(true);
       const s = spec('dsh', 'deepseek/deepseek-v4.1-flash');

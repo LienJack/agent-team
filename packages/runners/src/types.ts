@@ -2,12 +2,35 @@ import type { RunnerRegistry, Logger, Runner } from '@agent-team/core';
 import type { RunnerCapabilities, RunnerName, RunResult, RunSpec } from '@agent-team/schema';
 import type { SandboxPolicy } from './sandbox-policy.js';
 
-/** Reads one environment variable (the server's single `.env`/process reader). Never logged. */
-export type EnvReader = (name: string) => string | undefined;
+/** One run's access to the model API through the key proxy (docs/adr/0020). */
+export interface ModelKeyLease {
+  /** Random per-run token: the only "key" the dsh child ever sees. */
+  token: string;
+  /** OpenAI-compatible root on loopback, e.g. `http://127.0.0.1:<port>/api/v1`. */
+  baseUrl: string;
+  /** The proxy's port (the dsh sandbox allows it; machine checks never). */
+  port: number;
+  /** Revoke the token (idempotent); in-flight proxied requests of the run are aborted. */
+  revoke(): void;
+}
 
+/**
+ * The server's key-injecting proxy as the dsh runner sees it (docs/adr/0020). The real
+ * OpenRouter key never leaves the server process: it is not in any child's environment, which
+ * any same-user process can read (`KERN_PROCARGS2`).
+ */
+export interface ModelKeyBroker {
+  /** Whether the server has a key to inject (the probe's `credentials`). */
+  hasKey(): boolean;
+  /** A token registered until `revoke()`; undefined while the proxy is not listening. */
+  open(runId: string): ModelKeyLease | undefined;
+}
+
+/**
+ * No runner reads a credential: claude and codex use their own logins, dsh gets a per-run token
+ * from `dsh.keys` (docs/adr/0020).
+ */
 export interface RunnerRegistryOptions {
-  /** One-variable reader; runners ask only for what they need (dsh: `OPENROUTER_API_KEY`). */
-  env: EnvReader;
   logger?: Logger;
   /**
    * `true` registers in-process fakes under every runner name (`claude`, `codex`, `dsh`, `fake`)
@@ -25,8 +48,11 @@ export interface RunnerRegistryOptions {
    * added.
    */
   sandbox?: SandboxPolicy;
-  /** `service.json` → `runners.dsh` (docs/adr/0019). */
-  dsh?: { allowUnsandboxed?: boolean };
+  /**
+   * `service.json` → `runners.dsh` (docs/adr/0019) and the server's model-key proxy
+   * (docs/adr/0020; without it dsh has no credentials and is unavailable).
+   */
+  dsh?: { allowUnsandboxed?: boolean; keys?: ModelKeyBroker };
 }
 
 /**

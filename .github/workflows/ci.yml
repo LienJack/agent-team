@@ -61,6 +61,35 @@ jobs:
       - name: working tree unchanged
         run: git diff --exit-code
 
+  # The Seatbelt tests (dsh and check sandboxes, docs/adr/0019, 0020) skip without
+  # `sandbox-exec`, so they only run here.
+  check-macos:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      HUSKY: '0'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '26'
+          cache: pnpm
+
+      - name: install
+        run: pnpm install --frozen-lockfile
+
+      - name: lint
+        run: pnpm lint
+
+      - name: typecheck
+        run: pnpm typecheck
+
+      - name: test
+        run: pnpm test
+
   # The board smoke (spec §14 web): Playwright against the real server with fake runners and the
   # leader off, on loopback ephemeral ports. Playwright's own Chromium is installed here; locally
   # the config falls back to the system Chrome when that browser is absent.

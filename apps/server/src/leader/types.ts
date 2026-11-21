@@ -68,6 +68,11 @@ export interface LeaderRuntime {
   sourceEnv?: NodeJS.ProcessEnv;
   /** Service-wide deny list for the leader's sandbox (DATA, `.env` files; sandbox.ts). */
   denyPaths?: readonly string[];
+  /**
+   * Why the leader's API socket is not listening (set by the service when binding it failed);
+   * the leader is then unavailable like any other failed precondition (`not_installed`).
+   */
+  socketProblem?: () => string | undefined;
 }
 
 export interface LeaderDeps {

@@ -18,14 +18,14 @@ const prompt = (paths: string) =>
 
 describe('runners: in-process fake runner', () => {
   it('is registered under every runner name with fake: true', () => {
-    const reg = createRunnerRegistry({ env: () => undefined, fake: true });
+    const reg = createRunnerRegistry({ fake: true });
     expect(reg.names().sort()).toEqual(['claude', 'codex', 'dsh', 'fake']);
     expect(reg.get('codex')?.name).toBe('codex');
     expect(reg.fake('dsh')).toBe(reg.get('dsh'));
   });
 
   it('writes a file inside the first owned path and returns a valid receipt by default', async () => {
-    const reg = createRunnerRegistry({ env: () => undefined, fake: true });
+    const reg = createRunnerRegistry({ fake: true });
     const spec = makeSpec(tmp.dir, { prompt: prompt('`src/feature/`、`docs/a.md`') });
     const started: unknown[] = [];
     const r = await reg.get('claude')!.run(spec, new AbortController().signal, {
@@ -60,7 +60,7 @@ describe('runners: in-process fake runner', () => {
   });
 
   it('follows scripted steps: files, results, start outcomes, hold/release and abort', async () => {
-    const reg = createRunnerRegistry({ env: () => undefined, fake: true });
+    const reg = createRunnerRegistry({ fake: true });
     const fake = reg.fake('dsh')!;
     fake.script(
       { files: { 'x.txt': 'x' }, result: { error: { kind: 'rate_limit', message: 'slow down' } } },
@@ -88,7 +88,7 @@ describe('runners: in-process fake runner', () => {
   });
 
   it('caches probe results for capabilities()', async () => {
-    const reg = createRunnerRegistry({ env: () => undefined, fake: true });
+    const reg = createRunnerRegistry({ fake: true });
     expect(reg.capabilities('claude')).toBeUndefined();
     const all = await reg.probeAll();
     expect(all).toHaveLength(4);
@@ -101,7 +101,7 @@ describe('runners: in-process fake runner', () => {
 
 describe('runners: real registry', () => {
   it('registers claude, codex and dsh (no fake) without probing at construction', () => {
-    const reg = createRunnerRegistry({ env: () => undefined });
+    const reg = createRunnerRegistry({});
     expect(reg.names()).toEqual(['claude', 'codex', 'dsh']);
     expect(reg.capabilities('claude')).toBeUndefined();
     expect(reg.fake('claude')).toBeUndefined();

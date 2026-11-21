@@ -20,7 +20,8 @@ export const ENV_VARS = [
     source: 'env_file',
     secret: true,
     required: false,
-    description: 'dsh runner（經 OpenRouter）；只放進 dsh 子行程的環境',
+    description:
+      'dsh runner（經 OpenRouter）；只有服務端的金鑰代理用它，dsh 子行程只拿到 run 權杖（ADR 0020）',
   },
   {
     name: 'JEV_API_KEY',

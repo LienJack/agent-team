@@ -11,7 +11,7 @@
 import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { errorMessage, randomIdGen, type Clock, type Store } from '@agent-team/core';
+import { errorMessage, randomIdGen, type Clock, type Logger, type Store } from '@agent-team/core';
 import { createSqliteStore } from '@agent-team/db';
 import { createGitPort, type CliGitPort } from '@agent-team/git';
 import {
@@ -22,8 +22,9 @@ import {
 } from '@agent-team/runners';
 import { DATA_LAYOUT } from '@agent-team/schema';
 import { ConfigError, loadConfig, type LoadedConfig } from './config.js';
-import { createEnvReader, envFilePath, isKnownEnvVar } from './env.js';
+import { createEnvReader, envFilePath, secretsInProcessEnv, type EnvReader } from './env.js';
 import { createLogger } from './logger.js';
+import { createModelKeyProxy, type ModelKeyProxy } from './model-proxy.js';
 import { createService, type Service } from './service.js';
 
 const systemClock: Clock = { now: () => new Date() };
@@ -64,6 +65,33 @@ export function killLiveRunGroups(store: Pick<Store, 'runs'>): number {
   return killed;
 }
 
+/**
+ * Any same-user process can read this process's exec environment (`KERN_PROCARGS2`): a secret
+ * the service uses belongs in `.env` only (docs/adr/0020). One warning per variable, names only.
+ */
+export function warnProcessSecrets(processEnv: NodeJS.ProcessEnv, logger: Logger): string[] {
+  const names = secretsInProcessEnv(processEnv);
+  for (const variable of names) {
+    logger.warn('secret in the process environment', {
+      variable,
+      hint: 'readable by any process of this user; keep it in .env only (README 金鑰)',
+    });
+  }
+  return names;
+}
+
+/** The model-key proxy, listening; undefined (dsh unavailable) when it cannot bind. */
+async function startModelProxy(env: EnvReader, logger: Logger): Promise<ModelKeyProxy | undefined> {
+  const proxy = createModelKeyProxy({ key: () => env.get('OPENROUTER_API_KEY'), logger });
+  try {
+    await proxy.start();
+    return proxy;
+  } catch (err) {
+    logger.warn('model-key proxy not available: dsh is unavailable', { error: errorMessage(err) });
+    return undefined;
+  }
+}
+
 export interface MainOptions {
   /** Worker executables (argv prefix) — only the crash-recovery test entry sets this. */
   runnerCommands?: RunnerRegistryOptions['commands'];
@@ -77,6 +105,7 @@ export async function main(
   const config = loadConfig({ env: processEnv });
   const envFile = envFilePath(config.projectRoot, processEnv);
   const env = createEnvReader({ file: envFile, processEnv });
+  warnProcessSecrets(processEnv, logger);
 
   const store = createSqliteStore({ path: join(config.dataDir, DATA_LAYOUT.database) });
   const fake = processEnv['AGENT_TEAM_FAKE_RUNNERS'] === '1';
@@ -89,13 +118,19 @@ export async function main(
     denyPaths: serviceDenyPaths(config, envFile),
     servicePorts: () => [...servicePorts],
   };
+  // the OpenRouter key stays in this process: dsh runs get per-run tokens for this proxy
+  // (docs/adr/0020); its port is denied to checks like the service's own ports (dsh is exempt)
+  const modelProxy = fake ? undefined : await startModelProxy(env, logger);
+  if (modelProxy?.port !== undefined) servicePorts.add(modelProxy.port);
   const runners = createRunnerRegistry({
-    env: (name) => (isKnownEnvVar(name) ? env.get(name) : undefined),
     logger,
     fake,
     ...(options.runnerCommands ? { commands: options.runnerCommands } : {}),
     sandbox,
-    dsh: { allowUnsandboxed: config.service.runners.dsh.allow_unsandboxed },
+    dsh: {
+      allowUnsandboxed: config.service.runners.dsh.allow_unsandboxed,
+      ...(modelProxy ? { keys: modelProxy } : {}),
+    },
   });
   const caps = await runners.probeAll();
   logger.info('runners probed', {
@@ -119,7 +154,10 @@ export async function main(
     config,
     env,
     logger,
-    onClose: () => store.close(),
+    onClose: async () => {
+      await modelProxy?.close();
+      store.close();
+    },
     processes: createProcessControl(),
     // the leader's `team` is this checkout's built CLI; `leader.enabled` is independent of
     // AGENT_TEAM_FAKE_RUNNERS (fake workers + the real leader is a supported setup)

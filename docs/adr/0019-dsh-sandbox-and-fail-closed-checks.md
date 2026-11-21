@@ -46,3 +46,44 @@
 
 **後果**：Linux 上 dsh 與機器檢查預設不能用。dsh 在沙箱內沒有網域白名單；它讀得到自己的 profiles 與 `~/.agents`。
 dsh 或 macOS 升級時重跑 `dsh-sandbox.test.ts` 與一次真實 run。
+
+## 第三輪（安全審查，2026-11-21）
+
+**問題**（審查者以 canary 實測）：兩份設定檔（dsh 與機器檢查）只限制檔案與連到服務埠的 TCP。沙箱內的程式仍可以
+對同一使用者的任何行程送訊號（停掉服務、使用者的 shell、其他 run），也可以連任何 unix socket——DATA 裡 leader 的
+API socket、ssh-agent（`SSH_AUTH_SOCK`）、Docker；檔案規則擋不住 socket 的 `connect`（實測：`(deny file-read*
+(subpath X))` 之下照樣連得上 X 裡的 socket）。dsh 對 `~/.dsh` 是拒絕清單：新出現的東西（`cache/attachments/
+request-images`、其他設定檔的 `cordis.patch.yml`、`.agent-presets` 的 `.mjs`）預設可讀。
+
+**決定**（`checks/sandbox.ts` 的 `confinedProcess`，兩份設定檔共用）：
+
+- 訊號：`(deny signal)` + `(allow signal (target same-sandbox))`。沙箱內的 `sandbox-exec` 無法巢狀（見上），所以 run 的
+  所有子孫都在同一個沙箱裡，殺自己的子行程照常可行。
+- unix socket：拒絕家目錄（worktree 例外）、拒絕清單（DATA、`~/.ssh`、`~/.docker`、`~/.gnupg`…）、容器執行環境的目錄
+  （`~/.orbstack`、`~/.colima`、`~/.lima`、`~/.rd`、`~/.local/share/containers`、Docker Desktop 的 container 目錄）、
+  `/var/run/docker.sock` 與它的**真實路徑**（這台電腦上是指向 `~/.orbstack/run/docker.sock` 的 symlink；實測 Seatbelt
+  比對解析後的路徑，寫 symlink 本身的 literal 擋不住）、launchd 的每使用者 socket 目錄（`/private/var/run/
+  com.apple.launchd.*`——目前 macOS 的 `SSH_AUTH_SOCK` 在這裡——與舊版的 `/private/tmp/com.apple.launchd.*`）、
+  tmux（`/private/tmp/tmux-<uid>/`、`$TMPDIR/tmux-<uid>/`）。每個路徑各一個 `(remote unix-socket …)`：同一個 filter 裡
+  寫多個 `subpath` 不會當成「任一」（實測只擋到第一個）。暫存目錄與 worktree 裡自己的 socket 照常可用（測試伺服器）；
+  `/private/var/run/mDNSResponder`（DNS）不受影響。
+- dsh 的 `~/.dsh` 改成允許清單：只開放 `profiles/headless`（根設定、patch 層、manifest；根設定 `cordis.yml` 可寫，
+  patch 層不可寫），`~/.dsh` 其餘一律拒讀拒寫——即使 `DSH_HOME` 不在家目錄下。經過的目錄只開放 metadata（realpath）。
+- dsh 的設定檔放行金鑰代理的埠（服務埠規則的唯一例外，ADR 0020）；機器檢查的設定檔照樣拒絕它。
+
+**驗證**：`checks/confinement.test.ts`（兩份設定檔各跑一次，canary 都在沙箱外）：對 canary `sleep` 與測試行程本身送
+`0`／`SIGTERM`／`SIGKILL` → `EPERM`、canary 沒有被殺，殺自己的子行程成功；DATA 的 `leader/api.sock`、`~/.docker`、
+`~/.orbstack`、`~/.gnupg`、家目錄其他位置、`$TMPDIR/tmux-*`、`/private/tmp/com.apple.launchd.*/Listeners` 的 canary
+socket → `EPERM`，worktree 與暫存目錄裡的 → 可連；對照組（只有 `(allow default)`）canary 行程收得到訊號、DATA 的 socket
+連得到；金鑰代理的埠只有 dsh 連得到、服務埠兩者都連不到。`/private/var/run/com.apple.launchd.*` 用真實的 ssh-agent socket
+手動確認過一次（只 connect、不送資料）：沙箱內 `EPERM`，沙箱外 connect 沒有錯誤；`/var/run/docker.sock` 只驗證到「設定檔寫的是真實路徑」（沒有去連 OrbStack）。
+`dsh-sandbox.test.ts`：照真實 `~/.dsh` 排列的 13 個檔案中只有 `profiles/headless/*` 讀得到；runner 的 spawn 是
+`sandbox-exec -p <設定檔> <dsh> --profile headless --patch … --json -`，設定檔含上述規則、拒絕服務埠、不拒絕代理埠。
+允許清單以真實 dsh 0.2.1-rc.5（真實 `~/.dsh`、新設定檔、假上游，不呼叫模型）實測：開機、兩次 `chat/completions`、
+完成 run；系統日誌裡這個 dsh 行程在 `~/.dsh` 底下**沒有任何被拒的讀取**（被拒的只有 `~/.CFUserTextEncoding` 與
+`~/.agents/skills/` 裡指到 `~/RanoLabs/worktrees/…` 的 symlink 目標，dsh 照常運作）。新的檢查設定檔下另外實跑了本 repo 的
+`vitest`（core、git，229 個測試，含真實 git）與 `pnpm test:e2e`（vite build + Playwright/Chromium + 真實服務），都通過。
+
+**仍然不擋**：沙箱內的程式能連暫存目錄裡別人的 socket（tmux 以外，例如編輯器的 IPC socket）、mach 服務不受限；dsh
+讀得到 `~/.agents`。Linux 仍沒有對應的沙箱（dsh 與機器檢查預設不執行）。macOS CI（`check-macos` job）會跑這些
+Seatbelt 測試——只寫進設定，還沒在 GitHub 上實際跑過。

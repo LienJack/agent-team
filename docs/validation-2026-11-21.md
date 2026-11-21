@@ -193,3 +193,24 @@ MCP `status` 都有，**`team status` 沒有**（缺陷 D1，已修：`claude ok
 
 本輪真實模型呼叫：3 個 haiku leader turn（$0.0081）、2 個 deepseek-flash run（估算 ≈ $0.0019）、1 個 gpt-terra 審查
 （訂閱，估算 ≈ $0.0071）。
+
+## 第三輪（金鑰代理與 Seatbelt 補強後；ADR 0019 第三輪、0020）
+
+同樣的隔離方式（`~/.cache/ranolabs/sessions/2026-11-21-agent-team-fix3/`，結束後已刪除；worktree 在
+`~/RanoLabs/worktrees/fix3-e2e/`，結束後已刪除；本機監聽埠 `127.0.0.1:0`、區網、Grok、leader 關閉；設定副本：impl_C
+deepseek-flash（沒有 fallback、不升級）、review_C gpt-terra low、`max_attempts: 1`、`max_fix_rounds_before_escalate: 1`，
+所以最多兩個 dsh run）。服務以 `env -i`（只有 PATH、HOME、TMPDIR、LANG、`AGENT_TEAM_*`）從 `dist` 啟動，金鑰由服務自己從
+預設的 `.env` 讀（只用 `team doctor` 確認 present，沒有讀檔）；啟動日誌沒有 `secret in the process environment`。
+
+| 項目               | 結果                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C 級單（真實 dsh） | `team task add --queue` → `done` 23 s：deepseek-flash 實作 9.0 s（輸入 7.8k／cache 讀 28.7k／輸出 708，估算 ≈ $0.0007），在新設定檔內跑了 `ls`、`cat`、`node --test`（pass 1、fail 0），工具結果沒有任何 `Operation not permitted`；服務端 commit `team(t_…): 修好 sum()` 只含 `src/sum.js`，作者 `agent-team-e2e`，`main` 不動；gpt-terra 審查 13.2 s（15.6k／0／102，估算 ≈ $0.016）`pass` |
+| dsh 行程的環境     | run 進行中從沙箱外以 `KERN_PROCARGS2` 讀（只輸出名稱與長度）：`OPENROUTER_API_KEY` 長 50、`at-run-` 開頭（run 權杖），沒有任何 `sk-or-` 開頭的值；其他只有 PATH、HOME、TMPDIR、LANG、NO_COLOR、`NO_PROXY`／`no_proxy`、`DSH_*`、`GIT_CONFIG_GLOBAL`、`XDG_CONFIG_HOME`、`__CF_USER_TEXT_ENCODING`。真金鑰本身沒有拿來比對雜湊（不讀 `.env`），只比對了形狀                                   |
+| 服務行程的環境     | 同樣方式：沒有 `OPENROUTER_API_KEY`，也沒有 `sk-or-` 開頭的值                                                                                                                                                                                                                                                                                                                                |
+
+離線（假上游、真實 dsh 0.2.1-rc.5、真實 `~/.dsh`）另外排練了工具路徑：模型要求兩個 bash 呼叫 → 在沙箱內殺自己的子行程與
+行程群組成功、寫 worktree 成功、`profiles/headless/*` 讀得到、其他 `~/.dsh` 項目與 `~/.ssh` 拒絕、對服務行程送訊號拒絕、
+patch 層寫入拒絕；逾時的 bash 被 dsh 移到背景，run 結束後沒有殘留行程。不在 catalog 的模型（`qwen/qwen4-max`）→
+`UNKNOWN_MODEL`，上游零次請求。
+
+本輪真實模型呼叫：1 個 deepseek-flash run（估算 ≈ $0.0007）、1 個 gpt-terra 審查（訂閱，估算 ≈ $0.016）。

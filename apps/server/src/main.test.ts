@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import type { Run } from '@agent-team/schema';
 import { describe, expect, it } from 'vitest';
-import { killLiveRunGroups } from './main.js';
+import { killLiveRunGroups, warnProcessSecrets } from './main.js';
 
 // The forced exit (second Ctrl-C) must not leave worker process groups behind: workers run in
 // their own groups (detached), so they would outlive the server.
@@ -32,5 +32,22 @@ describe('forced exit', () => {
     };
     for (let i = 0; i < 40 && groupAlive(); i++) await new Promise((r) => setTimeout(r, 25));
     expect(groupAlive()).toBe(false);
+  });
+});
+
+describe('secrets in the process environment (docs/adr/0020)', () => {
+  it('warns once per variable, naming it and never logging its value', () => {
+    const lines: string[] = [];
+    const log = (m: string, f?: Record<string, unknown>) => lines.push(JSON.stringify([m, f]));
+    const logger = { debug: log, info: log, warn: log, error: log };
+    const names = warnProcessSecrets(
+      { TEAM_LAN_PASSWORD: 'lan-pass-value-123', JEV_URL: 'http://jev', PATH: '/bin' },
+      logger,
+    );
+    expect(names).toEqual(['TEAM_LAN_PASSWORD']);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('TEAM_LAN_PASSWORD');
+    expect(lines.join('\n')).not.toContain('lan-pass-value-123');
+    expect(warnProcessSecrets({}, logger)).toEqual([]);
   });
 });

@@ -103,6 +103,8 @@ export function createService(deps: ServiceDeps): Service {
   const events = new EventHub();
   // the engine needs the hub (notifier) and the leader's event feed; both need the engine
   const late: { engine?: Engine; leader?: Leader } = {};
+  // set when the leader's API socket cannot be bound: its `team` has no other way in
+  let leaderSocketProblem: string | undefined;
   const hub = createHub({
     service,
     logger,
@@ -155,7 +157,9 @@ export function createService(deps: ServiceDeps): Service {
     models: config.models,
     service,
     dataDir,
-    ...(deps.leader ? { runtime: deps.leader } : {}),
+    ...(deps.leader
+      ? { runtime: { ...deps.leader, socketProblem: () => leaderSocketProblem } }
+      : {}),
     onReply: (tx, inbound, reply) => hub.onLeaderReply(tx, inbound, reply),
     onRateLimited: (tx, until) => hub.onLeaderRateLimited(tx, until),
   });
@@ -237,7 +241,10 @@ export function createService(deps: ServiceDeps): Service {
       try {
         leaderSocket = await listenUnix(localApp.fetch, join(dataDir, DATA_LAYOUT.leaderSocket));
       } catch (err) {
-        logger.warn('leader socket not available', { error: errorMessage(err) });
+        leaderSocketProblem = `the leader's API socket could not be bound (${errorMessage(err)}); restart the service once it can`;
+        logger.warn('leader socket not available: the leader is unavailable', {
+          error: errorMessage(err),
+        });
       }
       leaderListenerFile = {
         path: await writeListenerFile(

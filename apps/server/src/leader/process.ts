@@ -161,6 +161,8 @@ export class LeaderProcess {
         problem: `the leader socket path is too long for a unix socket (${Buffer.byteLength(socket)} > ${MAX_SOCKET_PATH_BYTES} bytes): use a shorter AGENT_TEAM_HOME`,
       };
     }
+    const notListening = this.runtime.socketProblem?.();
+    if (notListening !== undefined) return { problem: notListening };
     this.settings = leaderSandboxSettings({
       dataDir: this.dataDir,
       teamEntry: entry,

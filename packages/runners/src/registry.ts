@@ -52,9 +52,9 @@ export function createRunnerRegistry(opts: RunnerRegistryOptions): ManagedRunner
     runners.set(
       'dsh',
       new DshRunner({
-        env: opts.env,
         ...logger,
         ...sandbox,
+        ...(opts.dsh?.keys ? { keys: opts.dsh.keys } : {}),
         ...(opts.dsh?.allowUnsandboxed === true ? { allowUnsandboxed: true } : {}),
         ...(opts.commands?.dsh ? { command: opts.commands.dsh } : {}),
       }),
