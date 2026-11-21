@@ -26,6 +26,7 @@ const SPEC_ROUTES = [
   'GET /api/runs/{id}/log',
   'POST /api/leader/messages',
   'GET /api/leader/messages',
+  'POST /api/leader/reset',
   'GET /api/attention',
   'POST /api/attention',
   'POST /api/attention/{id}/answer',
@@ -41,8 +42,11 @@ describe('route contracts (spec §11)', () => {
     expect(actual).toEqual([...SPEC_ROUTES].sort());
   });
 
-  it('mark only project creation as local-only', () => {
-    expect(ALL_ROUTES.filter(isLocalOnly).map((r) => r.operationId)).toEqual(['createProject']);
+  it('mark only project creation and the leader reset as local-only', () => {
+    expect(ALL_ROUTES.filter(isLocalOnly).map((r) => r.operationId)).toEqual([
+      'createProject',
+      'resetLeader',
+    ]);
   });
 
   it('accept an Idempotency-Key on every mutating /api route', () => {

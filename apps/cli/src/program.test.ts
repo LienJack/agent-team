@@ -321,6 +321,24 @@ describe('team — output and exit codes', () => {
     expect(io.text()).toBe('收到\n');
   });
 
+  it('leader reset starts a new conversation', async () => {
+    let calls = 0;
+    const io = captureIo(
+      fakeClient({
+        resetLeader: async () => {
+          calls += 1;
+          return {
+            session_id: '00000000-0000-4000-8000-000000000001',
+            leader: { state: 'idle', last_activity_at: null, available: true },
+          };
+        },
+      }),
+    );
+    expect(await runCli(['leader', 'reset'], io)).toBe(0);
+    expect(calls).toBe(1);
+    expect(io.text()).toBe('new leader session 00000000-0000-4000-8000-000000000001 (idle)\n');
+  });
+
   it('watch prints one line per event and passes --after', async () => {
     const event = {
       seq: 7,

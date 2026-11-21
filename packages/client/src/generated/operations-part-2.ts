@@ -6,6 +6,44 @@
 import type { components } from './components.js';
 
 export interface operations_part2 {
+  cancelTask: {
+    parameters: {
+      query?: never;
+      header?: {
+        'Idempotency-Key'?: string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        'application/json': {
+          reason?: string;
+        };
+      };
+    };
+    responses: {
+      /** @description The updated task */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            task: components['schemas']['Task'];
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      404: components['responses']['Error'];
+      409: components['responses']['Error'];
+      500: components['responses']['Error'];
+    };
+  };
   retryTask: {
     parameters: {
       query?: never;
@@ -229,6 +267,55 @@ export interface operations_part2 {
       503: components['responses']['Error'];
     };
   };
+  resetLeader: {
+    parameters: {
+      query?: never;
+      header?: {
+        'Idempotency-Key'?: string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The new session */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            session_id: string;
+            leader: {
+              /** @enum {string} */
+              state: 'idle' | 'busy' | 'offline';
+              /** Format: date-time */
+              last_activity_at: string | null;
+              available?: boolean;
+              /** @enum {string|null} */
+              reason?: 'disabled' | 'not_installed' | 'auth' | 'rate_limit' | null;
+              hint?: string | null;
+              /** Format: date-time */
+              until?: string | null;
+              queued?: number;
+              context_tokens?: number | null;
+              quota?: {
+                utilization: number | null;
+                /** Format: date-time */
+                resets_at: string | null;
+                exhausted: boolean;
+              } | null;
+            };
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      500: components['responses']['Error'];
+      503: components['responses']['Error'];
+    };
+  };
   listAttention: {
     parameters: {
       query?: {
@@ -337,42 +424,6 @@ export interface operations_part2 {
       403: components['responses']['Error'];
       404: components['responses']['Error'];
       409: components['responses']['Error'];
-      500: components['responses']['Error'];
-    };
-  };
-  login: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          password: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Logged in */
-      200: {
-        headers: {
-          /** @description team_session=…; HttpOnly; SameSite=Strict; Path=/ */
-          'Set-Cookie': string;
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            /** @enum {boolean} */
-            ok: true;
-          };
-        };
-      };
-      400: components['responses']['Error'];
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-      429: components['responses']['Error'];
       500: components['responses']['Error'];
     };
   };

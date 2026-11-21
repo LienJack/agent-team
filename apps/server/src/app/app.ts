@@ -1,6 +1,16 @@
 import { TeamError } from '@agent-team/core';
 import { OpenAPIHono, type RouteHandler } from '@hono/zod-openapi';
-import { ALL_ROUTES, isLocalOnly, login } from '@agent-team/protocol';
+import {
+  ALL_ROUTES,
+  createProject,
+  getRunLog,
+  isLocalOnly,
+  listLeaderMessages,
+  login,
+  postLeaderMessage,
+  resetLeader,
+  streamEvents,
+} from '@agent-team/protocol';
 import type { MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { secureHeaders } from 'hono/secure-headers';
@@ -20,7 +30,7 @@ const MAX_BODY_BYTES = 1024 * 1024;
 function lanForbidden(): MiddlewareHandler<AppEnv> {
   const blocked = ALL_ROUTES.filter(isLocalOnly).map((route) => ({
     method: route.method.toUpperCase(),
-    path: new RegExp(`^${route.path.replace(/\{[^}]+\}/g, '[^/]+')}$`),
+    path: routePattern(route.path),
   }));
   return async (c, next) => {
     if (blocked.some((b) => b.method === c.req.method && b.path.test(c.req.path))) {
@@ -28,6 +38,43 @@ function lanForbidden(): MiddlewareHandler<AppEnv> {
         'lan_forbidden',
         `${c.req.method} ${c.req.path} is only available on the local listener`,
         'run it on this machine, e.g. `team project add`',
+      );
+    }
+    await next();
+  };
+}
+
+const routePattern = (path: string) => new RegExp(`^${path.replace(/\{[^}]+\}/g, '[^/]+')}$`);
+
+/**
+ * Routes the leader actor may not call (spec §1 principle 1, §9): run logs and conversation
+ * transcripts are for humans only; `team ask` (its own queue) and `team watch` (never ends) would
+ * hang its turn; resetting its own conversation and registering local repositories (paths on this
+ * machine, like the LAN rule of §11) are the owner's calls.
+ */
+export const LEADER_FORBIDDEN = [
+  createProject,
+  getRunLog,
+  listLeaderMessages,
+  postLeaderMessage,
+  streamEvents,
+  resetLeader,
+];
+
+function leaderForbidden(): MiddlewareHandler<AppEnv> {
+  const blocked = LEADER_FORBIDDEN.map((route) => ({
+    method: route.method.toUpperCase(),
+    path: routePattern(route.path),
+  }));
+  return async (c, next) => {
+    if (
+      c.get('actor').kind === 'leader' &&
+      blocked.some((b) => b.method === c.req.method && b.path.test(c.req.path))
+    ) {
+      throw new TeamError(
+        'forbidden',
+        `${c.req.method} ${c.req.path} is not available to the leader`,
+        'the leader works from receipts and `team task show`; run logs, transcripts and project registration are for humans',
       );
     }
     await next();
@@ -54,6 +101,7 @@ export function createApp(ctx: AppContext, options: AppOptions): OpenAPIHono<App
 
   if (options.listener === 'local') {
     app.use('/api/*', bearerAuth(options.token));
+    app.use('/api/*', leaderForbidden());
   } else {
     app.use('/api/*', options.lan.originGuard);
     app.use('/auth/*', options.lan.originGuard);

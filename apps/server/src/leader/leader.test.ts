@@ -42,8 +42,13 @@ describe('resumeBrief (spec §9 GET /resume, no model)', () => {
     expect(h.service.leader.resumeBrief()).toContain('## 未讀回執（0）');
   });
 
-  it('the stub leader is offline and refuses messages with not_implemented', async () => {
-    expect(h.service.leader.status()).toEqual({ state: 'offline', last_activity_at: null });
+  it('without a leader runtime the leader is offline (disabled) and refuses with unavailable', async () => {
+    expect(h.service.leader.status()).toMatchObject({
+      state: 'offline',
+      last_activity_at: null,
+      available: false,
+      reason: 'disabled',
+    });
     const { message } = h.service.engine.recordMessage({
       channel: 'leader',
       direction: 'in',
@@ -52,14 +57,11 @@ describe('resumeBrief (spec §9 GET /resume, no model)', () => {
     });
     await expect(
       h.service.leader.handleMessage(message, { duplicate: false }),
-    ).rejects.toMatchObject({
-      code: 'not_implemented',
-      message: expect.stringMatching(/^not_implemented/),
-    });
+    ).rejects.toMatchObject({ code: 'unavailable', message: expect.stringMatching(/disabled/) });
     expect(() => h.service.leader.notify([])).not.toThrow();
   });
 
-  it('the stub hub delivers nothing, so no outbox rows are written', async () => {
+  it('a disabled hub delivers nothing, so no outbox rows are written', async () => {
     expect(h.service.hub.delivering).toBe(false);
     h.service.engine.openAttention({ question: 'Q?' });
     expect(h.store.outbox.list()).toEqual([]);

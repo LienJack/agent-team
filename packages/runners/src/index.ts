@@ -10,3 +10,18 @@ export type {
   ScriptableFakeRunner,
 } from './types.js';
 export { redactSecrets } from './redact.js';
+
+// Shared pieces for the server's own headless processes (leader conversation, Grok bridge):
+// argv-only spawning in a process group, allow-listed child environments, probes, and one
+// plain-text `claude -p` call.
+export { childEnv, findExecutable } from './process/env.js';
+export { runChild, type ChildResult, type ChildSpec } from './process/spawn.js';
+export { capture, parseHelpFlags, type Captured } from './process/capture.js';
+export { assertNoPermissionBypass, PERMISSION_BYPASS_FLAGS } from './claude/args.js';
+export {
+  probeClaudeCli,
+  runClaudeText,
+  type ClaudeProbe,
+  type ClaudeTextInput,
+  type ClaudeTextResult,
+} from './claude/text.js';

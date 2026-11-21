@@ -10,16 +10,20 @@ export { createLanAuth, bearerAuth, type LanAuth, type LanAuthOptions } from './
 export { ConfigError, loadConfig, type LoadedConfig } from './config.js';
 export { runDoctor } from './doctor.js';
 export { createEnvReader, envFilePath, type EnvReader } from './env.js';
-export { createHub } from './hub/stub.js';
-export type { Hub, HubDeps } from './hub/types.js';
-export { createLeader } from './leader/stub.js';
+export { createHub } from './hub/hub.js';
+export { roleSummarizer, type Summarize } from './hub/summarizer.js';
+export type { Hub, HubDeps, HubRuntime } from './hub/types.js';
+export { createLeader, type LeaderImpl } from './leader/leader.js';
 export { resumeBrief } from './leader/resume.js';
 export {
+  LEADER_CONVERSATION_KEY,
+  LEADER_EVENT_CURSOR_KEY,
   LEADER_RECEIPTS_CURSOR_KEY,
   LEADER_SESSION_KEY,
   type Leader,
   type LeaderDeps,
   type LeaderReply,
+  type LeaderRuntime,
 } from './leader/types.js';
 export { listen, writeListenerFile, removeListenerFile, type Listening } from './listeners.js';
 export { createLogger } from './logger.js';

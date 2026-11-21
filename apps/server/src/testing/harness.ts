@@ -19,6 +19,9 @@ import { createApp } from '../app/app.js';
 import type { AppEnv } from '../app/types.js';
 import { createLanAuth } from '../auth/guards.js';
 import { createEnvReader } from '../env.js';
+import type { Summarize } from '../hub/summarizer.js';
+import type { HubRuntime } from '../hub/types.js';
+import type { LeaderRuntime } from '../leader/types.js';
 import { createService, type Service } from '../service.js';
 
 export const TEST_TOKEN = 'test-token-0123456789abcdef';
@@ -38,6 +41,12 @@ export interface TestServiceOptions {
   logger?: Logger;
   /** A built board directory (with index.html) for the LAN listener. */
   webDist?: string;
+  /** Leader runtime (default: disabled — never spawns claude). */
+  leader?: (root: string) => LeaderRuntime;
+  /** grokmsg runtime (only used when the test enables grok; never the real grokmsg). */
+  hub?: HubRuntime;
+  /** Hub condenser (default: none → truncated with 「（未整理）」). */
+  summarize?: Summarize;
 }
 
 export interface TestService {
@@ -56,6 +65,8 @@ export interface TestService {
   localApp(): OpenAPIHono<AppEnv>;
   /** LAN app for `app.request` (password TEST_PASSWORD, source from SOURCE_HEADER). */
   lanApp(overrides?: Partial<ServiceConfig['lan']>): OpenAPIHono<AppEnv>;
+  /** The temp root (holds DATA, the .env and anything a test writes). */
+  root: string;
   /** Stop the service (if started) and delete the temp directory. */
   cleanup(): Promise<void>;
 }
@@ -110,6 +121,14 @@ export function createTestService(options: TestServiceOptions = {}): TestService
     logger,
     print: (text) => void printed.push(text),
     sourceOf: (c) => c.req.header(SOURCE_HEADER) ?? 'test-source',
+    ...(options.leader ? { leader: options.leader(root) } : {}),
+    ...(options.hub ? { hub: options.hub } : {}),
+    // never the real hub_summarizer in tests
+    summarize:
+      options.summarize ??
+      (async () => {
+        throw new Error('no summarizer in tests');
+      }),
   });
 
   return {
@@ -123,6 +142,7 @@ export function createTestService(options: TestServiceOptions = {}): TestService
     config,
     dataDir,
     printed,
+    root,
     localApp: () => createApp(service.context, { listener: 'local', token: TEST_TOKEN }),
     lanApp: (overrides = {}) => {
       const lan = { ...config.lan, ...overrides };

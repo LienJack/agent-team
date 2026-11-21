@@ -20,10 +20,11 @@ import { generatePassword, randomToken } from './auth/secrets.js';
 import type { LoadedConfig } from './config.js';
 import { runDoctor } from './doctor.js';
 import type { EnvReader } from './env.js';
-import { createHub } from './hub/stub.js';
-import type { Hub } from './hub/types.js';
-import { createLeader } from './leader/stub.js';
-import type { Leader } from './leader/types.js';
+import { createHub } from './hub/hub.js';
+import { roleSummarizer, type Summarize } from './hub/summarizer.js';
+import type { Hub, HubRuntime } from './hub/types.js';
+import { createLeader } from './leader/leader.js';
+import type { Leader, LeaderRuntime } from './leader/types.js';
 import {
   lanAddresses,
   listen,
@@ -51,6 +52,12 @@ export interface ServiceDeps {
   sessionKey?: Uint8Array;
   /** Runs last on stop (e.g. close the database). */
   onClose?: () => void | Promise<void>;
+  /** The leader's claude processes (default: disabled — messages are stored, never answered). */
+  leader?: LeaderRuntime;
+  /** The Grok bridge's grokmsg (used only when `grok.enabled`). */
+  hub?: HubRuntime;
+  /** Condenser for long Grok texts (default: role `hub_summarizer` through `runners`). */
+  summarize?: Summarize;
 }
 
 export interface RunningService {
@@ -84,9 +91,26 @@ export function createService(deps: ServiceDeps): Service {
   const { service, dataDir } = config;
   const print = deps.print ?? ((text: string) => void process.stdout.write(text));
   const events = new EventHub();
-  const hub = createHub({ service, logger, store, clock });
-  // the engine needs the leader's notifier and the leader needs the engine
-  const leaderSink: { current?: Leader } = {};
+  // the engine needs the hub (notifier) and the leader's event feed; both need the engine
+  const late: { engine?: Engine; leader?: Leader } = {};
+  const hub = createHub({
+    service,
+    logger,
+    store,
+    clock,
+    engine: () => late.engine!,
+    leader: () => late.leader!,
+    ...(deps.hub ? { runtime: deps.hub } : {}),
+    summarize:
+      deps.summarize ??
+      roleSummarizer({
+        runners: deps.runners,
+        models: config.models,
+        quota: () => late.engine!.quotaState(),
+        clock,
+        dataDir,
+      }),
+  });
   const engine = new Engine({
     store,
     runners: deps.runners,
@@ -102,10 +126,16 @@ export function createService(deps: ServiceDeps): Service {
       notifications: hub.delivering,
     },
     notifier: hub,
-    leader: { notify: (batch) => leaderSink.current?.notify(batch) },
-    publisher: events,
+    // every committed event reaches SSE and the leader (it filters and keeps its own cursor)
+    publisher: {
+      publish: (batch) => {
+        events.publish(batch);
+        late.leader?.notify(batch);
+      },
+    },
     logger,
   });
+  late.engine = engine;
   const leader = createLeader({
     engine,
     store,
@@ -114,8 +144,11 @@ export function createService(deps: ServiceDeps): Service {
     models: config.models,
     service,
     dataDir,
+    ...(deps.leader ? { runtime: deps.leader } : {}),
+    onReply: (tx, inbound, reply) => hub.onLeaderReply(tx, inbound, reply),
+    onRateLimited: (tx, until) => hub.onLeaderRateLimited(tx, until),
   });
-  leaderSink.current = leader;
+  late.leader = leader;
   const context: AppContext = {
     engine,
     store,

@@ -55,10 +55,10 @@ describe('§14 server — idempotency (spec §5)', () => {
     expect(b.headers.get(REPLAYED_HEADER)).toBe('true');
 
     const msg = { text: 'hi', source: 'cli', client_msg_id: 'm-1' };
-    // the stub leader answers 501 not_implemented: a 5xx, so the key is released
-    expect((await post('/api/leader/messages', msg, 'k-5')).status).toBe(501);
+    // the test service has no leader conversation: 503 unavailable, a 5xx, so the key is released
+    expect((await post('/api/leader/messages', msg, 'k-5')).status).toBe(503);
     const retry = await post('/api/leader/messages', msg, 'k-5');
-    expect(retry.status).toBe(501);
+    expect(retry.status).toBe(503);
     expect(retry.headers.get(REPLAYED_HEADER)).toBeNull();
     expect(h.store.idempotency.get('local', 'k-5')).toBeUndefined();
     expect(h.store.messages.list()).toHaveLength(1);

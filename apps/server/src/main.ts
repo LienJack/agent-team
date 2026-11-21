@@ -3,7 +3,8 @@
 //   AGENT_TEAM_HOME         data directory (default ~/.agent-team)
 //   AGENT_TEAM_ENV_FILE     .env location (default <project root>/.env)
 //   AGENT_TEAM_CONFIG_DIR   directory with service.json / models.json (default <root>/config)
-//   AGENT_TEAM_FAKE_RUNNERS=1  in-process fake runners instead of claude/codex/dsh
+//   AGENT_TEAM_FAKE_RUNNERS=1  in-process fake runners instead of claude/codex/dsh (the leader
+//                              conversation is off too: messages are stored, not answered)
 // (all listed in ENV_VARS, packages/schema/src/env.ts)
 import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
@@ -55,6 +56,11 @@ export async function main(processEnv: NodeJS.ProcessEnv = process.env): Promise
     env,
     logger,
     onClose: () => store.close(),
+    // the leader's `team` is this checkout's built CLI; fake runners mean no real claude at all
+    leader: {
+      enabled: !fake,
+      teamEntry: join(config.projectRoot, 'apps', 'cli', 'dist', 'bin.js'),
+    },
   });
   await service.start();
 

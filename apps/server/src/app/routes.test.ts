@@ -176,12 +176,12 @@ describe('§14 server — routes (happy path and validation failure)', () => {
     expect((await call(`/api/runs/${run.id}/log?tail=0`)).status).toBe(400);
   });
 
-  it('leader: message stored and deduplicated, reply not_implemented (501); list', async () => {
+  it('leader: message stored and deduplicated, no conversation here → unavailable (503); list', async () => {
     const msg = { text: '你好', source: 'cli', client_msg_id: 'c-1' };
     const first = await call('/api/leader/messages', msg);
-    expect(first.status).toBe(501);
-    expect(first.body['error']).toMatchObject({ code: 'not_implemented' });
-    expect(first.body['error'].message).toMatch(/^not_implemented/);
+    expect(first.status).toBe(503);
+    expect(first.body['error']).toMatchObject({ code: 'unavailable' });
+    expect(first.body['error'].message).toMatch(/disabled/);
     await call('/api/leader/messages', msg);
     const list = await call('/api/leader/messages');
     expect(list.body['messages']).toHaveLength(1);

@@ -30,6 +30,7 @@ export type StateSnapshot = Json<'getState'>;
 export type TaskDetail = Json<'getTask'>;
 export type RunLog = Json<'getRunLog'>;
 export type LeaderReply = Json<'postLeaderMessage'>;
+export type LeaderReset = Json<'resetLeader'>;
 export type Resume = Json<'getResume'>;
 export type DoctorReport = Json<'getDoctor'>;
 export type ProjectCreateBody = Body<'createProject'>;
@@ -76,6 +77,8 @@ export interface TeamClient {
   runLog(id: string, tail?: number): Promise<RunLog>;
   sendLeaderMessage(body: LeaderMessageBody): Promise<LeaderReply>;
   leaderMessages(query?: LeaderMessagesQuery): Promise<Message[]>;
+  /** New leader conversation (local listener only; `team leader reset`). */
+  resetLeader(): Promise<LeaderReset>;
   listAttention(query?: AttentionListQuery): Promise<Attention[]>;
   openAttention(body: AttentionCreateBody): Promise<Attention>;
   answerAttention(id: string, body: AttentionAnswerBody): Promise<Attention>;
@@ -180,6 +183,7 @@ export function createTeamClient(options: TeamClientOptions): TeamClient {
     sendLeaderMessage: (body) => call(() => raw.POST('/api/leader/messages', { body })),
     leaderMessages: async (query = {}) =>
       (await call(() => raw.GET('/api/leader/messages', { params: { query } }))).messages,
+    resetLeader: () => call(() => raw.POST('/api/leader/reset')),
     listAttention: async (query = {}) =>
       (await call(() => raw.GET('/api/attention', { params: { query } }))).attention,
     openAttention: async (body) =>

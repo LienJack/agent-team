@@ -101,6 +101,8 @@ export function registerWorkRoutes(app: OpenAPIHono<AppEnv>, ctx: AppContext): v
   );
   register(app, answerAttention, (c) => {
     const { answer, via } = c.req.valid('json');
-    return ok({ attention: engine.answerAttention(c.req.valid('param').id, answer, via) });
+    // the leader's own answers are recorded as such (they never re-enter its event digest)
+    const by = c.get('actor').kind === 'leader' ? 'leader' : via;
+    return ok({ attention: engine.answerAttention(c.req.valid('param').id, answer, by) });
   });
 }

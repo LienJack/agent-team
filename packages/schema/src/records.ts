@@ -69,6 +69,8 @@ export const NotifyKindSchema = z.enum([
   'quota_exhausted',
   'no_receipt',
   'circuit_open',
+  /** A reply to an inbound Grok message (`grokmsg reply`), written by the hub. */
+  'reply',
 ]);
 export type NotifyKind = z.infer<typeof NotifyKindSchema>;
 

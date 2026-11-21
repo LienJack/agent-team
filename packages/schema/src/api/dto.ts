@@ -31,9 +31,44 @@ const queryInt = (min: number, max: number) => z.coerce.number().int().min(min).
 
 // -------------------------------------------------------------------- state
 
+/** Why the leader cannot take turns right now (`available: false`). */
+export const LeaderUnavailableReasonSchema = z.enum([
+  /** No leader conversation in this process (fake runners, tests). */
+  'disabled',
+  /** The claude CLI is missing or lacks a required flag. */
+  'not_installed',
+  /** Not logged in: log in, then `team leader reset`. */
+  'auth',
+  /** Subscription limit; retried at `until`. */
+  'rate_limit',
+]);
+export type LeaderUnavailableReason = z.infer<typeof LeaderUnavailableReasonSchema>;
+
+/**
+ * Leader status (spec §9). `state` keeps the phase 2 values (`offline` = no answers right now:
+ * messages are stored and answered later); the optional fields are filled by the real leader.
+ */
 export const LeaderStatusSchema = z.object({
   state: z.enum(['idle', 'busy', 'offline']),
   last_activity_at: IsoDateTimeSchema.nullable(),
+  /** false while turns cannot run; `reason`/`hint`/`until` say why and until when. */
+  available: z.boolean().optional(),
+  reason: LeaderUnavailableReasonSchema.nullable().optional(),
+  hint: z.string().nullable().optional(),
+  until: IsoDateTimeSchema.nullable().optional(),
+  /** Inputs waiting for a turn (human messages, plus 1 for pending engine events). */
+  queued: NonNegativeIntSchema.optional(),
+  /** Context size after the last turn (tokens); compaction runs above the threshold. */
+  context_tokens: NonNegativeIntSchema.nullable().optional(),
+  /** Latest subscription quota seen in the leader's own stream (`rate_limit_event`). */
+  quota: z
+    .object({
+      utilization: z.number().min(0).max(1).nullable(),
+      resets_at: IsoDateTimeSchema.nullable(),
+      exhausted: z.boolean(),
+    })
+    .nullable()
+    .optional(),
 });
 export type LeaderStatus = z.infer<typeof LeaderStatusSchema>;
 
@@ -150,6 +185,16 @@ export const LeaderMessagesQuerySchema = z.object({
   limit: queryInt(1, 500).default(100),
 });
 export const LeaderMessagesResponseSchema = z.object({ messages: z.array(MessageSchema) });
+
+/**
+ * POST /leader/reset (`team leader reset`, local listener only): start a new conversation
+ * (new session id, the resume brief on its first turn), e.g. under another login.
+ */
+export const LeaderResetResponseSchema = z.object({
+  session_id: z.string(),
+  leader: LeaderStatusSchema,
+});
+export type LeaderResetResponse = z.infer<typeof LeaderResetResponseSchema>;
 
 // ---------------------------------------------------------------- attention
 

@@ -3,6 +3,7 @@ import { z } from 'zod';
 /** 0 = let the OS pick a free port (tests, ephemeral instances). */
 const port = z.number().int().min(0).max(65535);
 const ms = z.number().int().positive();
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'a local time like "23:00"');
 
 /**
  * `config/service.json` (spec §4, §8, §10, §11). Every field has a default, so `{}` is valid.
@@ -33,6 +34,17 @@ export const ServiceConfigSchema = z.strictObject({
   grok: z
     .strictObject({
       enabled: z.boolean().default(false),
+      /** Routine notifications of the same kind within this window go out as one message. */
+      coalesce_window_ms: ms.default(60000),
+      /**
+       * Local "HH:MM" times; routine notifications wait until `end`. Attention items and quota
+       * notices are never delayed. null = no quiet hours.
+       */
+      quiet_hours: z.strictObject({ start: hhmm, end: hhmm }).nullable().default(null),
+      /** Texts longer than this are condensed by role `hub_summarizer` before they are sent. */
+      summarize_threshold_chars: z.number().int().positive().default(600),
+      /** Hard length cap of a condensed (or truncated) text. */
+      summary_max_chars: z.number().int().positive().default(500),
     })
     .prefault({}),
   /** Service-side commits (spec §6 step 5). */
@@ -87,6 +99,10 @@ export const ServiceConfigSchema = z.strictObject({
     .strictObject({
       /** Send `/compact` above this many context tokens (spec §9). */
       compact_threshold_tokens: z.number().int().positive().default(60000),
+      /** Engine events arriving within this window are handed to the leader as one digest. */
+      event_window_ms: ms.default(3000),
+      /** One leader turn (one `claude -p` process) is killed after this long. */
+      turn_timeout_ms: ms.default(600000),
     })
     .prefault({}),
   sse: z

@@ -8,6 +8,7 @@ import {
   getState,
   listLeaderMessages,
   postLeaderMessage,
+  resetLeader,
   streamEvents,
 } from '@agent-team/protocol';
 import type { StateResponse } from '@agent-team/schema';
@@ -96,6 +97,11 @@ export function registerSystemRoutes(app: OpenAPIHono<AppEnv>, ctx: AppContext):
       ...(after === undefined || after === null ? {} : { afterSeq: after }),
     });
     return ok({ messages });
+  });
+
+  register(app, resetLeader, async () => {
+    const { session_id } = await ctx.leader.resetSession();
+    return ok({ session_id, leader: ctx.leader.status() });
   });
 
   register(app, getResume, () =>

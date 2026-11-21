@@ -143,10 +143,10 @@ describe('§14 cli — against the real server', () => {
     expect((await team('doctor')).code).toBe(0);
   });
 
-  it('ask stores the message but the leader is not implemented yet (not_implemented, exit 1)', async () => {
+  it('ask stores the message; without a leader conversation it is unavailable (exit 2)', async () => {
     const ask = await team('ask', '你好');
-    expect(ask.code).toBe(1);
-    expect(ask.err).toMatch(/not_implemented/);
+    expect(ask.code).toBe(2);
+    expect(ask.err).toMatch(/leader cannot answer right now \(disabled\)/);
   });
 
   it('a business error exits 1; a stopped server exits 2', async () => {

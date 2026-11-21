@@ -456,7 +456,29 @@
                       "type": "object",
                       "properties": {
                         "state": { "type": "string", "enum": ["idle", "busy", "offline"] },
-                        "last_activity_at": { "type": ["string", "null"], "format": "date-time" }
+                        "last_activity_at": { "type": ["string", "null"], "format": "date-time" },
+                        "available": { "type": "boolean" },
+                        "reason": {
+                          "type": ["string", "null"],
+                          "enum": ["disabled", "not_installed", "auth", "rate_limit", null]
+                        },
+                        "hint": { "type": ["string", "null"] },
+                        "until": { "type": ["string", "null"], "format": "date-time" },
+                        "queued": { "type": "integer", "minimum": 0 },
+                        "context_tokens": { "type": ["integer", "null"], "minimum": 0 },
+                        "quota": {
+                          "type": ["object", "null"],
+                          "properties": {
+                            "utilization": {
+                              "type": ["number", "null"],
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "resets_at": { "type": ["string", "null"], "format": "date-time" },
+                            "exhausted": { "type": "boolean" }
+                          },
+                          "required": ["utilization", "resets_at", "exhausted"]
+                        }
                       },
                       "required": ["state", "last_activity_at"]
                     }
@@ -1298,6 +1320,73 @@
           "401": { "$ref": "#/components/responses/Error" },
           "403": { "$ref": "#/components/responses/Error" },
           "500": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/leader/reset": {
+      "post": {
+        "operationId": "resetLeader",
+        "tags": ["leader"],
+        "summary": "New leader conversation (local listener only)",
+        "x-local-only": true,
+        "parameters": [
+          {
+            "schema": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The new session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "session_id": { "type": "string" },
+                    "leader": {
+                      "type": "object",
+                      "properties": {
+                        "state": { "type": "string", "enum": ["idle", "busy", "offline"] },
+                        "last_activity_at": { "type": ["string", "null"], "format": "date-time" },
+                        "available": { "type": "boolean" },
+                        "reason": {
+                          "type": ["string", "null"],
+                          "enum": ["disabled", "not_installed", "auth", "rate_limit", null]
+                        },
+                        "hint": { "type": ["string", "null"] },
+                        "until": { "type": ["string", "null"], "format": "date-time" },
+                        "queued": { "type": "integer", "minimum": 0 },
+                        "context_tokens": { "type": ["integer", "null"], "minimum": 0 },
+                        "quota": {
+                          "type": ["object", "null"],
+                          "properties": {
+                            "utilization": {
+                              "type": ["number", "null"],
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "resets_at": { "type": ["string", "null"], "format": "date-time" },
+                            "exhausted": { "type": "boolean" }
+                          },
+                          "required": ["utilization", "resets_at", "exhausted"]
+                        }
+                      },
+                      "required": ["state", "last_activity_at"]
+                    }
+                  },
+                  "required": ["session_id", "leader"]
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
         }
       }
     },

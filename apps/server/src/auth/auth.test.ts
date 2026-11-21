@@ -87,7 +87,18 @@ describe('§14 server — local listener bearer auth', () => {
 
   it('marks calls with X-Team-Actor: leader as leader actions', async () => {
     const app = h.localApp();
-    const res = await app.request('/api/projects', {
+    const res = await app.request('/api/attention', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${TEST_TOKEN}`,
+        'content-type': 'application/json',
+        'x-team-actor': 'leader',
+      },
+      body: JSON.stringify({ question: 'Q?' }),
+    });
+    expect(res.status).toBe(201);
+    // project registration is the owner's call (leader-guard.test.ts)
+    const project = await app.request('/api/projects', {
       method: 'POST',
       headers: {
         authorization: `Bearer ${TEST_TOKEN}`,
@@ -96,7 +107,7 @@ describe('§14 server — local listener bearer auth', () => {
       },
       body: JSON.stringify({ name: 'demo', repo_path: '/repos/demo' }),
     });
-    expect(res.status).toBe(201);
+    expect(project.status).toBe(403);
   });
 });
 

@@ -6,7 +6,7 @@ import type { CommandContext } from '../program.js';
 const collect = (value: string, previous: string[]) => [...previous, value];
 const STATUSES = ['open', 'answered', 'superseded'] as const;
 
-/** `team ask "<text>"`, `team attention list | open … | answer <id> "<answer>"` */
+/** `team ask "<text>"`, `team leader reset`, `team attention list | open … | answer <id> "<answer>"` */
 export function registerTalkCommands(program: Command, ctx: CommandContext): void {
   program
     .command('ask <text>')
@@ -17,6 +17,15 @@ export function registerTalkCommands(program: Command, ctx: CommandContext): voi
         await ctx.client()
       ).sendLeaderMessage({ text, source: 'cli', client_msg_id: id });
       ctx.print(reply, reply.reply);
+    });
+
+  const leader = program.command('leader').description('the leader conversation');
+  leader
+    .command('reset')
+    .description('start a new leader conversation (e.g. after logging in with another account)')
+    .action(async () => {
+      const result = await (await ctx.client()).resetLeader();
+      ctx.print(result, () => `new leader session ${result.session_id} (${result.leader.state})`);
     });
 
   const attention = program.command('attention').description('decisions waiting for a human');

@@ -135,6 +135,19 @@ export const EVENT_DATA_SCHEMAS = {
   }),
   'message.status_changed': z.object({ message_id: MessageIdSchema, status: MessageStatusSchema }),
 
+  /** The leader answered an input (spec §9); the reply is stored as an outgoing message. */
+  'leader.reply': z.object({
+    message_id: MessageIdSchema,
+    in_reply_to: MessageIdSchema,
+    channel: MessageChannelSchema,
+  }),
+  /** Leader availability changed (rate limit, login, reset, back to normal). */
+  'leader.status_changed': z.object({
+    available: z.boolean(),
+    reason: nullableString,
+    until: IsoDateTimeSchema.nullable(),
+  }),
+
   'runner.cooldown': z.object({
     runner: RunnerNameSchema,
     until: IsoDateTimeSchema,

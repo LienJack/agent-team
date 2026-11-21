@@ -9,7 +9,13 @@
     "lockout_minutes": 15,
     "session_hours": 168
   },
-  "grok": { "enabled": false },
+  "grok": {
+    "enabled": false,
+    "coalesce_window_ms": 60000,
+    "quiet_hours": null,
+    "summarize_threshold_chars": 600,
+    "summary_max_chars": 500
+  },
   "git": { "author": { "name": "agent-team", "email": "agent-team@localhost" } },
   "paths": { "worktree_root": "~/RanoLabs/worktrees" },
   "engine": {
@@ -27,6 +33,10 @@
     "effect_max_attempts": 10,
     "worktree_retention_hours": 72
   },
-  "leader": { "compact_threshold_tokens": 60000 },
+  "leader": {
+    "compact_threshold_tokens": 60000,
+    "event_window_ms": 3000,
+    "turn_timeout_ms": 600000
+  },
   "sse": { "heartbeat_ms": 15000, "max_queue": 1000 }
 }

@@ -35,6 +35,20 @@ export interface operations_part1 {
               state: 'idle' | 'busy' | 'offline';
               /** Format: date-time */
               last_activity_at: string | null;
+              available?: boolean;
+              /** @enum {string|null} */
+              reason?: 'disabled' | 'not_installed' | 'auth' | 'rate_limit' | null;
+              hint?: string | null;
+              /** Format: date-time */
+              until?: string | null;
+              queued?: number;
+              context_tokens?: number | null;
+              quota?: {
+                utilization: number | null;
+                /** Format: date-time */
+                resets_at: string | null;
+                exhausted: boolean;
+              } | null;
             };
           };
         };
@@ -370,44 +384,6 @@ export interface operations_part1 {
     };
   };
   queueTask: {
-    parameters: {
-      query?: never;
-      header?: {
-        'Idempotency-Key'?: string;
-      };
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: {
-      content: {
-        'application/json': {
-          reason?: string;
-        };
-      };
-    };
-    responses: {
-      /** @description The updated task */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            task: components['schemas']['Task'];
-          };
-        };
-      };
-      400: components['responses']['Error'];
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-      500: components['responses']['Error'];
-    };
-  };
-  cancelTask: {
     parameters: {
       query?: never;
       header?: {
