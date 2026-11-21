@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseReceipt } from '@agent-team/schema';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { extractFirstJsonObject } from '../json.js';
+import { extractFirstJsonObject, unwrapSchemaEcho } from '../json.js';
 import { parseJsonLine } from '../process/lines.js';
 import type { ChildResult } from '../process/spawn.js';
 import { REDACTED } from '../redact.js';
@@ -53,6 +53,25 @@ describe('runners: dsh stream parsing', () => {
     const r = parse('driver-error.jsonl', 1);
     expect(r.error?.kind).toBe('crash');
     expect(r.error?.message).toContain('unknown session id');
+  });
+
+  it('unwraps a receipt the model wrapped in the schema shape (recorded from a real run)', () => {
+    // deepseek-v4.1-flash answered {"type":"object","properties":{…receipt…}} (2026-11-21)
+    const r = parse('schema-echo.jsonl');
+    expect(r.error).toBeUndefined();
+    const parsed = parseReceipt('impl', r.final);
+    expect(parsed).toMatchObject({ ok: true, receipt: { dispatch_id: 'd_fixture0003' } });
+    expect(parsed).toMatchObject({ receipt: { status: 'blocked' } });
+  });
+
+  it('leaves objects that only look like a schema alone', () => {
+    const schema = { type: 'object', properties: { dispatch_id: { type: 'string' } } };
+    expect(unwrapSchemaEcho(schema)).toBe(schema);
+    const both = { type: 'object', dispatch_id: 'd_1', properties: { dispatch_id: 'd_2' } };
+    expect(unwrapSchemaEcho(both)).toBe(both);
+    expect(unwrapSchemaEcho({ type: 'object', properties: { dispatch_id: 'd_3' } })).toEqual({
+      dispatch_id: 'd_3',
+    });
   });
 
   it('extracts JSON objects robustly', () => {

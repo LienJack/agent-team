@@ -41,9 +41,36 @@ describe('receipts', () => {
     expect(parseReceipt('impl', undefined).ok).toBe(false);
   });
 
-  it(`limit summary to ${RECEIPT_SUMMARY_MAX} characters`, () => {
-    expect(parseReceipt('impl', { ...impl, summary: '字'.repeat(600) }).ok).toBe(true);
-    expect(parseReceipt('impl', { ...impl, summary: '字'.repeat(601) }).ok).toBe(false);
+  it(`clip summary to ${RECEIPT_SUMMARY_MAX} characters instead of refusing the receipt`, () => {
+    expect(parseReceipt('impl', { ...impl, summary: '字'.repeat(600) })).toMatchObject({
+      ok: true,
+      receipt: { summary: '字'.repeat(600) },
+    });
+    // a real dsh run (2026-11-21) lost a fix round to a 601+ character summary
+    const long = parseReceipt('review', { ...review, summary: '字'.repeat(900) });
+    expect(long).toMatchObject({ ok: true });
+    const summary = long.ok ? long.receipt.summary : '';
+    expect(summary).toHaveLength(RECEIPT_SUMMARY_MAX);
+    expect(summary.endsWith('…')).toBe(true);
+  });
+
+  it('treat a missing or null needs_leader and missing lists as empty (real dsh receipts)', () => {
+    const { needs_leader: _omitted, ...withoutNeeds } = impl;
+    expect(parseReceipt('impl', withoutNeeds)).toMatchObject({
+      ok: true,
+      receipt: { needs_leader: '' },
+    });
+    expect(
+      parseReceipt('impl', { ...impl, needs_leader: null, files_changed: null, checks: null }),
+    ).toMatchObject({ ok: true, receipt: { needs_leader: '', files_changed: [], checks: [] } });
+    expect(parseReceipt('review', { ...review, findings: null })).toMatchObject({
+      ok: true,
+      receipt: { findings: [] },
+    });
+    // what decides the outcome is still strict
+    expect(parseReceipt('impl', { ...impl, status: null }).ok).toBe(false);
+    expect(parseReceipt('impl', { ...impl, dispatch_id: undefined }).ok).toBe(false);
+    expect(parseReceipt('review', { ...review, verdict: undefined }).ok).toBe(false);
   });
 
   it.each(['impl', 'review'] as const)('%s JSON Schema is strict for structured output', (kind) => {

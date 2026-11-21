@@ -397,7 +397,20 @@ describe('team — output and exit codes', () => {
       active_runs: [],
       open_attention: [attention],
       runners: [
-        { runner: 'claude', available: true, circuit: 'closed', cooldown_until: null },
+        {
+          runner: 'claude',
+          available: true,
+          circuit: 'closed',
+          cooldown_until: null,
+          // as recorded from a real `rate_limit_event` (2026-11-21 validation run)
+          quota: {
+            utilization: 0.34,
+            resets_at: '2026-11-26T18:00:00.000Z',
+            exhausted: false,
+            updated_at: T0,
+          },
+        },
+        { runner: 'codex', available: true, circuit: 'closed', cooldown_until: null, quota: null },
         { runner: 'dsh', available: false, circuit: 'open', cooldown_until: null },
       ],
       leader: { state: 'offline', last_activity_at: null },
@@ -406,7 +419,7 @@ describe('team — output and exit codes', () => {
       'tasks: pending 1 · in_progress 1 · review 0 · blocked 0 · done 0',
       '  t_000002 [running] C impl_C 加一個功能',
       'attention: 1 open',
-      'runners: claude ok · dsh circuit open',
+      'runners: claude ok (34% used, resets 2026-11-26T18:00Z) · codex ok · dsh circuit open',
       'leader: offline',
     ]);
     const io = captureIo(

@@ -127,9 +127,12 @@ ReviewReceipt  { dispatch_id, verdict(pass|needs_changes|blocked), summary(≤60
 
 核對（`core` 的 verify，逐步，任何一步不過就 `outcome=rejected` 並記 `reject_reason`）：
 
-1. 回執通過 Zod；`dispatch_id` 等於該 run 的編號且該 run 仍是任務的當前 run。回執的每個字串先以日誌的遮蔽器處理再儲存。
-2. `blocked`／`failed` → 任務進 `blocked`；`needs_leader` 非空則開一筆 attention。
-3. worktree 確有變更；實際變更檔案全部落在 `owned_paths` 內（以 git 為準，不以回執自述為準；symlink 解析後再比）。
+1. 回執通過 Zod（先正規化格式失誤：`summary` 截到 600 字、缺漏的 `needs_leader`／清單補空值；ADR 0017）；`dispatch_id`
+   等於該 run 的編號且該 run 仍是任務的當前 run。回執的每個字串先以日誌的遮蔽器處理再儲存。
+2. `blocked`／`failed` → 任務進 `blocked`；`needs_leader` 非空則開一筆 attention。人回答該任務最後一筆未回答的項目後，
+   因 worker 回報而阻塞的任務自動重新排入；之後每個 run 的提示都附上問與答（ADR 0017）。
+3. worktree 確有變更（修正 run 已有服務端提交時可以不再修改：照常檢查、不新增提交、回到審查；ADR 0017）；實際變更檔案
+   全部落在 `owned_paths` 內（以 git 為準，不以回執自述為準；symlink 解析後再比）。
 4. 專案的機器檢查全過（逐條執行，完整輸出存日誌，只把結果與最後 20 行留給修正單）。檢查執行 worker 寫的程式：
    環境白名單（無金鑰、無 `SSH_AUTH_SOCK`、無權杖），macOS 上另以 `sandbox-exec` 套 worker 的拒絕清單（ADR 0014）。
 5. 提交前重算變更清單：檢查後多出任何檔案或出現越界 → 拒收、不提交。服務端只提交核對過的檔案

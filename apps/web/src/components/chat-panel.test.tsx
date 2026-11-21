@@ -124,6 +124,20 @@ describe('ChatPanel', () => {
     expect(screen.queryByText('等待 leader 回覆…')).toBeNull();
   });
 
+  it('labels the service’s event digests as such, not as the person’s own messages', async () => {
+    // 2026-11-21 screenshots: digests showed up as「我（service）」in the person's own bubble
+    const leaderMessages = vi.fn<TeamClient['leaderMessages']>(async () => [
+      makeMessage({ id: 'm_1', seq: 1, source: 'service', body: '[服務端事件摘要｜seq 1–1]' }),
+      makeMessage({ id: 'm_2', seq: 2, direction: 'out', source: 'service', body: '收到' }),
+      makeMessage({ id: 'm_3', seq: 3, source: 'web', body: '你好' }),
+    ]);
+    renderWithClient(<ChatPanel state={makeState()} />, fakeClient({ leaderMessages }));
+    await screen.findByText('[服務端事件摘要｜seq 1–1]');
+    expect(screen.queryByText('我（service）')).toBeNull();
+    expect(screen.getAllByText('服務端事件摘要（交給 leader）').length).toBeGreaterThan(0);
+    expect(screen.getByText('我（web）')).toBeTruthy();
+  });
+
   it('shows the history in seq order', async () => {
     const leaderMessages = vi.fn<TeamClient['leaderMessages']>(async () => [
       makeMessage({ id: 'm_2', seq: 2, direction: 'out', source: 'service', body: '第二則' }),

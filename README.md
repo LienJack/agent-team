@@ -74,7 +74,21 @@ Ctrl-C 正常關機：執行中的 worker 整個行程群組會被終止，它�
   連續輸錯 5 次會鎖 15 分鐘。區網是未加密的 HTTP，請只在信任的網路使用。
 
 看板只在區網監聽埠（預設 `0.0.0.0:4518`）提供；本機監聽埠 `127.0.0.1:4517` 只給 CLI／MCP，用 `listener.json`
-裡的權杖，不提供頁面。區網上不能新增專案或改設定（這兩件事只能在這台電腦用 CLI 做）。
+裡的權杖，不提供頁面。區網上不能新增專案或改設定（這兩件事只能在這台電腦用 CLI 做）。服務每次重新啟動後看板要重新
+登入（session 金鑰每次啟動重產）。
+
+### 截圖
+
+2026-11-21 真實 agent 驗證時的看板（[`docs/validation-2026-11-21.md`](docs/validation-2026-11-21.md)），五欄都有任務：
+
+| 桌面                                                                                     | 手機                                                                 |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| ![看板（淺色）](docs/screenshots/board-desktop-light.png)                                | ![看板（手機、淺色）](docs/screenshots/board-phone-light.png)        |
+| ![看板（深色）](docs/screenshots/board-desktop-dark.png)                                 | ![看板（手機、深色）](docs/screenshots/board-phone-dark.png)         |
+| ![寬螢幕：側欄待決事項](docs/screenshots/board-wide-light.png)                           | ![卡片抽屜（手機）](docs/screenshots/drawer-phone-light.png)         |
+| ![卡片抽屜：阻塞原因、修正單、派工單](docs/screenshots/drawer-desktop-light.png)         | ![待決事項（手機、深色）](docs/screenshots/attention-phone-dark.png) |
+| ![卡片抽屜：審查發現與 run 清單](docs/screenshots/drawer-desktop-dark-findings-runs.png) | ![與 leader 對話（手機）](docs/screenshots/chat-phone-light.png)     |
+| ![卡片抽屜：日誌尾段](docs/screenshots/drawer-desktop-dark-log.png)                      | ![與 leader 對話（深色）](docs/screenshots/chat-desktop-dark.png)    |
 
 ## 第一個專案與任務
 
@@ -116,7 +130,7 @@ worktree 在 `~/RanoLabs/worktrees/<project>/<task_id>/`，分支 `team/<task_id
 | `team receipt <task_id>`                                                                          | 最新回執                                                                                   |
 | `team ask "<text>"`                                                                               | 對 leader 說話，等到回覆為止；Ctrl-C 只停止等待（訊息保留，回覆會出現在看板聊天）          |
 | `team leader reset`                                                                               | 開新的 leader 對話（例如換了 Claude 登入）                                                 |
-| `team attention list` / `open --question Q --option A …` / `answer <id> "<答案>"`                 | 待決事項                                                                                   |
+| `team attention list` / `open --question Q --option A …` / `answer <id> "<答案>"`                 | 待決事項；回答 worker 提出的最後一個問題後，任務帶著回答自動續行（ADR 0017）               |
 
 每個指令都可加 `--json`。結束碼：0 成功、1 業務錯誤、2 用法或連線錯誤（`team ask` 被 Ctrl-C 中止是 130）。
 
@@ -167,6 +181,24 @@ args = ["/ABS/PATH/agent-team/apps/mcp/dist/bin.js"]
 leader 由 `service.json` 的 `leader.enabled` 控制（預設開），與 worker 是否用假 runner 無關：
 `AGENT_TEAM_FAKE_RUNNERS=1 team serve` 會讓 worker 全部用行程內的假 runner、但 leader 仍是真的 Claude，這是最便宜的
 真實端到端組合。
+
+## 實測成本參考
+
+2026-11-21 用真實 runner 跑的小型派工單（一兩個檔案、`node --test`；細節與全部數字見
+[`docs/validation-2026-11-21.md`](docs/validation-2026-11-21.md)）。claude 的費用是 CLI 回報的 API 等價金額（走訂閱）；
+codex（訂閱）與 dsh（OpenRouter 按量）不回報費用，看板顯示「–」，表中是依 `models.json` 牌價的估算
+（cache 讀取以輸入價的 10%–100% 計）。
+
+| 組合                                      | 牆鐘         | 實作 run                                                   | 審查 run                                                   |
+| ----------------------------------------- | ------------ | ---------------------------------------------------------- | ---------------------------------------------------------- |
+| C 級：deepseek-flash 實作、gpt-terra 審查 | 20–45 s      | 8–18 s，約 10k 輸入／40–70k cache／1k 輸出，≈ $0.001–0.004 | 10–15 s，約 6–16k 輸入、100–400 輸出，≈ $0.01–0.02（訂閱） |
+| B 級：gpt-terra 實作、haiku 審查          | 35 s         | 26 s，16k／31k／0.6k，≈ $0.02–0.05（訂閱）                 | 8 s，$0.0016                                               |
+| A 級：sonnet 實作、gpt-terra 審查         | 21 s         | 9 s，$0.067                                                | 12 s，≈ $0.02（訂閱）                                      |
+| 一輪審查退回再修正（C 級）                | 再加 25–50 s | 修正 run 與實作 run 相近                                   |                                                            |
+| leader turn（haiku）                      | 3–10 s       | 每 turn $0.001–0.015；每完成／阻塞一張單一個 turn          |                                                            |
+
+最壞的一次：deepseek 在一個 8 函式的修正輪跑了 252 秒、讀了 6.3M cache token（≈ $0.05–0.33）。整個驗證（19 張單、
+60 個 run、24 個 leader turn）真正付費的 dsh 部分約 $0.09–0.50。
 
 ## Grok 橋接
 
@@ -244,7 +276,15 @@ team leader reset
   訊息不會遺失，回覆之後出現在看板聊天。
 - 強制結束（第二次 Ctrl-C、kill -9、當機）時 leader 當下的 `claude` 行程可能殘留；worker 的行程群組會在強制結束前
   被 SIGKILL；當機時由下次啟動的復原先終止殘留的 worker 群組（pid 與啟動時間都相符才終止），無法確認的任務會阻塞
-  等人處理，不會派第二個 worker 進同一個 worktree（ADR 0015）。
+  等人處理，不會派第二個 worker 進同一個 worktree（ADR 0015）。實測（2026-11-21）：服務被 `kill -9` 後，真實的 dsh
+  worker 1.5 秒內就自己結束了（推測是管線中斷），被中斷的 codex 審查在重啟前也已不在；復原兩次都走「行程已不在 →
+  重新排入」，「終止殘留群組」那一支只有照劇本的假 claude 測過。
+- codex 與 dsh 的 run 沒有費用（runner 不回報）：看板與 `team task show` 顯示「–」，只有 token 用量；dsh 走
+  OpenRouter 是實際付費的，帳單請看 OpenRouter。claude 的費用是 API 等價金額。
+- leader 的事件摘要只合併 3 秒（`leader.event_window_ms`）內的事件：並行的任務相隔幾秒完成時，每張各觸發一個 leader turn。
+- 與進行中任務的 owned_paths 重疊而延後的任務沒有事件說明原因，在看板上只是停在「待派」。
+- `AGENT_TEAM_HOME` 不要放在 `~/.cache`、`~/Library/Caches` 等套件快取目錄底下：claude worker 的沙箱為了建置會開放讀取
+  這些目錄，DATA 的拒讀規則是否仍優先沒有用真實模型驗證過（預設的 `~/.agent-team` 不受影響）。
 - 看板與 Grok 主動通知是單一使用者設計；沒有帳號與權限分級。
 
 ## 開發

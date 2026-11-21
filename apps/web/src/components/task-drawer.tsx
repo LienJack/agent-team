@@ -13,10 +13,22 @@ import { Badge, StatusBadge } from './ui/badge.js';
 import { Dialog } from './ui/dialog.js';
 import { Empty, ErrorState, Loading } from './ui/states.js';
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({
+  title,
+  id,
+  children,
+}: {
+  title: string;
+  /** An identifier shown after the title as is (never upper-cased: ids are case-sensitive). */
+  id?: string | undefined;
+  children: ReactNode;
+}) {
   return (
     <section className="space-y-2 border-t border-line pt-3 first:border-t-0 first:pt-0">
-      <h3 className="text-xs font-semibold tracking-wide text-muted uppercase">{title}</h3>
+      <h3 className="text-xs font-semibold tracking-wide text-muted">
+        <span className="uppercase">{title}</span>
+        {id ? <span className="font-mono normal-case">（{id}）</span> : null}
+      </h3>
       {children}
     </section>
   );
@@ -118,7 +130,7 @@ function DrawerBody({ detail, projectName }: { detail: TaskDetail; projectName: 
         <RunList runs={runs} selected={selectedRun?.id} onSelect={setPicked} />
       </Section>
 
-      <Section title={selectedRun ? `日誌尾段（${selectedRun.id}）` : '日誌尾段'}>
+      <Section title="日誌尾段" id={selectedRun?.id}>
         <LogTail runId={selectedRun?.id} live={selectedRun ? isLiveRun(selectedRun) : false} />
       </Section>
     </div>

@@ -55,4 +55,29 @@ export function extractFirstJsonObject(text: string): Record<string, unknown> | 
   return undefined;
 }
 
+/**
+ * A receipt the model wrapped in the shape of the JSON Schema it was shown —
+ * `{"type":"object","properties":{…the receipt…}}` (deepseek-v4.1-flash via dsh, real run
+ * 2026-11-21). Unwraps `properties` when it holds a `dispatch_id` string and the outer object
+ * has none; anything else is returned unchanged (the receipt is still validated afterwards).
+ */
+export function unwrapSchemaEcho(value: Record<string, unknown>): Record<string, unknown> {
+  const inner = value['properties'];
+  if (
+    value['type'] === 'object' &&
+    !('dispatch_id' in value) &&
+    isPlainObject(inner) &&
+    typeof inner['dispatch_id'] === 'string'
+  ) {
+    return inner;
+  }
+  return value;
+}
+
+/** The receipt candidate of a model's final text: first JSON object, schema echo unwrapped. */
+export function extractReceiptObject(text: string): Record<string, unknown> | undefined {
+  const found = extractFirstJsonObject(text);
+  return found === undefined ? undefined : unwrapSchemaEcho(found);
+}
+
 export { isPlainObject };

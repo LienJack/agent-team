@@ -89,6 +89,16 @@ export async function connectLocal(
   options: DiscoverOptions & Omit<TeamClientOptions, 'baseUrl' | 'token'> = {},
 ): Promise<TeamClient> {
   const { env, ...clientOptions } = options;
-  const listener = await discoverListener(env === undefined ? {} : { env });
-  return createTeamClient({ ...clientOptions, baseUrl: listener.addr, token: listener.token });
+  const discover = () => discoverListener(env === undefined ? {} : { env });
+  const listener = await discover();
+  return createTeamClient({
+    // a restarted service writes a new listener.json (new token): the event stream re-reads it
+    refresh: async () => {
+      const fresh = await discover();
+      return { baseUrl: fresh.addr, token: fresh.token };
+    },
+    ...clientOptions,
+    baseUrl: listener.addr,
+    token: listener.token,
+  });
 }

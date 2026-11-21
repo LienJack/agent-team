@@ -13,6 +13,7 @@ import {
   type Task,
 } from '@agent-team/schema';
 import type { EngineContext, Tx } from './context.js';
+import { WORKER_REPORT_BLOCK } from './answers.js';
 import { openAttention } from './attention.js';
 import { enqueueEffect } from './effect-queue.js';
 import { notify } from './notify.js';
@@ -176,7 +177,7 @@ function applyImplReceipt(
   }
   if (receipt.status !== 'done') {
     finishRun(tx, run, { ...base, outcome: 'ok' });
-    blockTask(ctx, tx, task, `worker 回報 ${receipt.status}：${receipt.summary}`);
+    blockTask(ctx, tx, task, `${WORKER_REPORT_BLOCK}${receipt.status}：${receipt.summary}`);
     return;
   }
   // outcome is decided by verification (steps 3–5)

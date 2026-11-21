@@ -17,9 +17,10 @@ function Meta({
   title?: string | undefined;
 }) {
   return (
-    <span className="inline-flex min-w-0 items-baseline gap-1" title={title}>
-      <span className="text-muted">{label}</span>
-      <span className="truncate font-mono tabular-nums">{value}</span>
+    <span className="inline-flex min-w-0 items-baseline gap-1" title={title ?? `${label} ${value}`}>
+      {/* the label never wraps (CJK text would break per character in a narrow cell) */}
+      <span className="shrink-0 whitespace-nowrap text-muted">{label}</span>
+      <span className="min-w-0 truncate font-mono tabular-nums">{value}</span>
     </span>
   );
 }
@@ -41,7 +42,9 @@ function CardMeta({ task }: { task: BoardTask }) {
       {s.elapsedMs === undefined && s.commit === null ? (
         <p className="text-xs text-muted">尚未執行</p>
       ) : (
-        <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-xs">
+        // two columns when the card is wide enough, one when it is not (narrow board columns
+        // next to the 2xl side panel clipped "用量 321.4k tok"; 2026-11-21 screenshots)
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-x-2 gap-y-0.5 text-xs">
           <Meta
             label={s.liveSince ? '執行' : '耗時'}
             value={s.elapsedMs === undefined ? EMPTY : formatDuration(s.elapsedMs)}

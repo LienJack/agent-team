@@ -8,7 +8,7 @@ import {
   str,
   usage,
 } from '../classify.js';
-import { extractFirstJsonObject, isPlainObject } from '../json.js';
+import { extractReceiptObject, isPlainObject } from '../json.js';
 
 // Maps Codex SDK `runStreamed` events (codex exec --experimental-json) to a RunResult:
 // `thread.started` (thread id = sessionRef), `item.completed` with `agent_message` (the last one
@@ -91,7 +91,7 @@ export class CodexStream {
     if (this.lastMessage === undefined) {
       return errorResult('bad_output', 'codex ended without an agent message', this.partial());
     }
-    const final = extractFirstJsonObject(this.lastMessage);
+    const final = extractReceiptObject(this.lastMessage);
     if (!final)
       return errorResult('bad_output', 'codex final message is not a JSON object', this.partial());
     return { ...this.partial(), final };

@@ -39,6 +39,20 @@ export function attentionLine(a: Attention): string {
   return `${a.id} [${a.kind}/${a.status}]${task} ${clip(a.question)}${options}${answer}`;
 }
 
+type RunnerQuota = StateSnapshot['runners'][number]['quota'];
+
+/** ` (34% used, resets 2026-11-26T18:00Z)` — the last quota a runner reported, if any. */
+export function quotaText(q: RunnerQuota): string {
+  if (!q) return '';
+  const parts: string[] = [];
+  if (q.exhausted) parts.push('exhausted');
+  else if (q.utilization !== null && q.utilization !== undefined) {
+    parts.push(`${Math.round(q.utilization * 100)}% used`);
+  }
+  if (q.resets_at) parts.push(`resets ${q.resets_at.replace(/:\d\d\.\d{3}Z$/, 'Z')}`);
+  return parts.length > 0 ? ` (${parts.join(', ')})` : '';
+}
+
 export function formatStatus(s: StateSnapshot): string {
   const visible = s.tasks.filter((t) => t.status !== 'cancelled');
   const columns = BOARD_COLUMNS.map((col) => {
@@ -57,9 +71,9 @@ export function formatStatus(s: StateSnapshot): string {
           : r.cooldown_until
             ? `cooldown until ${r.cooldown_until}`
             : 'unavailable';
-      return `${r.runner} ${why}`;
+      return `${r.runner} ${why}${quotaText(r.quota)}`;
     }
-    return `${r.runner} ok`;
+    return `${r.runner} ok${quotaText(r.quota)}`;
   });
   lines.push(`runners: ${runners.join(' · ') || 'none'}`);
   const why = s.leader.reason

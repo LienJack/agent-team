@@ -12,6 +12,7 @@ import {
 } from '@agent-team/schema';
 import { errorMessage } from '../errors.js';
 import type { ReviewDiff } from '../ports/git.js';
+import { answersFor } from './answers.js';
 import type { EngineContext, Tx } from './context.js';
 import { checkBaseDrift } from './drift.js';
 import { enqueueEffect } from './effect-queue.js';
@@ -174,6 +175,7 @@ function createRun(
     receiptSchema,
     implReceipt: kind === 'review' ? lastImplReceipt(tx, task.id) : null,
     reviewDiff,
+    answers: answersFor(tx, task.id),
   });
   const spec: RunSpec = {
     dispatchId,

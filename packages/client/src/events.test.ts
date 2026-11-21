@@ -100,6 +100,71 @@ describe('subscribeEvents', () => {
     expect(urls).toEqual(['http://x/api/events', 'http://x/api/events?after=3']);
   });
 
+  it('survives a service restart: a 401 re-reads the connection and resumes after the cursor', async () => {
+    // 2026-11-21 validation: `team watch` exited with "missing or invalid bearer token" after the
+    // service was restarted (every start writes a new token to listener.json)
+    const seen: Array<{ url: string; auth: string | null }> = [];
+    const received: number[] = [];
+    let listener = { baseUrl: 'http://x', token: 'old' };
+    let calls = 0;
+    const unauthorized = () =>
+      new Response(JSON.stringify({ error: { code: 'unauthorized', message: 'no' } }), {
+        status: 401,
+      });
+    const sub = subscribeEvents(
+      {
+        ...listener,
+        refresh: async () => listener,
+        fetch: async (req) => {
+          seen.push({ url: req.url, auth: req.headers.get('authorization') });
+          calls++;
+          if (calls === 1) {
+            return sse([
+              frame({ type: 'server.connected', last_seq: 4, ts: event(0).ts }),
+              frame(event(4), 4),
+            ]);
+          }
+          if (calls === 2) {
+            // the restarted service refuses the old token; its listener file has the new one
+            listener = { baseUrl: 'http://y', token: 'new' };
+            return unauthorized();
+          }
+          if (calls === 3) return sse([frame(event(5), 5)]);
+          sub.close();
+          throw new TypeError('closed');
+        },
+      },
+      { after: 3, onEvent: (e) => received.push(e.seq), minDelayMs: 1, maxDelayMs: 2 },
+    );
+    await sub.done;
+    expect(received).toEqual([4, 5]);
+    expect(seen.slice(0, 3)).toEqual([
+      { url: 'http://x/api/events?after=3', auth: 'Bearer old' },
+      { url: 'http://x/api/events?after=4', auth: 'Bearer old' },
+      { url: 'http://y/api/events?after=4', auth: 'Bearer new' },
+    ]);
+  });
+
+  it('with a refresh, the same token refused three times in a row is final', async () => {
+    let calls = 0;
+    const sub = subscribeEvents(
+      {
+        baseUrl: 'http://x',
+        token: 'bad',
+        refresh: async () => ({ baseUrl: 'http://x', token: 'bad' }),
+        fetch: async () => {
+          calls++;
+          return new Response(JSON.stringify({ error: { code: 'unauthorized', message: 'no' } }), {
+            status: 401,
+          });
+        },
+      },
+      { onEvent: () => {}, minDelayMs: 1, maxDelayMs: 2 },
+    );
+    await expect(sub.done).rejects.toMatchObject({ code: 'unauthorized' });
+    expect(calls).toBe(3);
+  });
+
   it('stops on 401 with the error envelope', async () => {
     const errors: string[] = [];
     const sub = subscribeEvents(

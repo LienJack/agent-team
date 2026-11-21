@@ -88,9 +88,35 @@ export type ParsedReceipt<K extends ReceiptKind> =
   | { ok: true; receipt: K extends 'impl' ? ImplReceipt : ReviewReceipt }
   | { ok: false; error: string };
 
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * Forgive the slips of workers without enforced structured output (dsh), seen in the 2026-11-21
+ * validation, each of which cost a whole fix round: an over-long `summary` is clipped to
+ * `RECEIPT_SUMMARY_MAX`; a missing or null `needs_leader` is `""`; missing or null lists
+ * (`files_changed`, `checks`, `findings`) are empty. Everything that decides the outcome
+ * (`dispatch_id`, `status`, `verdict`, the findings themselves) is still validated strictly, and
+ * files are verified against git anyway.
+ */
+export function normalizeReceipt(kind: ReceiptKind, value: unknown): unknown {
+  if (!isObject(value)) return value;
+  const out: Record<string, unknown> = { ...value };
+  const summary = out['summary'];
+  if (typeof summary === 'string' && summary.length > RECEIPT_SUMMARY_MAX) {
+    out['summary'] = `${summary.slice(0, RECEIPT_SUMMARY_MAX - 1)}…`;
+  }
+  const lists = kind === 'impl' ? ['files_changed', 'checks'] : ['findings'];
+  for (const key of lists) if (out[key] === undefined || out[key] === null) out[key] = [];
+  if (kind === 'impl' && (out['needs_leader'] === undefined || out['needs_leader'] === null)) {
+    out['needs_leader'] = '';
+  }
+  return out;
+}
+
 /** Validate a runner's `final` value as a receipt of `kind`; error is a short human message. */
 export function parseReceipt<K extends ReceiptKind>(kind: K, value: unknown): ParsedReceipt<K> {
-  const result = receiptSchemaFor(kind).safeParse(value);
+  const result = receiptSchemaFor(kind).safeParse(normalizeReceipt(kind, value));
   if (result.success) {
     return { ok: true, receipt: result.data } as ParsedReceipt<K>;
   }

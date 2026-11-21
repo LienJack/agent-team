@@ -4,6 +4,7 @@ import { parseReceipt } from '@agent-team/schema';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { eventually, fixtureLines, makeSpec, tempDir } from '../test-support.js';
 import { lastRecord, processAlive, writeScenario, type FakeCliResponse } from '../testing/index.js';
+import { WORKER_GIT_ENV } from '../claude/sandbox.js';
 import { resolveBundledCodex } from './binary.js';
 import { CODEX_EXEC_FLAGS, CODEX_ISOLATION_FLAGS, CodexRunner } from './runner.js';
 import { codexSandboxArgs } from './sandbox.js';
@@ -136,6 +137,8 @@ describe('runners: codex argv', () => {
     ]) {
       expect(rec.envNames).not.toContain(name);
     }
+    // git in the worker ignores the (denied) global config instead of warning on every command
+    expect(rec.envNames).toEqual(expect.arrayContaining(Object.keys(WORKER_GIT_ENV)));
     expect(readFileSync(join(spec.logDir, 'events.jsonl'), 'utf8')).toContain('"turn.completed"');
   });
 

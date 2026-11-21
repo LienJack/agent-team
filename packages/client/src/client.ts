@@ -58,6 +58,11 @@ export interface TeamClientOptions {
   fetch?: (input: Request) => Promise<Response>;
   /** Browser: `same-origin` sends the LAN session cookie. */
   credentials?: RequestInit['credentials'];
+  /**
+   * Fresh `{ baseUrl, token }` for the event stream's reconnects (Node: listener.json read
+   * again), so `events()` survives a service restart, which rotates the token.
+   */
+  refresh?: () => Promise<{ baseUrl: string; token?: string }>;
   /** Retries after a connection failure (same Idempotency-Key, so replays are safe). */
   retries?: number;
   /**
@@ -233,6 +238,7 @@ export function createTeamClient(options: TeamClientOptions): TeamClient {
           fetch: baseFetch,
           ...(options.token ? { token: options.token } : {}),
           ...(options.credentials ? { credentials: options.credentials } : {}),
+          ...(options.refresh ? { refresh: options.refresh } : {}),
         },
         eventOptions,
       ),

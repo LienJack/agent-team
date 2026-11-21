@@ -1,7 +1,7 @@
 import type { RunResult, Usage } from '@agent-team/schema';
 import { addUsage, classifyText, errorResult, str, usage } from '../classify.js';
 import { lastLine, type StreamParser } from '../cli-driver.js';
-import { extractFirstJsonObject, isPlainObject } from '../json.js';
+import { extractReceiptObject, isPlainObject } from '../json.js';
 import type { ChildResult } from '../process/spawn.js';
 
 // Parser for `dsh --profile headless --json`: `session` (sessionId), `status` phases
@@ -101,7 +101,7 @@ export class DshStream implements StreamParser {
       const how = child.signal ?? `code ${child.exitCode}`;
       return errorResult(kind, `dsh exited with ${how} without a final event: ${detail}`, base);
     }
-    const final = extractFirstJsonObject(this.finalText);
+    const final = extractReceiptObject(this.finalText);
     if (!final) {
       return errorResult('bad_output', 'dsh final text contains no JSON object', base);
     }

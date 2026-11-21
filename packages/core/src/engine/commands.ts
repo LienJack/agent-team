@@ -14,6 +14,7 @@ import {
 } from '@agent-team/schema';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../errors.js';
 import type { EngineContext, Tx } from './context.js';
+import { resumeAfterAnswer } from './answers.js';
 import { answerAttention, openAttention } from './attention.js';
 import { applyAttentionAction, isBaseDriftBlock } from './drift.js';
 import { enqueueEffect } from './effect-queue.js';
@@ -338,7 +339,8 @@ export function createAttention(ctx: EngineContext, input: AttentionCreateReques
 
 /**
  * Record a human's answer. Items the engine opened with a known action (base drift: rebuild or
- * continue) apply the chosen option in the same transaction.
+ * continue) apply the chosen option in the same transaction; answering the last open question of
+ * a task its worker blocked queues the task again, and every answer reaches the next prompt.
  */
 export function answer(
   ctx: EngineContext,
@@ -351,6 +353,7 @@ export function answer(
   return ctx.transact((tx) => {
     const item = answerAttention(tx, id, text, via);
     applyAttentionAction(ctx, tx, item);
+    resumeAfterAnswer(ctx, tx, item);
     return item;
   });
 }

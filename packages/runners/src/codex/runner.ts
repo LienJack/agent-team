@@ -16,6 +16,7 @@ import { makeRedactor, redactSecrets } from '../redact.js';
 import type { SandboxPolicy } from '../sandbox-policy.js';
 import { readProcessStart } from '../process/control.js';
 import { resolveBundledCodex, type CodexBinary } from './binary.js';
+import { WORKER_GIT_ENV } from '../claude/sandbox.js';
 import { codexSandboxArgs } from './sandbox.js';
 import { CodexStream } from './stream.js';
 
@@ -186,6 +187,9 @@ export class CodexRunner implements Runner, Resumable {
     const pgidFile = join(spec.logDir, CODEX_PGID_FILE);
     const env = this.env(bin.pathDirs, {
       ...spec.env,
+      // the profile denies ~/.config and ~/.gitconfig: without this every git command of the
+      // worker warns "unable to access …/.config/git/ignore" (2026-11-21 validation)
+      ...WORKER_GIT_ENV,
       AGENT_TEAM_REAL_CMD: JSON.stringify(bin.cmd),
       AGENT_TEAM_EXEC_ARGS: JSON.stringify([
         ...this.isolation,

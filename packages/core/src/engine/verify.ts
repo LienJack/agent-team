@@ -81,7 +81,10 @@ export const verifyHandler: EffectHandler = {
       ws.head_sha === null
         ? all
         : await git.changedFiles({ worktreePath: ws.path, sinceSha: ws.head_sha });
-    if (fresh.length === 0) {
+    // a fix run may leave the committed head as it is (e.g. the person answered that a review
+    // finding needs no change): it is checked again and goes back to review without a new commit
+    const keepsHead = run.kind === 'fix' && ws.head_sha !== null && all.length > 0;
+    if (fresh.length === 0 && !keepsHead) {
       return (tx) =>
         rejectRun(ctx, tx, runId, 'no_changes', 'worktree 沒有任何變更；請實際完成派工單的修改。');
     }
@@ -206,7 +209,9 @@ function acceptRun(
       tx,
       task,
       { status: 'review', current_run_id: null, fix_notes: null, recovery_note: null },
-      `verified and committed ${commit.sha}`,
+      commit.created
+        ? `verified and committed ${commit.sha}`
+        : `verified, no new changes (head ${commit.sha})`,
     );
   };
 }

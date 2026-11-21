@@ -11,7 +11,7 @@ import {
   usage,
 } from '../classify.js';
 import { lastLine, type StreamParser } from '../cli-driver.js';
-import { extractFirstJsonObject, isPlainObject } from '../json.js';
+import { extractReceiptObject, isPlainObject } from '../json.js';
 import type { ChildResult } from '../process/spawn.js';
 
 // Parser for `claude -p --output-format stream-json --verbose`: `system/init` (session id),
@@ -72,7 +72,7 @@ export function claudeUsage(u: unknown): RunResult['usage'] {
 function finalOf(result: Record<string, unknown>): Record<string, unknown> | undefined {
   if (isPlainObject(result.structured_output)) return result.structured_output;
   const text = str(result.result);
-  return text === undefined ? undefined : extractFirstJsonObject(text);
+  return text === undefined ? undefined : extractReceiptObject(text);
 }
 
 export class ClaudeStream implements StreamParser {

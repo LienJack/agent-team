@@ -9,6 +9,12 @@ export interface EventStreamConnection {
   token?: string;
   credentials?: RequestInit['credentials'];
   fetch?: (input: Request) => Promise<Response>;
+  /**
+   * Fresh connection details (e.g. listener.json read again). Called before every reconnect: a
+   * restarted service has a new token (and, with port 0, a new address). With a refresh, a 401
+   * is retried; the same token refused three times in a row is final.
+   */
+  refresh?: () => Promise<{ baseUrl: string; token?: string }>;
 }
 
 export interface EventStreamOptions {
@@ -70,6 +76,7 @@ export class SseParser {
 }
 
 const FATAL = new Set([401, 403, 404]);
+const REFUSALS_BEFORE_FATAL = 3;
 
 /** Subscribe to the event stream; reconnects with `after=<last seq>` until closed. */
 export function subscribeEvents(
@@ -84,6 +91,22 @@ export function subscribeEvents(
   const minDelay = options.minDelayMs ?? 500;
   const maxDelay = options.maxDelayMs ?? 15000;
   let cursor = options.after;
+  let baseUrl = conn.baseUrl;
+  let token = conn.token;
+  /** The token the server last refused with 401, and how many times in a row. */
+  let refused: string | undefined;
+  let refusals = 0;
+
+  async function refresh(): Promise<void> {
+    if (!conn.refresh) return;
+    try {
+      const fresh = await conn.refresh();
+      baseUrl = fresh.baseUrl;
+      token = fresh.token;
+    } catch {
+      // not running (no listener file yet): keep the old details and retry later
+    }
+  }
 
   const wait = (ms: number) =>
     new Promise<void>((resolve) => {
@@ -99,10 +122,10 @@ export function subscribeEvents(
     });
 
   async function connectOnce(): Promise<'retry' | 'stop'> {
-    const url = new URL(`${conn.baseUrl.replace(/\/+$/, '')}/api/events`);
+    const url = new URL(`${baseUrl.replace(/\/+$/, '')}/api/events`);
     if (cursor !== undefined) url.searchParams.set('after', String(cursor));
     const headers = new Headers({ Accept: 'text/event-stream' });
-    if (conn.token) headers.set('Authorization', `Bearer ${conn.token}`);
+    if (token) headers.set('Authorization', `Bearer ${token}`);
     const init: RequestInit = { headers, signal: controller.signal };
     if (conn.credentials) init.credentials = conn.credentials;
     let response: Response;
@@ -110,16 +133,25 @@ export function subscribeEvents(
       response = await doFetch(new Request(url, init));
     } catch (err) {
       if (controller.signal.aborted) return 'stop';
-      options.onError?.(connectionError(conn.baseUrl, err));
+      options.onError?.(connectionError(baseUrl, err));
       return 'retry';
     }
     if (!response.ok || !response.body) {
       const body: unknown = await response.json().catch(() => undefined);
       const error = errorFromResponse(response.status, body);
       options.onError?.(error);
+      // a restarted service rotated the token: retry with a refreshed one; the same token
+      // refused three times in a row is final
+      if (response.status === 401 && conn.refresh) {
+        refusals = refused === token ? refusals + 1 : 1;
+        refused = token;
+        if (refusals < REFUSALS_BEFORE_FATAL) return 'retry';
+      }
       if (FATAL.has(response.status)) throw error;
       return 'retry';
     }
+    refused = undefined;
+    refusals = 0;
     const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
     const parser = new SseParser();
     try {
@@ -130,7 +162,7 @@ export function subscribeEvents(
       }
     } catch (err) {
       if (controller.signal.aborted) return 'stop';
-      options.onError?.(connectionError(conn.baseUrl, err));
+      options.onError?.(connectionError(baseUrl, err));
       return 'retry';
     } finally {
       reader.releaseLock();
@@ -173,6 +205,7 @@ export function subscribeEvents(
       // progress since the last attempt resets the backoff
       delay = cursor !== connectedBefore ? minDelay : Math.min(delay * 2, maxDelay);
       await wait(delay);
+      await refresh();
     }
   })().finally(() => options.signal?.removeEventListener('abort', stop));
 

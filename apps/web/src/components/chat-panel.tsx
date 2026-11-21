@@ -70,18 +70,38 @@ export function useSendLeaderMessage() {
   });
 }
 
+/** Who wrote a chat item: the person, the leader, or the service's event digest for the leader. */
+export function speakerOf(item: Pick<ChatItem, 'direction' | 'source'>): {
+  kind: 'mine' | 'leader' | 'service';
+  label: string;
+} {
+  if (item.direction === 'out') return { kind: 'leader', label: 'Leader' };
+  // inputs the service generated (engine-event digests) were not written by the person
+  if (item.source === 'service') return { kind: 'service', label: '服務端事件摘要（交給 leader）' };
+  return { kind: 'mine', label: `我（${item.source}）` };
+}
+
+const BUBBLE_STYLE = {
+  mine: 'border-accent/30 bg-info-soft',
+  leader: 'border-line bg-surface',
+  service: 'border-dashed border-line bg-raised text-xs text-muted',
+} as const;
+
 function Bubble({ item, onRetry }: { item: ChatItem; onRetry: (id: string) => void }) {
-  const mine = item.direction === 'in';
+  const speaker = speakerOf(item);
+  const mine = speaker.kind === 'mine';
   return (
-    <li className={`flex flex-col gap-1 ${mine ? 'items-end' : 'items-start'}`}>
+    <li
+      className={`flex flex-col gap-1 ${mine ? 'items-end' : speaker.kind === 'service' ? 'items-center' : 'items-start'}`}
+    >
       <div
-        className={`max-w-[85%] rounded-lg border px-3 py-2 break-words whitespace-pre-wrap ${mine ? 'border-accent/30 bg-info-soft' : 'border-line bg-surface'}`}
+        className={`max-w-[85%] rounded-lg border px-3 py-2 break-words whitespace-pre-wrap ${BUBBLE_STYLE[speaker.kind]}`}
       >
-        <span className="sr-only">{mine ? '我：' : 'Leader：'}</span>
+        <span className="sr-only">{`${speaker.label}：`}</span>
         {item.body}
       </div>
       <div className="flex items-center gap-2 text-[11px] text-muted">
-        <span>{mine ? `我（${item.source}）` : 'Leader'}</span>
+        <span>{speaker.label}</span>
         <span>{formatTime(item.at)}</span>
         {item.state === 'sending' ? <span role="status">傳送中…</span> : null}
         {item.awaiting && item.state === 'sent' ? (
