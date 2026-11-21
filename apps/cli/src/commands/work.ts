@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import { TeamApiError, type TeamClient } from '@agent-team/client';
 import { Option, type Command } from 'commander';
@@ -6,6 +7,17 @@ import { UsageError } from '../io.js';
 import type { CommandContext } from '../program.js';
 
 const collect = (value: string, previous: string[]) => [...previous, value];
+
+/**
+ * `Idempotency-Key` of a create under a seed (AGENT_TEAM_IDEMPOTENCY_SEED; the leader's shim sets
+ * it to its current turn): the same request in a replayed turn gets the same key, so the server
+ * returns the first result instead of creating a duplicate; any other request gets another key.
+ */
+export function idempotencyKeyFor(seed: string | undefined, body: unknown): string | undefined {
+  if (seed === undefined || seed.trim() === '') return undefined;
+  const hash = createHash('sha256').update(JSON.stringify(body)).digest('hex').slice(0, 32);
+  return `${seed.trim().slice(0, 120)}:${hash}`;
+}
 
 /** `--check "name=cmd"` → `{ name, cmd }`. */
 export function parseCheck(spec: string): { name: string; cmd: string } {
@@ -108,14 +120,16 @@ export function registerWorkCommands(program: Command, ctx: CommandContext): voi
           : await ctx.io.readFile(resolve(ctx.io.cwd, options.ticketFile!));
         if (ticket.trim() === '') throw new UsageError('the ticket is empty');
         const client = await ctx.client();
-        const created = await client.createTask({
+        const body = {
           project_id: await projectId(client, options.project),
           title: options.title,
           tier: options.tier,
           ticket_md: ticket,
           owned_paths: owned,
           queue: options.queue === true,
-        });
+        };
+        const key = idempotencyKeyFor(ctx.io.env['AGENT_TEAM_IDEMPOTENCY_SEED'], body);
+        const created = await client.createTask(body, key ? { idempotencyKey: key } : undefined);
         ctx.print(created, () => taskLine(created));
       },
     );

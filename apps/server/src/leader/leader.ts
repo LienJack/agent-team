@@ -23,7 +23,8 @@ import {
   type Input,
   type Pending,
 } from './inputs.js';
-import { findReply, markDelivered, persistReply } from './persist.js';
+import { markDelivered, persistReply, storedAnswer, unansweredMessages } from './persist.js';
+import { clearStarted, inputKey, markStarted, turnSeed, wasStarted } from './replay.js';
 import { LeaderProcess, leaderModel } from './process.js';
 import { LEADER_PROMPT_VERSION } from './prompt/system-v2.js';
 import { resumeBrief } from './resume.js';
@@ -70,7 +71,10 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
       };
   const humans: Pending[] = [];
   const byMessage = new Map<string, Pending>();
-  const buffer = new EventBuffer(service.leader.event_window_ms);
+  const buffer = new EventBuffer(service.leader.event_window_ms, {
+    maxWaitMs: service.leader.event_max_wait_ms,
+    maxBatch: service.leader.digest_max_events,
+  });
   let running: Running | undefined;
   let started = false;
   let stopped = false;
@@ -195,8 +199,13 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
     save();
   }
 
-  const compose = (input: Input): Composed =>
-    composePrompt(input, { brief: conv.needs_brief, resumeBrief: () => resumeBrief(deps), store });
+  const compose = (input: Input, replay: boolean): Composed =>
+    composePrompt(input, {
+      brief: conv.needs_brief,
+      resumeBrief: () => resumeBrief(deps),
+      store,
+      replay,
+    });
 
   function run(input: Input): void {
     const abort = new AbortController();
@@ -221,7 +230,13 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
     const { input } = entry;
     const model = leaderModel(deps.models, engine.quotaState(), clock.now());
     if (!model) return failed(input, 'no claude model configured for role leader');
-    const { prompt, brief, digest } = compose(input);
+    // a marked input already had a turn that may have acted (crash, stop, reset): say so
+    const key = inputKey(input);
+    const { prompt, brief, digest } = compose(
+      input,
+      key !== undefined && wasStarted(store.kv, key),
+    );
+    if (key !== undefined) markStarted(store.kv, key, nowIso());
     const sessionId = conv.session_id;
     const result = await proc!.turn({
       prompt,
@@ -230,6 +245,7 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
       model,
       timeoutMs: service.leader.turn_timeout_ms,
       signal: entry.abort.signal,
+      turnKey: key === undefined ? undefined : turnSeed(key),
     });
     lastActivity = nowIso();
     if (conv.session_id !== sessionId) {
@@ -276,6 +292,7 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
         ? ({ kind: 'message', inbound: input.pending.message } as const)
         : ({ kind: 'digest', body: digest!.body, key: digest!.key } as const);
     const { reply } = persistReply(engine, replyInput, text, (tx, inbound, out) => {
+      clearStarted(tx.r.kv, inputKey(input));
       if (input.kind === 'events') {
         tx.r.kv.set(LEADER_EVENT_CURSOR_KEY, String(input.events.at(-1)?.seq ?? 0));
       }
@@ -288,6 +305,7 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
 
   /** A failure that is not about availability: the input is consumed (never replayed). */
   function failed(input: Input, message: string): void {
+    clearStarted(store.kv, inputKey(input));
     if (input.kind === 'compact') {
       logger.warn('leader compaction failed; starting a new session with the brief', { message });
       newSession();
@@ -322,6 +340,8 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
       return failed(input, `${result.error!.kind}: ${result.error!.message}`);
     }
     requeue(input);
+    // a turn that ran no command (its only tool is Bash) did nothing: no replay notice next time
+    if (!result.started || result.commands.length === 0) clearStarted(store.kv, inputKey(input));
     if (what.action === 'unavailable') return setUnavailable(what.unavailable);
     if (what.newSession || what.markStarted) {
       recoveries += 1;
@@ -335,12 +355,7 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
   }
 
   /** Stored human messages that never got an answer (restart, rate limit) are queued again. */
-  function replayStored(): void {
-    for (const m of store.messages.list()) {
-      if (m.direction !== 'in' || m.status !== 'new' || m.source === 'service') continue;
-      if (!findReply(store, m)) enqueue(m);
-    }
-  }
+  const replayStored = () => unansweredMessages(store).forEach((m) => enqueue(m));
 
   function enqueue(message: Message): Pending {
     const existing = byMessage.get(message.id);
@@ -352,19 +367,8 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
     return pending;
   }
 
-  /** A stored reply, or a conflict for an input that was handled without one. */
-  function answered(message: Message, info: { duplicate: boolean }) {
-    const stored = findReply(store, message);
-    if (stored) return { reply: stored.body, reply_message_id: stored.id };
-    if (!byMessage.has(message.id) && info.duplicate && message.status !== 'new') {
-      throw new TeamError(
-        'conflict',
-        `message ${message.id} was already handled without a reply`,
-        'send it again with a new client_msg_id',
-      );
-    }
-    return undefined;
-  }
+  const answered = (message: Message, info: { duplicate: boolean }) =>
+    storedAnswer(store, message, { ...info, inflight: byMessage.has(message.id) });
 
   const leader: LeaderImpl = {
     status: () => leaderStatus(inputs()),

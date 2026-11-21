@@ -15,6 +15,8 @@ export interface FakeGrokConfig {
   messages?: Record<string, GrokMessage>;
   /** `reply` reports the push as failed (webhook not set). */
   replyNotPushed?: boolean;
+  /** `reply` fails (exit 1, ok false). */
+  replyFail?: boolean;
   /** `notify` fails (exit 1, ok false, a network error). */
   notifyFail?: boolean;
   /** `notify` stores the notice but cannot push (exit 1, notified.error WEBHOOK_NOT_SET). */
@@ -54,7 +56,8 @@ switch (argv[0]) {
     break;
   }
   case 'reply':
-    out({ ok: true, id: argv[1], status: argv[argv.indexOf('--status') + 1],
+    if (cfg.replyFail) out({ ok: false, error: 'NETWORK_ERROR', id: argv[1] }, 1);
+    else out({ ok: true, id: argv[1], status: argv[argv.indexOf('--status') + 1],
           notified: { ok: !cfg.replyNotPushed } });
     break;
   case 'notify':

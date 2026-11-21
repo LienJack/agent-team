@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { REDACTED } from '../redact.js';
@@ -44,7 +44,7 @@ afterEach(() => tmp.cleanup());
 const node = JSON.stringify(process.execPath);
 
 describe('runners: check executor', () => {
-  const checks = createCheckExecutor({ killGraceMs: 300 });
+  const checks = createCheckExecutor({ killGraceMs: 300, allowUnsandboxed: true });
 
   it('passes, logs the full output and returns the last 20 lines', async () => {
     writeFileSync(
@@ -136,5 +136,51 @@ describe('runners: check executor', () => {
         timeoutMs: 5000,
       }),
     ).rejects.toThrow(/ENOENT/);
+  });
+});
+
+describe('runners: checks fail closed without a sandbox (docs/adr/0019)', () => {
+  const probe = () => {
+    writeFileSync(
+      join(cwd, 'touch.mjs'),
+      `import { writeFileSync } from 'node:fs';\nwriteFileSync('ran.txt', 'x');\n`,
+    );
+    return { cwd, name: 'unit', cmd: `${node} touch.mjs`, timeoutMs: 5000 };
+  };
+
+  it('does not run the command when no sandbox is available, and says why', async () => {
+    for (const checks of [
+      createCheckExecutor(), // no policy at all
+      createCheckExecutor({ sandbox: { denyPaths: [] }, sandboxAvailable: () => false }), // Linux
+    ]) {
+      const logPath = join(tmp.dir, `refused-${Math.random()}.log`);
+      const out = await checks.run({ ...probe(), logPath });
+      expect(out.passed).toBe(false);
+      expect(out.refused).toMatch(/checks\.allow_unsandboxed/);
+      expect(existsSync(join(cwd, 'ran.txt'))).toBe(false);
+      expect(readFileSync(logPath, 'utf8')).toMatch(/\[not run\]/);
+    }
+  });
+
+  it('runs it unsandboxed only when checks.allow_unsandboxed is set (and logs that)', async () => {
+    const checks = createCheckExecutor({ allowUnsandboxed: true, sandboxAvailable: () => false });
+    const logPath = join(tmp.dir, 'opt-in.log');
+    const out = await checks.run({ ...probe(), logPath });
+    expect(out).toMatchObject({ passed: true });
+    expect(out.refused).toBeUndefined();
+    expect(existsSync(join(cwd, 'ran.txt'))).toBe(true);
+    expect(readFileSync(logPath, 'utf8')).toMatch(/UNSANDBOXED/);
+  });
+
+  it('tightens an existing log file and directory to 0600 / 0700', async () => {
+    const dir = join(tmp.dir, 'logs');
+    mkdirSync(dir, { mode: 0o755 });
+    const logPath = join(dir, 'c.log');
+    writeFileSync(logPath, 'old', { mode: 0o644 });
+    chmodSync(dir, 0o755);
+    chmodSync(logPath, 0o644);
+    await createCheckExecutor({ allowUnsandboxed: true }).run({ ...probe(), logPath });
+    expect(statSync(dir).mode & 0o777).toBe(0o700);
+    expect(statSync(logPath).mode & 0o777).toBe(0o600);
   });
 });

@@ -51,7 +51,9 @@ describe('§14 槽位與保留槽 — slots and the reserved human slot', () => 
     const tasks = ['t_1', 't_2', 't_3', 't_4'].map((id) => queued(id));
     const result = plan({ tasks });
     expect(result.dispatch.map((d) => d.task.id)).toEqual(['t_1', 't_2', 't_3']);
-    expect(result.deferred).toEqual([{ task_id: 't_4', reason: 'role_slots', retry_at: null }]);
+    expect(result.deferred).toEqual([
+      { task_id: 't_4', reason: 'role_slots', retry_at: null, detail: 'impl_C: 3 slot(s) in use' },
+    ]);
   });
 
   it('counts live runs and in-preparation dispatches against the role', () => {

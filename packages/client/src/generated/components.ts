@@ -109,6 +109,7 @@ export interface components {
           | 'stopped'
           | 'abandoned';
         cost_usd: number | null;
+        cost_estimated: boolean;
         usage: {
           input_tokens?: number;
           output_tokens?: number;
@@ -121,10 +122,27 @@ export interface components {
         /** Format: date-time */
         ended_at: string | null;
       } | null;
+      waiting: {
+        /** @enum {string} */
+        reason:
+          | 'path_overlap'
+          | 'no_slot'
+          | 'runner_cooldown'
+          | 'backoff'
+          | 'worker_alive'
+          | 'base_drift';
+        detail: string | null;
+        blocking_task_id: string | null;
+        /** Format: date-time */
+        retry_at: string | null;
+        /** Format: date-time */
+        since: string;
+      } | null;
       head_sha: string | null;
       run_totals: {
         runs: number;
         cost_usd: number | null;
+        cost_estimated: boolean;
         usage: {
           input_tokens?: number;
           output_tokens?: number;
@@ -213,6 +231,7 @@ export interface components {
         reasoning_tokens?: number;
       } | null;
       cost_usd: number | null;
+      cost_estimated: boolean;
       log_dir: string;
       pid: number | null;
       pid_started_at: string | null;

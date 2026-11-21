@@ -1,5 +1,5 @@
 import { TeamError } from '@agent-team/core';
-import { OpenAPIHono, type RouteHandler } from '@hono/zod-openapi';
+import { OpenAPIHono, type RouteConfig, type RouteHandler } from '@hono/zod-openapi';
 import {
   ALL_ROUTES,
   answerAttention,
@@ -35,12 +35,9 @@ const MAX_BODY_BYTES = 1024 * 1024;
 
 /** Routes the LAN listener refuses (spec §11: project writes; settings writes would join). */
 function lanForbidden(): MiddlewareHandler<AppEnv> {
-  const blocked = ALL_ROUTES.filter(isLocalOnly).map((route) => ({
-    method: route.method.toUpperCase(),
-    path: routePattern(route.path),
-  }));
+  const refused = refusedBy(ALL_ROUTES.filter(isLocalOnly));
   return async (c, next) => {
-    if (blocked.some((b) => b.method === c.req.method && b.path.test(c.req.path))) {
+    if (refused(c.req.method, c.req.path)) {
       throw new TeamError(
         'lan_forbidden',
         `${c.req.method} ${c.req.path} is only available on the local listener`,
@@ -52,6 +49,29 @@ function lanForbidden(): MiddlewareHandler<AppEnv> {
 }
 
 const routePattern = (path: string) => new RegExp(`^${path.replace(/\{[^}]+\}/g, '[^/]+')}$`);
+
+/** The method a request is routed with: Hono answers HEAD with the GET handler. */
+const routedMethod = (method: string) =>
+  method.toUpperCase() === 'HEAD' ? 'GET' : method.toUpperCase();
+
+/**
+ * Whether a guard refuses `method path`: one of `routes` (HEAD counts as GET), or — on a path
+ * one of them guards — any method no route registers for that path (PUT, OPTIONS, …).
+ */
+function refusedBy(routes: readonly RouteConfig[]): (method: string, path: string) => boolean {
+  const pattern = (route: RouteConfig) => ({
+    method: route.method.toUpperCase(),
+    path: routePattern(route.path),
+  });
+  const guarded = routes.map(pattern);
+  const known = ALL_ROUTES.map(pattern);
+  return (rawMethod, path) => {
+    if (!guarded.some((g) => g.path.test(path))) return false;
+    const method = routedMethod(rawMethod);
+    if (guarded.some((g) => g.method === method && g.path.test(path))) return true;
+    return !known.some((k) => k.method === method && k.path.test(path));
+  };
+}
 
 /**
  * Routes the leader actor may not call (spec §1 principle 1, §9; docs/adr/0014): run logs and
@@ -76,15 +96,9 @@ export const LEADER_FORBIDDEN = [
 ];
 
 function leaderForbidden(): MiddlewareHandler<AppEnv> {
-  const blocked = LEADER_FORBIDDEN.map((route) => ({
-    method: route.method.toUpperCase(),
-    path: routePattern(route.path),
-  }));
+  const refused = refusedBy(LEADER_FORBIDDEN);
   return async (c, next) => {
-    if (
-      c.get('actor').kind === 'leader' &&
-      blocked.some((b) => b.method === c.req.method && b.path.test(c.req.path))
-    ) {
+    if (c.get('actor').kind === 'leader' && refused(c.req.method, c.req.path)) {
       throw new TeamError(
         'forbidden',
         `${c.req.method} ${c.req.path} is not available to the leader`,

@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readdirSync, readlinkSync, rmdirSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import type { GitPort } from '@agent-team/core';
+import { isWorktreeIntegrityError, type GitPort, type WorktreeRef } from '@agent-team/core';
 import { git, gitEnv, withLockRetry } from './exec.js';
 import {
   parseNameOnlyZ,
@@ -18,6 +18,7 @@ import {
   stripSlash,
   toCallerForm,
 } from './paths.js';
+import { verifyWorktreeIdentity } from './identity.js';
 import { fillReviewDiff } from './review-diff.js';
 
 export interface GitPortOptions {
@@ -109,6 +110,13 @@ export function createGitPort(opts: GitPortOptions): CliGitPort {
     return text(repoPath, ['merge-base', '--end-of-options', a, b]);
   }
 
+  /** Before any git command inside a worktree (docs/adr/0018); throws WorktreeIntegrityError. */
+  const verify = (ref: WorktreeRef, baseBranch?: string) =>
+    verifyWorktreeIdentity(
+      { worktreePath: ref.worktreePath, repoPath: ref.repoPath, branch: ref.branch },
+      { env: readEnv, ...(baseBranch === undefined ? {} : { baseBranch }) },
+    );
+
   const port: CliGitPort = {
     async ensureWorktree({ repoPath, worktreePath, branch, baseBranch }) {
       assertManaged(worktreePath);
@@ -123,6 +131,7 @@ export function createGitPort(opts: GitPortOptions): CliGitPort {
             `${worktreePath} is a worktree of ${here.branch ?? 'a detached HEAD'}, not ${branch}`,
           );
         }
+        await verify({ worktreePath, repoPath, branch });
         const headSha = await revParse(worktreePath, 'HEAD');
         const baseSha = await mergeBase(repoPath, ref, await revParse(repoPath, baseBranch));
         return { baseSha, headSha, created: false };
@@ -144,7 +153,7 @@ export function createGitPort(opts: GitPortOptions): CliGitPort {
       return { baseSha, headSha: baseSha, created: true };
     },
 
-    async removeWorktree({ repoPath, worktreePath, force }) {
+    async removeWorktree({ repoPath, worktreePath, branch, force }) {
       assertManaged(worktreePath);
       await prune(repoPath);
       const entry = (await worktrees(repoPath)).find((w) => samePath(w.path, worktreePath));
@@ -160,6 +169,13 @@ export function createGitPort(opts: GitPortOptions): CliGitPort {
         return { removed: true };
       }
       if (existsSync(worktreePath) && force !== true) {
+        // a tampered worktree is left for a human: its status would describe another checkout
+        try {
+          await verify({ worktreePath, repoPath, branch: branch ?? entry.branch?.slice(11) ?? '' });
+        } catch (err) {
+          if (!isWorktreeIntegrityError(err)) throw err;
+          return { removed: false, reason: 'tampered', changes: 0, detail: err.reason };
+        }
         const dirty = await statusEntries(worktreePath);
         if (dirty.length > 0) return { removed: false, reason: 'dirty', changes: dirty.length };
       }
@@ -170,8 +186,9 @@ export function createGitPort(opts: GitPortOptions): CliGitPort {
       return { removed: true };
     },
 
-    async resetWorktree({ worktreePath, toSha }) {
+    async resetWorktree({ worktreePath, repoPath, branch, toSha }) {
       assertManaged(worktreePath);
+      await verify({ worktreePath, repoPath, branch });
       const dirty = await statusEntries(worktreePath);
       if (dirty.length > 0)
         throw new Error(`${worktreePath} has changes; cannot rebuild on a new base`);
@@ -193,13 +210,17 @@ export function createGitPort(opts: GitPortOptions): CliGitPort {
       await withLockRetry(() => run(worktreePath, ['reset', '--hard', '--quiet', target]));
     },
 
-    async status({ worktreePath }) {
+    async status(ref) {
+      const { worktreePath } = ref;
+      await verify(ref);
       const headSha = await revParse(worktreePath, 'HEAD');
       const entries = await statusEntries(worktreePath);
       return { headSha, clean: entries.length === 0 };
     },
 
-    async changedFiles({ worktreePath, sinceSha }) {
+    async changedFiles({ sinceSha, ...ref }) {
+      const { worktreePath } = ref;
+      await verify(ref);
       const since = await revParse(worktreePath, sinceSha);
       const committed = await run(
         worktreePath,
@@ -211,7 +232,9 @@ export function createGitPort(opts: GitPortOptions): CliGitPort {
       return [...files].sort();
     },
 
-    async commitFiles({ worktreePath, message, files }) {
+    async commitFiles({ message, files, baseBranch, ...ref }) {
+      const { worktreePath } = ref;
+      await verify(ref, baseBranch);
       const wanted = new Set(files);
       const changed = statusPaths(await statusEntries(worktreePath)).filter((f) => wanted.has(f));
       // exact paths only (literal pathspecs: a file named ":x" is not pathspec magic)
@@ -233,6 +256,8 @@ export function createGitPort(opts: GitPortOptions): CliGitPort {
       if (staged.length === 0) {
         return { sha: await revParse(worktreePath, 'HEAD'), created: false };
       }
+      // again right before the commit: the pointer must not have changed since the add
+      await verify(ref, baseBranch);
       // no hooks (SERVICE_GIT_CONFIG); not GPG-signed, so a signing prompt can never hang it
       await withLockRetry(() =>
         run(
@@ -252,9 +277,20 @@ export function createGitPort(opts: GitPortOptions): CliGitPort {
       const ref = `refs/heads/${branch}`;
       const here = (await worktrees(repoPath)).find((w) => samePath(w.path, worktreePath));
       if (here && existsSync(worktreePath)) {
-        const head = await revParse(worktreePath, 'HEAD');
-        if (head === tip && (await statusEntries(worktreePath)).length === 0) {
-          return { baseSha: tip };
+        let intact = true;
+        try {
+          await verify({ worktreePath, repoPath, branch });
+        } catch (err) {
+          if (!isWorktreeIntegrityError(err)) throw err;
+          intact = false;
+          // point `.git` back at its admin dir so git lets the worktree be removed and re-added
+          await run(repoPath, ['worktree', 'repair', '--', worktreePath]);
+        }
+        if (intact) {
+          const head = await revParse(worktreePath, 'HEAD');
+          if (head === tip && (await statusEntries(worktreePath)).length === 0) {
+            return { baseSha: tip };
+          }
         }
       }
       const old = await run(repoPath, ['rev-parse', '--verify', '--quiet', ref], readEnv)
@@ -312,7 +348,9 @@ export function createGitPort(opts: GitPortOptions): CliGitPort {
       return res.stdout.toString('utf8').trim() === 'true';
     },
 
-    async reviewDiff({ worktreePath, baseSha, headSha, maxChars }) {
+    async reviewDiff({ baseSha, headSha, maxChars, ...ref }) {
+      const { worktreePath } = ref;
+      await verify(ref);
       const base = await revParse(worktreePath, baseSha);
       const head = await revParse(worktreePath, headSha);
       const diffOpts = ['--no-color', '--no-ext-diff', '--no-textconv', '--find-renames'];

@@ -54,8 +54,14 @@ describe('leader shell surface', () => {
     expect(new Set(LEADER_DENIED_COMMANDS).size).toBe(LEADER_DENIED_COMMANDS.length);
   });
 
-  it('passes the deny list only when the CLI supports it, never a permission bypass', () => {
-    const base = { model: 'm', sessionId: 's', resume: false, systemPrompt: 'p' };
+  it('always passes the isolation flags and the deny list; a CLI without them is refused', () => {
+    const base = {
+      model: 'm',
+      sessionId: 's',
+      resume: false,
+      systemPrompt: 'p',
+      settings: { sandbox: { enabled: true } },
+    };
     const full = leaderArgs({ ...base, flags: ALL_FLAGS });
     const allowAt = full.indexOf('--allowedTools');
     const denyAt = full.indexOf('--disallowedTools');
@@ -65,7 +71,19 @@ describe('leader shell surface', () => {
     ]);
     expect(full.join(' ')).not.toMatch(/dangerously|bypassPermissions/);
     const minimal = leaderArgs({ ...base, flags: new Set(LEADER_REQUIRED_FLAGS) });
-    expect(minimal).not.toContain('--disallowedTools');
-    expect(minimal).toContain('dontAsk');
+    for (const flag of ['--restricted', '--safe-mode', '--disallowedTools', '--settings']) {
+      expect(minimal).toContain(flag);
+    }
+    expect(minimal[minimal.indexOf('--permission-prompts') + 1]).toBe('none');
+    expect(JSON.parse(minimal[minimal.indexOf('--settings') + 1]!)).toEqual(base.settings);
+    for (const flag of [
+      '--restricted',
+      '--safe-mode',
+      '--disallowedTools',
+      '--permission-prompts',
+    ]) {
+      const without = new Set([...LEADER_REQUIRED_FLAGS].filter((f) => f !== flag));
+      expect(() => leaderArgs({ ...base, flags: without })).toThrow(flag);
+    }
   });
 });

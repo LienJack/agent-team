@@ -70,7 +70,7 @@ export function RunList({
               <div className="flex flex-wrap gap-x-3 text-xs text-muted tabular-nums">
                 <span>開始 {formatTime(run.started_at)}</span>
                 <span>耗時 {formatDuration(end - Date.parse(run.started_at))}</span>
-                <span>費用 {formatCost(run.cost_usd)}</span>
+                <span>費用 {formatCost(run.cost_usd, run.cost_estimated)}</span>
                 {tokens > 0 ? <span>用量 {formatTokens(tokens)} tok</span> : null}
               </div>
               {run.reject_reason || run.error ? (

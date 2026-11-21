@@ -66,7 +66,7 @@ describe('git worktree lifecycle', () => {
     const wt = await newWorktree(fx);
     mkdirSync(join(wt.worktreePath, 'ignored', 'deep'), { recursive: true });
     writeFileSync(join(wt.worktreePath, 'ignored', 'deep', 'junk.txt'), 'j\n');
-    expect((await fx.port.status({ worktreePath: wt.worktreePath })).clean).toBe(true);
+    expect((await fx.port.status({ ...wt.ref })).clean).toBe(true);
     await fx.port.removeWorktree({ repoPath: fx.repo, worktreePath: wt.worktreePath });
     expect(existsSync(wt.worktreePath)).toBe(false);
   });
@@ -124,7 +124,7 @@ describe('git change lists', () => {
     fx.sh(p, 'add', 'renamed.gitignore');
     writeFileSync(join(p, '.gitignore'), 'ignored/\n');
 
-    const files = await fx.port.changedFiles({ worktreePath: p, sinceSha: wt.baseSha });
+    const files = await fx.port.changedFiles({ ...wt.ref, sinceSha: wt.baseSha });
     expect(files).toEqual(
       [
         '.gitignore',
@@ -135,7 +135,7 @@ describe('git change lists', () => {
         'ünïcode "q".txt',
       ].sort(),
     );
-    expect((await fx.port.status({ worktreePath: p })).clean).toBe(false);
+    expect((await fx.port.status({ ...wt.ref })).clean).toBe(false);
   });
 
   it('includes files of commits after sinceSha', async () => {
@@ -143,12 +143,11 @@ describe('git change lists', () => {
     writeFileSync(join(wt.worktreePath, 'c.txt'), 'c\n');
     const c1 = await commitChanges(fx, wt.worktreePath, 'one');
     writeFileSync(join(wt.worktreePath, 'd.txt'), 'd\n');
-    expect(
-      await fx.port.changedFiles({ worktreePath: wt.worktreePath, sinceSha: wt.baseSha }),
-    ).toEqual(['c.txt', 'd.txt']);
-    expect(await fx.port.changedFiles({ worktreePath: wt.worktreePath, sinceSha: c1.sha })).toEqual(
-      ['d.txt'],
-    );
+    expect(await fx.port.changedFiles({ ...wt.ref, sinceSha: wt.baseSha })).toEqual([
+      'c.txt',
+      'd.txt',
+    ]);
+    expect(await fx.port.changedFiles({ ...wt.ref, sinceSha: c1.sha })).toEqual(['d.txt']);
   });
 });
 
@@ -177,7 +176,7 @@ describe('git service commits', () => {
     expect(
       fx.sh(wt.worktreePath, 'show', '--name-only', '--format=', 'HEAD').split('\n').sort(),
     ).toEqual([':magic.txt', 'a.txt', 'b.txt']);
-    expect(await fx.port.status({ worktreePath: wt.worktreePath })).toEqual({
+    expect(await fx.port.status({ ...wt.ref })).toEqual({
       headSha: c.sha,
       clean: true,
     });
@@ -235,8 +234,8 @@ describe('git base drift', () => {
       ['a.txt'],
     );
 
-    await fx.port.resetWorktree({ worktreePath: wt.worktreePath, toSha: tip });
-    expect((await fx.port.status({ worktreePath: wt.worktreePath })).headSha).toBe(tip);
+    await fx.port.resetWorktree({ ...wt.ref, toSha: tip });
+    expect((await fx.port.status({ ...wt.ref })).headSha).toBe(tip);
   });
 
   it('refuses to rebuild a worktree with changes or commits of its own', async () => {
@@ -245,13 +244,11 @@ describe('git base drift', () => {
     fx.sh(fx.repo, 'commit', '-q', '-am', 'move base');
     const tip = await fx.port.resolveRef({ repoPath: fx.repo, ref: 'main' });
     writeFileSync(join(wt.worktreePath, 'a.txt'), 'dirty\n');
-    await expect(
-      fx.port.resetWorktree({ worktreePath: wt.worktreePath, toSha: tip }),
-    ).rejects.toThrow(/changes/);
+    await expect(fx.port.resetWorktree({ ...wt.ref, toSha: tip })).rejects.toThrow(/changes/);
     await commitChanges(fx, wt.worktreePath, 'own');
-    await expect(
-      fx.port.resetWorktree({ worktreePath: wt.worktreePath, toSha: tip }),
-    ).rejects.toThrow(/commits of its own/);
+    await expect(fx.port.resetWorktree({ ...wt.ref, toSha: tip })).rejects.toThrow(
+      /commits of its own/,
+    );
   });
 
   it('rejects unknown refs', async () => {

@@ -30,7 +30,13 @@ describe('M5 base drift can be resolved', () => {
     await h.engine.runUntilIdle();
     const ws = h.store.workspaces.findCurrentByTask(task.id)!;
     const tip = h.git.advanceBase('/repos/demo', 'main', ['src/feature/other.ts']);
-    await h.git.resetWorktree({ worktreePath: ws.path, toSha: tip }); // …then the crash
+    // …then the crash
+    await h.git.resetWorktree({
+      worktreePath: ws.path,
+      repoPath: '/repos/demo',
+      branch: ws.branch,
+      toSha: tip,
+    });
     expect(h.store.workspaces.get(ws.id)!.base_sha).not.toBe(tip);
 
     h.runners.dsh.script(editing(h.git, ['src/feature/a.ts']));

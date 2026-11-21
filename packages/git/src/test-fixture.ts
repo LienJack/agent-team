@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { gitEnv } from './exec.js';
 import { createGitPort, type CliGitPort } from './git-port.js';
 
@@ -73,11 +73,17 @@ export async function newWorktree(f: Fixture, task = 't_000001') {
     branch: `team/${task}`,
     baseBranch: 'main',
   });
-  return { worktreePath, ...res };
+  return { worktreePath, ref: refOf(f, worktreePath), ...res };
+}
+
+/** The identity of a test worktree `<root>/proj/<task>` (branch `team/<task>`). */
+export function refOf(f: Fixture, worktreePath: string) {
+  return { worktreePath, repoPath: f.repo, branch: `team/${basename(worktreePath)}` };
 }
 
 /** Commit every uncommitted change of a worktree (tests; the port only commits listed files). */
 export async function commitChanges(f: Fixture, worktreePath: string, message: string) {
-  const files = await f.port.changedFiles({ worktreePath, sinceSha: 'HEAD' });
-  return f.port.commitFiles({ worktreePath, message, files });
+  const ref = refOf(f, worktreePath);
+  const files = await f.port.changedFiles({ ...ref, sinceSha: 'HEAD' });
+  return f.port.commitFiles({ ...ref, baseBranch: 'main', message, files });
 }

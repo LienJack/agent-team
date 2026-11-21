@@ -1,10 +1,10 @@
-import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getRequestListener } from '@hono/node-server';
-import { DATA_LAYOUT, type ListenerFile } from '@agent-team/schema';
+import { DATA_LAYOUT, MAX_SOCKET_PATH_BYTES, type ListenerFile } from '@agent-team/schema';
 
 export interface Listening {
   /** Base URL with the bound port, e.g. `http://127.0.0.1:4517`. */
@@ -53,6 +53,43 @@ export async function listen(fetch: FetchHandler, host: string, port: number): P
     host,
     port: bound,
     close: () => closeServer(server, 2000),
+  };
+}
+
+/**
+ * Serve `fetch` on a unix socket (the leader's listener, docs/adr/0012): a stale socket from a
+ * crash is replaced (anything else at the path is an error), the socket is made 0600, and
+ * `close()` removes it.
+ */
+export async function listenUnix(
+  fetch: FetchHandler,
+  path: string,
+): Promise<{ path: string; close(): Promise<void> }> {
+  if (Buffer.byteLength(path) > MAX_SOCKET_PATH_BYTES) {
+    throw new Error(
+      `socket path too long (${Buffer.byteLength(path)} > ${MAX_SOCKET_PATH_BYTES} bytes): ${path}`,
+    );
+  }
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  await chmod(dirname(path), 0o700);
+  const existing = await lstat(path).catch(() => undefined);
+  if (existing && !existing.isSocket()) throw new Error(`${path} exists and is not a socket`);
+  if (existing) await rm(path, { force: true });
+  const server = createServer(getRequestListener(fetch as never));
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(path, () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  await chmod(path, 0o600);
+  return {
+    path,
+    close: async () => {
+      await closeServer(server, 2000);
+      await rm(path, { force: true });
+    },
   };
 }
 

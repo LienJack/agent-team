@@ -17,6 +17,7 @@ import type { EngineContext, Tx } from './context.js';
 import { resumeAfterAnswer } from './answers.js';
 import { answerAttention, openAttention } from './attention.js';
 import { applyAttentionAction, isBaseDriftBlock } from './drift.js';
+import { WORKTREE_INTEGRITY_BLOCK } from './integrity.js';
 import { enqueueEffect } from './effect-queue.js';
 import { completeTask, requestFix } from './outcomes.js';
 import { finishRun, lastRun, requireTask, saveTask } from './records.js';
@@ -209,9 +210,12 @@ export function retryTask(ctx: EngineContext, id: string, actor: Actor): Task {
       if (current.status === 'failed') {
         throw new ForbiddenError(`task ${id} exhausted its attempts; only a human can retry it`);
       }
-      const why = (current.blocked_reason ?? '').startsWith(WORKER_UNCONFIRMED_BLOCK)
+      const blockedFor = current.blocked_reason ?? '';
+      const why = blockedFor.startsWith(WORKER_UNCONFIRMED_BLOCK)
         ? 'a worker could not be confirmed dead after a restart'
-        : needsHumanRetry(last);
+        : blockedFor.startsWith(WORKTREE_INTEGRITY_BLOCK)
+          ? 'its worktree failed the identity check (tampered .git?)'
+          : needsHumanRetry(last);
       if (why !== null) throw new ForbiddenError(`task ${id}: ${why}; only a human can retry it`);
       const budget = ctx.config.engine.leader_retry_budget;
       if (current.leader_retries >= budget) {

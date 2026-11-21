@@ -2,7 +2,14 @@ import type { BoardTask } from '@agent-team/client';
 import { Draggable } from '@hello-pangea/dnd';
 import { memo } from 'react';
 import { summarizeTask } from '../lib/board.js';
-import { EMPTY, formatCost, formatDuration, formatTokens, shortSha } from '../lib/format.js';
+import {
+  EMPTY,
+  formatCost,
+  formatDuration,
+  formatTokens,
+  shortSha,
+  waitingText,
+} from '../lib/format.js';
 import { useNow } from '../lib/now.js';
 import { useUi } from '../store/ui.js';
 import { Badge, StatusBadge } from './ui/badge.js';
@@ -49,7 +56,7 @@ function CardMeta({ task }: { task: BoardTask }) {
             label={s.liveSince ? '執行' : '耗時'}
             value={s.elapsedMs === undefined ? EMPTY : formatDuration(s.elapsedMs)}
           />
-          <Meta label="費用" value={formatCost(s.costUsd)} />
+          <Meta label="費用" value={formatCost(s.costUsd, s.costEstimated)} />
           <Meta label="用量" value={s.tokens > 0 ? `${formatTokens(s.tokens)} tok` : EMPTY} />
           <Meta label="commit" value={shortSha(s.commit)} title={s.commit ?? undefined} />
         </div>
@@ -96,6 +103,12 @@ export const TaskCard = memo(function TaskCard({
             </button>
           </div>
           <CardMeta task={task} />
+          {task.waiting ? (
+            <p className="truncate text-xs text-warn" title={waitingText(task.waiting)}>
+              <span aria-hidden="true">⏸ </span>
+              {waitingText(task.waiting)}
+            </p>
+          ) : null}
           {task.blocked_reason ? (
             <p className="truncate text-xs text-bad" title={task.blocked_reason}>
               <span aria-hidden="true">■ </span>

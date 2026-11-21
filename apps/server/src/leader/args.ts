@@ -119,7 +119,13 @@ export const LEADER_DENY_RULES: readonly string[] = LEADER_DENIED_COMMANDS.flatM
 
 const EMPTY_MCP = '{"mcpServers":{}}';
 
-/** Without these the leader does not start (`not_installed`). */
+/**
+ * Without these the leader does not start (`unavailable`, with the missing flag as the reason).
+ * The isolation flags are required too (fail closed): `--restricted` (user/project settings
+ * files cannot widen the allow-list), `--safe-mode` (no hooks, CLAUDE.md, plugins),
+ * `--disallowedTools` (the deny-list), `--permission-prompts none` and `--settings` (the OS
+ * sandbox, sandbox.ts).
+ */
 export const LEADER_REQUIRED_FLAGS = [
   '--print',
   '--model',
@@ -131,19 +137,15 @@ export const LEADER_REQUIRED_FLAGS = [
   '--tools',
   '--allowedTools',
   '--permission-mode',
+  '--restricted',
+  '--safe-mode',
+  '--disallowedTools',
+  '--permission-prompts',
+  '--settings',
 ] as const;
 
 /** Passed only when `claude --help` lists them. */
-export const LEADER_OPTIONAL_FLAGS = [
-  '--safe-mode',
-  '--strict-mcp-config',
-  '--mcp-config',
-  /** Ignores user/project settings files, so their allow rules cannot widen the allow-list. */
-  '--restricted',
-  '--disallowedTools',
-  '--permission-prompts',
-  '--effort',
-] as const;
+export const LEADER_OPTIONAL_FLAGS = ['--strict-mcp-config', '--mcp-config', '--effort'] as const;
 
 export interface LeaderArgsInput {
   model: string;
@@ -154,20 +156,24 @@ export interface LeaderArgsInput {
   systemPrompt: string;
   /** Supported flags found by the probe. */
   flags: ReadonlySet<string>;
+  /** The `--settings` object (the leader's sandbox, sandbox.ts). */
+  settings: Record<string, unknown>;
 }
 
 export function leaderArgs(input: LeaderArgsInput): string[] {
   const has = (flag: string) => input.flags.has(flag);
+  for (const flag of LEADER_REQUIRED_FLAGS) {
+    if (!has(flag)) throw new Error(`claude does not support ${flag}; the leader does not run`);
+  }
   const args = ['-p', '--model', input.model, '--output-format', 'stream-json', '--verbose'];
   args.push(input.resume ? '--resume' : '--session-id', input.sessionId);
-  if (has('--safe-mode')) args.push('--safe-mode');
+  args.push('--safe-mode');
   if (has('--strict-mcp-config')) args.push('--strict-mcp-config');
   if (has('--mcp-config')) args.push('--mcp-config', EMPTY_MCP);
-  if (has('--restricted')) args.push('--restricted');
+  args.push('--restricted', '--settings', JSON.stringify(input.settings));
   args.push('--tools', LEADER_TOOLS, '--allowedTools', ...LEADER_ALLOW_RULES);
-  if (has('--disallowedTools')) args.push('--disallowedTools', ...LEADER_DENY_RULES);
-  args.push('--permission-mode', 'dontAsk');
-  if (has('--permission-prompts')) args.push('--permission-prompts', 'none');
+  args.push('--disallowedTools', ...LEADER_DENY_RULES);
+  args.push('--permission-mode', 'dontAsk', '--permission-prompts', 'none');
   if (input.effort !== undefined && has('--effort')) args.push('--effort', input.effort);
   args.push('--append-system-prompt', input.systemPrompt);
   assertNoPermissionBypass(args);

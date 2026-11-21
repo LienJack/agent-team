@@ -21,6 +21,7 @@ import type {
   Notifier,
 } from '../ports/services.js';
 import { noopLogger } from '../ports/services.js';
+import type { WaitingState } from './waiting.js';
 
 /** Static configuration of an engine instance (assembled by apps/server from the config files). */
 export interface EngineConfig {
@@ -112,6 +113,8 @@ export class EngineContext {
   readonly shutdownController = new AbortController();
   /** Tasks a human just acted on; they may use the reserved slot (in memory only). */
   readonly humanPriority = new Set<string>();
+  /** Why each waiting task is not dispatched, and what was last emitted (engine/waiting.ts). */
+  readonly waiting = new Map<string, WaitingState>();
   /**
    * Set by `Engine.shutdown()`: results of runs aborted by the shutdown are not applied, so the
    * runs stay live in the store and the next startup's recovery marks them abandoned.

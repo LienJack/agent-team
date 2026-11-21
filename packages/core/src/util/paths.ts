@@ -9,6 +9,8 @@
 // - `.` and `./` are the repository root: they own every file and overlap every task (M7).
 // - `{ ignoreCase: true }` compares case-insensitively (a case-insensitive filesystem, e.g. the
 //   macOS default, where `src/A` and `src/a` are the same directory).
+// - Unicode: every path is compared in NFC, so a name typed precomposed (`é`) and the same name
+//   in decomposed form (`e` + U+0301, as some macOS tools and filesystems spell it) match.
 
 const GLOB_CHARS = /[*?[\]{}!]/;
 
@@ -18,12 +20,13 @@ export interface PathMatchOptions {
 }
 
 /**
- * Canonical form of a repo-relative path: no leading `./`, no `.` segments, no repeated or
+ * Canonical form of a repo-relative path: NFC, no leading `./`, no `.` segments, no repeated or
  * trailing `/`; the repository root is `''`. `..` segments are kept (the schema refuses them in
  * owned paths; a file path containing one never matches a literal owned path).
  */
 export function normalizeOwnedPath(path: string): string {
   const segments = path
+    .normalize('NFC')
     .trim()
     .replace(/\\/g, '/')
     .split('/')

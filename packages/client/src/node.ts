@@ -2,8 +2,10 @@
 // DATA/run/listener.json (spec §4). Kept out of the main entry so browser bundles never see
 // `node:` imports.
 import { readFile } from 'node:fs/promises';
+import { request as httpRequest } from 'node:http';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import {
   DATA_LAYOUT,
   DEFAULT_DATA_DIR,
@@ -84,6 +86,51 @@ export async function discoverListener(options: DiscoverOptions = {}): Promise<L
   return parsed.data;
 }
 
+/**
+ * `fetch` over a unix socket (the leader's listener: its sandbox allows that socket and no TCP;
+ * docs/adr/0012). The request URL only names the path; the body is buffered (API requests are
+ * small) and the response streams back.
+ */
+export function unixSocketFetch(socketPath: string): (request: Request) => Promise<Response> {
+  return async (request) => {
+    const url = new URL(request.url);
+    const body = request.body ? Buffer.from(await request.arrayBuffer()) : undefined;
+    const headers: Record<string, string> = { host: url.host };
+    request.headers.forEach((value, name) => {
+      headers[name] = value;
+    });
+    if (body) headers['content-length'] = String(body.length);
+    return new Promise<Response>((resolve, reject) => {
+      const req = httpRequest(
+        { socketPath, method: request.method, path: `${url.pathname}${url.search}`, headers },
+        (res) => {
+          const out = new Headers();
+          for (const [name, value] of Object.entries(res.headers)) {
+            if (Array.isArray(value)) for (const v of value) out.append(name, v);
+            else if (value !== undefined) out.set(name, value);
+          }
+          const status = res.statusCode ?? 502;
+          const empty = status === 204 || status === 304 || request.method === 'HEAD';
+          if (empty) res.resume();
+          resolve(
+            new Response(empty ? null : (Readable.toWeb(res) as ReadableStream<Uint8Array>), {
+              status,
+              statusText: res.statusMessage ?? '',
+              headers: out,
+            }),
+          );
+        },
+      );
+      req.once('error', reject);
+      if (request.signal.aborted) req.destroy(new Error('aborted'));
+      request.signal.addEventListener('abort', () => req.destroy(new Error('aborted')), {
+        once: true,
+      });
+      req.end(body);
+    });
+  };
+}
+
 /** Discover the local listener and return a client for it (CLI, MCP). */
 export async function connectLocal(
   options: DiscoverOptions & Omit<TeamClientOptions, 'baseUrl' | 'token'> = {},
@@ -97,6 +144,8 @@ export async function connectLocal(
       const fresh = await discover();
       return { baseUrl: fresh.addr, token: fresh.token };
     },
+    // the leader's listener file names a unix socket: talk to the server through it only
+    ...(listener.socket !== undefined ? { fetch: unixSocketFetch(listener.socket) } : {}),
     ...clientOptions,
     baseUrl: listener.addr,
     token: listener.token,

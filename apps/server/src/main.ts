@@ -80,18 +80,23 @@ export async function main(
 
   const store = createSqliteStore({ path: join(config.dataDir, DATA_LAYOUT.database) });
   const fake = processEnv['AGENT_TEAM_FAKE_RUNNERS'] === '1';
+  // the service's own ports, denied to checks and dsh (configured ones now, bound ones after start)
+  const servicePorts = new Set<number>(
+    [config.service.local.port, config.service.lan.port].filter((p) => p > 0),
+  );
+  // workers never see the service's state or secrets (docs/adr/0014, 0019)
+  const sandbox = {
+    denyPaths: serviceDenyPaths(config, envFile),
+    servicePorts: () => [...servicePorts],
+  };
   const runners = createRunnerRegistry({
     env: (name) => (isKnownEnvVar(name) ? env.get(name) : undefined),
     logger,
     fake,
     ...(options.runnerCommands ? { commands: options.runnerCommands } : {}),
-    // workers never see the service's state or secrets (docs/adr/0014)
-    sandbox: { denyPaths: serviceDenyPaths(config, envFile) },
+    sandbox,
+    dsh: { allowUnsandboxed: config.service.runners.dsh.allow_unsandboxed },
   });
-  // the service's own ports, denied to machine checks (configured ones now, bound ones after start)
-  const servicePorts = new Set<number>(
-    [config.service.local.port, config.service.lan.port].filter((p) => p > 0),
-  );
   const caps = await runners.probeAll();
   logger.info('runners probed', {
     fake,
@@ -103,12 +108,11 @@ export async function main(
     store,
     runners,
     git: createGit(config),
-    // checks run worker-authored code: same deny list, Seatbelt on macOS (docs/adr/0014)
+    // checks run worker-authored code: same deny list under Seatbelt (macOS), or not at all
+    // unless checks.allow_unsandboxed (docs/adr/0014, 0019)
     checks: createCheckExecutor({
-      sandbox: {
-        denyPaths: serviceDenyPaths(config, envFile),
-        servicePorts: () => [...servicePorts],
-      },
+      sandbox,
+      allowUnsandboxed: config.service.checks.allow_unsandboxed,
     }),
     clock: systemClock,
     ids: randomIdGen,
@@ -122,6 +126,8 @@ export async function main(
     leader: {
       enabled: config.service.leader.enabled,
       teamEntry: join(config.projectRoot, 'apps', 'cli', 'dist', 'bin.js'),
+      // its Bash runs in Claude Code's sandbox with the same service deny list (docs/adr/0012)
+      denyPaths: serviceDenyPaths(config, envFile),
     },
   });
   const running = await service.start();

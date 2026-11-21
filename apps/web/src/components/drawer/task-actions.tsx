@@ -1,5 +1,5 @@
 import type { Task } from '@agent-team/client';
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { useTaskAction } from '../../api/mutations.js';
 import { useRoles } from '../../api/queries.js';
 import {
@@ -19,13 +19,22 @@ function ReassignForm({ task, blocker }: { task: Task; blocker: string | undefin
   const [role, setRole] = useState<string>(task.impl_role);
   const { impl, other } = reassignChoices(roles.data, task.impl_role);
   const unchanged = role === task.impl_role;
+  // set synchronously: `isPending` only shows up after the next render
+  const inFlight = useRef(false);
 
   return (
     <form
       className="flex flex-wrap items-end gap-2"
       onSubmit={(e) => {
         e.preventDefault();
-        if (!unchanged && !blocker) mutation.mutate({ id: task.id, action: 'reassign', role });
+        // one request at a time: a second submit (double click, Enter) while the first is in
+        // flight is ignored, not sent again
+        if (unchanged || blocker || mutation.isPending || inFlight.current) return;
+        inFlight.current = true;
+        mutation.mutate(
+          { id: task.id, action: 'reassign', role },
+          { onSettled: () => void (inFlight.current = false) },
+        );
       }}
     >
       <div className="space-y-0.5">
@@ -63,7 +72,7 @@ function ReassignForm({ task, blocker }: { task: Task; blocker: string | undefin
       <Button
         type="submit"
         pending={mutation.isPending}
-        disabled={blocker !== undefined || unchanged}
+        disabled={blocker !== undefined || unchanged || mutation.isPending}
         title={blocker ?? (unchanged ? '已是這個角色' : undefined)}
       >
         {ACTION_LABELS.reassign}

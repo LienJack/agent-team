@@ -218,8 +218,11 @@ describe('H2 no second worker while the previous one may be alive', () => {
     // without the abort, the hanging check would keep shutdown() waiting forever
     await h.engine.shutdown();
     expect(h.git.calls.some((c) => c.method === 'commitFiles')).toBe(false);
-    // the verification is kept for the next start
-    expect(h.store.effects.list().some((e) => e.kind === 'run.verify')).toBe(true);
+    // the verification is kept for the next start — without spending one of its attempts
+    // (repeated restarts during a check must never make it dead)
+    const verify = h.store.effects.list().find((e) => e.kind === 'run.verify');
+    expect(verify).toMatchObject({ attempts: 0, error: null });
+    expect(h.store.events.listAfter(0).some((e) => e.type === 'effect.failed')).toBe(false);
     expect(h.get(task.id).status).toBe('verifying');
   });
 });

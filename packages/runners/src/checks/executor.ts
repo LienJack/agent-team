@@ -1,5 +1,5 @@
 import { createWriteStream } from 'node:fs';
-import { mkdir, stat } from 'node:fs/promises';
+import { chmod, mkdir, stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { CheckExecutor, CheckOutcome } from '@agent-team/core';
 import { childEnv } from '../process/env.js';
@@ -15,11 +15,20 @@ export interface CheckExecutorOptions {
   sourceEnv?: NodeJS.ProcessEnv;
   killGraceMs?: number;
   /**
-   * Run checks under Seatbelt with this deny list (macOS; checks/sandbox.ts). Omitted, or on a
-   * platform without `sandbox-exec`, checks run unsandboxed.
+   * Run checks under Seatbelt with this deny list (macOS; checks/sandbox.ts). Without a policy,
+   * or on a platform without `sandbox-exec` (Linux until bubblewrap support exists), a check is
+   * not run at all: it fails with a clear message (docs/adr/0019) — unless `allowUnsandboxed`.
    */
   sandbox?: SandboxPolicy;
+  /** `service.json` → `checks.allow_unsandboxed`: run checks without a sandbox (opt-in). */
+  allowUnsandboxed?: boolean;
+  /** Whether Seatbelt can be used (default: macOS with `/usr/bin/sandbox-exec`); tests inject. */
+  sandboxAvailable?: () => boolean;
 }
+
+/** The message of a check that was refused because it cannot run sandboxed. */
+export const UNSANDBOXED_REFUSAL =
+  'machine checks run worker-written code and no sandbox is available here (sandbox-exec is macOS-only); set checks.allow_unsandboxed: true in service.json to run them unsandboxed';
 
 const TAIL_LINES = 20;
 
@@ -32,7 +41,8 @@ const CHECK_ENV = { CI: '1', GIT_TERMINAL_PROMPT: '0' } as const;
  * environment (no API keys, no SSH agent socket, no AGENT_TEAM_* variables or listener token,
  * no GIT_* overrides; `GIT_TERMINAL_PROMPT=0`), own process group killed on timeout or abort
  * (an aborted check rejects: the verification is retried on the next start). Checks run
- * worker-authored code unsandboxed as the service user (docs/adr/0014). The full output (stdout and
+ * worker-authored code: under Seatbelt with the worker deny list (docs/adr/0014), or not at all
+ * (`refused`, docs/adr/0019) unless unsandboxed checks are allowed. The full output (stdout and
  * stderr interleaved as they arrive, redacted) goes to `logPath`; the outcome carries the last
  * 20 lines. A missing cwd or an unwritable log rejects (infrastructure error → effect retry);
  * a command that cannot be found is a failing check (exit 127).
@@ -45,12 +55,14 @@ export function createCheckExecutor(opts: CheckExecutorOptions = {}): CheckExecu
       const st = await stat(cwd);
       if (!st.isDirectory()) throw new Error(`check ${name}: cwd is not a directory: ${cwd}`);
       await mkdir(dirname(logPath), { recursive: true, mode: 0o700 });
+      await chmod(dirname(logPath), 0o700); // an existing directory keeps its mode otherwise
       const out = createWriteStream(logPath, { flags: 'w', mode: 0o600 });
       await new Promise<void>((resolve, reject) => {
         out.once('open', () => resolve());
         out.once('error', reject);
       });
       out.on('error', () => {});
+      await chmod(logPath, 0o600);
 
       const tail: string[] = [];
       const write = (line: string) => {
@@ -62,7 +74,21 @@ export function createCheckExecutor(opts: CheckExecutorOptions = {}): CheckExecu
       const parsed = parseCommand(cmd);
       let [command, args] =
         parsed.kind === 'argv' ? [parsed.argv[0]!, parsed.argv.slice(1)] : ['/bin/sh', ['-c', cmd]];
-      const sandboxed = opts.sandbox !== undefined && checkSandboxAvailable();
+      const sandboxed =
+        opts.sandbox !== undefined && (opts.sandboxAvailable ?? checkSandboxAvailable)();
+      if (!sandboxed && opts.allowUnsandboxed !== true) {
+        // fail closed (docs/adr/0019): never run worker-written code without the sandbox
+        write(`$ ${redact(cmd)}`);
+        write(`[not run] ${UNSANDBOXED_REFUSAL}`);
+        await new Promise<void>((resolve) => out.end(() => resolve()));
+        return {
+          passed: false,
+          exitCode: null,
+          tail: tail.join('\n'),
+          durationMs: 0,
+          refused: UNSANDBOXED_REFUSAL,
+        };
+      }
       if (sandboxed) {
         const profile = checkSandboxProfile(
           { cwd, ...(repoPath ? { repoPath } : {}) },
@@ -72,7 +98,7 @@ export function createCheckExecutor(opts: CheckExecutorOptions = {}): CheckExecu
         command = SANDBOX_EXEC;
       }
       out.write(
-        `$ ${redact(cmd)}${parsed.kind === 'shell' ? `   (sh -c: ${parsed.reason})` : ''}${sandboxed ? '   [sandboxed]' : ''}\n`,
+        `$ ${redact(cmd)}${parsed.kind === 'shell' ? `   (sh -c: ${parsed.reason})` : ''}${sandboxed ? '   [sandboxed]' : '   [UNSANDBOXED: checks.allow_unsandboxed]'}\n`,
       );
 
       const res = await runChild({

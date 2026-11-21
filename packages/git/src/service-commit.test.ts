@@ -30,7 +30,8 @@ describe('H1/H3 service-side git: exact files, no repository hooks, no agent', (
     }
     writeFileSync(join(wt.worktreePath, 'a.txt'), 'a2\n');
     const c = await fx.port.commitFiles({
-      worktreePath: wt.worktreePath,
+      ...wt.ref,
+      baseBranch: 'main',
       message: 'team(t_000001): x',
       files: ['a.txt'],
     });
@@ -43,7 +44,8 @@ describe('H1/H3 service-side git: exact files, no repository hooks, no agent', (
     writeFileSync(join(wt.worktreePath, 'a.txt'), 'a2\n');
     writeFileSync(join(wt.worktreePath, 'extra.txt'), 'x\n');
     const c = await fx.port.commitFiles({
-      worktreePath: wt.worktreePath,
+      ...wt.ref,
+      baseBranch: 'main',
       message: 'm',
       files: ['a.txt', 'gone.txt'],
     });
@@ -58,7 +60,7 @@ describe('H1/H3 service-side git: exact files, no repository hooks, no agent', (
     fx.sh(wt.worktreePath, 'add', 'sneaky.txt'); // staged by the worker
     const head = fx.sh(wt.worktreePath, 'rev-parse', 'HEAD');
     await expect(
-      fx.port.commitFiles({ worktreePath: wt.worktreePath, message: 'm', files: ['a.txt'] }),
+      fx.port.commitFiles({ ...wt.ref, baseBranch: 'main', message: 'm', files: ['a.txt'] }),
     ).rejects.toThrow(/sneaky\.txt/);
     expect(fx.sh(wt.worktreePath, 'rev-parse', 'HEAD')).toBe(head);
   });
@@ -79,7 +81,7 @@ describe('M5 rebuild and accepted base', () => {
   it('rebuildWorktree discards changes and commits, recreates on the tip, archives the old head', async () => {
     const wt = await newWorktree(fx);
     writeFileSync(join(wt.worktreePath, 'a.txt'), 'mine\n');
-    await fx.port.commitFiles({ worktreePath: wt.worktreePath, message: 'own', files: ['a.txt'] });
+    await fx.port.commitFiles({ ...wt.ref, baseBranch: 'main', message: 'own', files: ['a.txt'] });
     const oldHead = fx.sh(wt.worktreePath, 'rev-parse', 'HEAD');
     writeFileSync(join(wt.worktreePath, 'b.txt'), 'dirty\n');
     writeFileSync(join(fx.repo, 'a.txt'), 'moved\n');
@@ -93,7 +95,7 @@ describe('M5 rebuild and accepted base', () => {
       baseBranch: 'main',
     });
     expect(res.baseSha).toBe(tip);
-    expect(await fx.port.status({ worktreePath: wt.worktreePath })).toEqual({
+    expect(await fx.port.status({ ...wt.ref })).toEqual({
       headSha: tip,
       clean: true,
     });
@@ -119,11 +121,11 @@ describe('M5 rebuild and accepted base', () => {
     fx.sh(fx.repo, 'commit', '-q', '-am', 'move base');
     const tip = fx.sh(fx.repo, 'rev-parse', 'main');
     const fromFork = await fx.port.changedFiles({
-      worktreePath: wt.worktreePath,
+      ...wt.ref,
       sinceSha: wt.baseSha,
     });
     expect(fromFork).toEqual(['a.txt']); // what verification sees after "continue"
-    const fromTip = await fx.port.changedFiles({ worktreePath: wt.worktreePath, sinceSha: tip });
+    const fromTip = await fx.port.changedFiles({ ...wt.ref, sinceSha: tip });
     expect(fromTip).toContain('b.txt'); // why base_sha must not simply be set to the tip
   });
 });

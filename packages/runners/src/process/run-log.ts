@@ -1,5 +1,5 @@
 import { createWriteStream, type WriteStream } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { RUN_LOG_FILES } from '@agent-team/schema';
 import type { Redactor } from '../redact.js';
@@ -7,7 +7,9 @@ import type { Redactor } from '../redact.js';
 /**
  * The run's log directory (`DATA/runs/<run_id>/`): `prompt.md`, the raw event stream in
  * `events.jsonl` and the child's `stderr.log`. Every line is redacted before it is written;
- * stderr is line-buffered by the caller so a key split across chunks is still caught.
+ * stderr is line-buffered by the caller so a key split across chunks is still caught. The
+ * directory is 0700 and every file 0600 — also when they existed before with looser modes
+ * (`mode` on mkdir/open only applies to what is created).
  */
 export class RunLog {
   private events: WriteStream | undefined;
@@ -20,12 +22,10 @@ export class RunLog {
 
   static async open(dir: string, redact: Redactor): Promise<RunLog> {
     await mkdir(dir, { recursive: true, mode: 0o700 });
+    await chmod(dir, 0o700);
     const log = new RunLog(dir, redact);
-    log.events = createWriteStream(join(dir, RUN_LOG_FILES.events), { flags: 'a', mode: 0o600 });
-    log.stderr = createWriteStream(join(dir, RUN_LOG_FILES.stderr), { flags: 'a', mode: 0o600 });
-    // a failing log write must never crash the service; the run result still comes back
-    log.events.on('error', () => {});
-    log.stderr.on('error', () => {});
+    log.events = await openPrivate(join(dir, RUN_LOG_FILES.events));
+    log.stderr = await openPrivate(join(dir, RUN_LOG_FILES.stderr));
     return log;
   }
 
@@ -34,7 +34,9 @@ export class RunLog {
   }
 
   async writePrompt(prompt: string): Promise<void> {
-    await writeFile(this.path(RUN_LOG_FILES.prompt), this.redact(prompt), { mode: 0o600 });
+    const path = this.path(RUN_LOG_FILES.prompt);
+    await writeFile(path, this.redact(prompt), { mode: 0o600 });
+    await chmod(path, 0o600);
   }
 
   /** One raw stdout line (already a JSON object line or not) → events.jsonl. */
@@ -62,4 +64,17 @@ export class RunLog {
       ),
     );
   }
+}
+
+/** An append stream on `path`, the file 0600 whether it is new or not. */
+async function openPrivate(path: string): Promise<WriteStream> {
+  const stream = createWriteStream(path, { flags: 'a', mode: 0o600 });
+  await new Promise<void>((resolve, reject) => {
+    stream.once('open', () => resolve());
+    stream.once('error', reject);
+  });
+  // a failing log write must never crash the service; the run result still comes back
+  stream.on('error', () => {});
+  await chmod(path, 0o600);
+  return stream;
 }

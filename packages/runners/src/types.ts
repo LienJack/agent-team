@@ -20,10 +20,13 @@ export interface RunnerRegistryOptions {
    */
   commands?: Partial<Record<'claude' | 'codex' | 'dsh', string[]>>;
   /**
-   * Service-wide sandbox deny list (DATA, the service `.env`; docs/adr/0014) for the claude and
-   * codex workers. Credential directories under home are always added.
+   * Service-wide sandbox deny list (DATA, the service `.env`) and service ports (docs/adr/0014,
+   * 0019) for the claude, codex and dsh workers. Credential directories under home are always
+   * added.
    */
   sandbox?: SandboxPolicy;
+  /** `service.json` → `runners.dsh` (docs/adr/0019). */
+  dsh?: { allowUnsandboxed?: boolean };
 }
 
 /**

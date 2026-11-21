@@ -35,9 +35,39 @@ export const BASE_ENV_NAMES = [
 
 const FALLBACK_PATH = '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin';
 
+/** Proxy variables whose values are URLs that may carry `user:password@`. */
+const PROXY_NAMES = new Set([
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'ALL_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'all_proxy',
+]);
+
+/**
+ * A proxy URL (or `host:port`) without its userinfo: `http://user:pw@proxy:8080` →
+ * `http://proxy:8080`. The rest of the value is kept as written. Undefined when it does not
+ * parse as a URL with a host (the variable is then not passed at all).
+ */
+export function stripProxyUserinfo(value: string): string | undefined {
+  const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
+  try {
+    if (new URL(hasScheme ? value : `http://${value}`).host === '') return undefined;
+  } catch {
+    return undefined;
+  }
+  const m = /^((?:[a-z][a-z0-9+.-]*:\/\/)?)([^/?#]*)([\s\S]*)$/i.exec(value);
+  if (!m) return undefined;
+  const authority = m[2] ?? '';
+  const at = authority.lastIndexOf('@');
+  return at < 0 ? value : `${m[1] ?? ''}${authority.slice(at + 1)}${m[3] ?? ''}`;
+}
+
 /**
  * The allow-listed environment plus `extraNames` (non-secret, runner-specific, e.g.
- * `CLAUDE_CONFIG_DIR`), then `overrides` on top. `NO_COLOR=1` keeps output parseable.
+ * `CLAUDE_CONFIG_DIR`), then `overrides` on top. `NO_COLOR=1` keeps output parseable. Proxy
+ * variables lose any embedded credentials (`stripProxyUserinfo`).
  */
 export function childEnv(
   extraNames: readonly string[] = [],
@@ -46,7 +76,8 @@ export function childEnv(
 ): Record<string, string> {
   const env: Record<string, string> = {};
   for (const name of [...BASE_ENV_NAMES, ...extraNames]) {
-    const value = source[name];
+    const raw = source[name];
+    const value = raw !== undefined && PROXY_NAMES.has(name) ? stripProxyUserinfo(raw) : raw;
     if (value !== undefined && value !== '') env[name] = value;
   }
   env.PATH ??= FALLBACK_PATH;

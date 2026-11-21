@@ -1,5 +1,5 @@
 import type { RunErrorKind, RunQuota, Usage } from '@agent-team/schema';
-import { classifyText, nonNegNumber, quota, resetFromMessage, str } from '../classify.js';
+import { nonNegNumber, quota, resetFromMessage, str } from '../classify.js';
 import { isPlainObject } from '../json.js';
 import { capture, parseHelpFlags } from '../process/capture.js';
 import { findExecutable } from '../process/env.js';
@@ -8,7 +8,7 @@ import { RunLog } from '../process/run-log.js';
 import { runChild } from '../process/spawn.js';
 import { makeRedactor } from '../redact.js';
 import { assertNoPermissionBypass } from './args.js';
-import { claudeUsage, parseClaudeRateLimit } from './stream.js';
+import { ClaudeErrorSignals, claudeUsage, parseClaudeRateLimit } from './stream.js';
 
 // One headless `claude -p --output-format stream-json --verbose` call whose answer is plain text
 // (the leader's turns, `/compact`). The caller builds the argv; this module spawns it with the
@@ -79,9 +79,12 @@ class TextStream {
   contextTokens: number | undefined;
   compacted: ClaudeTextResult['compacted'];
   readonly commands: string[] = [];
+  /** Structured error sources (model-authored text never classifies a failure). */
+  readonly signals = new ClaudeErrorSignals();
 
   line(event: Record<string, unknown> | undefined): boolean {
     if (!event) return false;
+    this.signals.observe(event);
     const type = str(event.type);
     if (typeof event.session_id === 'string') {
       this.started = true;
@@ -233,7 +236,7 @@ export async function runClaudeText(input: ClaudeTextInput): Promise<ClaudeTextR
           : `with ${child.signal ?? `code ${child.exitCode}`}`;
       return failed(
         partial,
-        classifyText(stderr),
+        stream.signals.kind(undefined, { stderr, quotaExhausted: stream.quota?.exhausted }),
         redact(`claude exited ${how}${tail ? `: ${tail}` : ''}`),
         stderr,
       );
@@ -243,8 +246,13 @@ export async function runClaudeText(input: ClaudeTextInput): Promise<ClaudeTextR
       const errors = Array.isArray(r.errors) ? r.errors.filter((e) => typeof e === 'string') : [];
       const message =
         str(r.result)?.trim() || errors.join('; ') || subtype || 'claude reported an error';
-      const kind = stream.quota?.exhausted ? 'rate_limit' : classifyText(`${message}\n${stderr}`);
-      return failed(partial, kind, redact(`claude: ${message}`), message);
+      const kind = stream.signals.kind(r, { stderr, quotaExhausted: stream.quota?.exhausted });
+      return failed(
+        partial,
+        kind,
+        redact(`claude: ${message}`),
+        `${stream.signals.cliText(r)}\n${stderr}`,
+      );
     }
     return { ...partial, text: str(r.result) ?? '' };
   } catch (err) {

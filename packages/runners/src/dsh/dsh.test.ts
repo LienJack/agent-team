@@ -119,6 +119,9 @@ describe('runners: dsh argv', () => {
     const runner = new DshRunner({
       env: (name) => (name === 'OPENROUTER_API_KEY' ? KEY : undefined),
       command: s.command,
+      // dsh's own sandbox modes (the opt-in without Seatbelt); the wrapper: dsh-sandbox.test.ts
+      allowUnsandboxed: true,
+      sandboxAvailable: () => false,
       sourceEnv: { ...process.env, OPENROUTER_API_KEY: 'from-service-env', GIT_WORK_TREE: '/x' },
     });
     const r = await runner.run(spec, new AbortController().signal);
@@ -153,7 +156,12 @@ describe('runners: dsh argv', () => {
       responses: probe,
       steps: fixtureLines(import.meta.url, 'no-json.jsonl').map((out) => ({ out })),
     });
-    const runner = new DshRunner({ env: () => KEY, command: s.command });
+    const runner = new DshRunner({
+      env: () => KEY,
+      command: s.command,
+      allowUnsandboxed: true,
+      sandboxAvailable: () => false,
+    });
     const r = await runner.run(spec, new AbortController().signal);
     expect(r.error?.kind).toBe('bad_output');
     expect(lastRecord(s.recordPath)!.argv).toEqual([
@@ -170,7 +178,11 @@ describe('runners: dsh argv', () => {
 
   it('fails with auth before spawning when the key is missing', async () => {
     const s = await writeScenario(tmp.dir, { responses: probe });
-    const runner = new DshRunner({ env: () => undefined, command: s.command });
+    const runner = new DshRunner({
+      env: () => undefined,
+      command: s.command,
+      allowUnsandboxed: true,
+    });
     const r = await runner.run(makeSpec(tmp.dir), new AbortController().signal);
     expect(r.error?.kind).toBe('auth');
     const caps = await runner.probe();

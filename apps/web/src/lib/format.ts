@@ -18,11 +18,38 @@ export function formatDuration(ms: number): string {
   return h % 24 === 0 ? `${d} 天` : `${d} 天 ${h % 24} 小時`;
 }
 
-export function formatCost(usd: number | null | undefined): string {
+export function formatCost(usd: number | null | undefined, estimated = false): string {
   if (usd === null || usd === undefined || !Number.isFinite(usd)) return EMPTY;
-  if (usd === 0) return '$0';
-  if (usd < 0.01) return '<$0.01';
-  return `$${usd.toFixed(2)}`;
+  const text = usd === 0 ? '$0' : usd < 0.01 ? '<$0.01' : `$${usd.toFixed(2)}`;
+  // codex/dsh report no cost: usage × models.json price, never shown as a bill
+  return estimated ? `≈${text} 估算` : text;
+}
+
+/** Why a waiting task is not dispatched (`task.waiting`), as one short line. */
+export function waitingText(w: {
+  reason: string;
+  detail: string | null;
+  blocking_task_id: string | null;
+  retry_at: string | null;
+}): string {
+  switch (w.reason) {
+    case 'path_overlap':
+      return w.blocking_task_id
+        ? `等待：與 ${w.blocking_task_id} 的 owned_paths 重疊`
+        : '等待：與派工中的任務路徑重疊';
+    case 'no_slot':
+      return `等待：沒有空的槽位${w.detail ? `（${w.detail}）` : ''}`;
+    case 'runner_cooldown':
+      return `等待：runner 冷卻中${w.retry_at ? `，${formatTime(w.retry_at)} 後再試` : ''}`;
+    case 'backoff':
+      return `等待：失敗後退避${w.retry_at ? `，${formatTime(w.retry_at)} 重試` : ''}`;
+    case 'worker_alive':
+      return '等待：前一個 worker 可能還在執行';
+    case 'base_drift':
+      return '等待：基底分支已變動，需要人決定';
+    default:
+      return `等待：${w.reason}`;
+  }
 }
 
 /** 950 → 950, 12_300 → 12.3k, 1_250_000 → 1.3M. */

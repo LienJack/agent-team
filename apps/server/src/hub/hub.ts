@@ -10,7 +10,7 @@ import {
   writeBuffer,
 } from './coalesce.js';
 import { Grokmsg, type GrokMessage, type ReplyStatus } from './grokmsg.js';
-import { anchorKey, enqueueOutbox, metaKey, readMeta, summaryKey } from './outbox.js';
+import { anchorKey, enqueueOutbox, metaKey, readMeta, sentKey, summaryKey } from './outbox.js';
 import { condense } from './summarizer.js';
 import type { Hub, HubDeps } from './types.js';
 
@@ -218,6 +218,8 @@ export function createHub(deps: HubDeps): Hub {
     if (!attention || attention.status !== 'open') return; // answered meanwhile
     const anchor = store.messages.list({ channel: 'grok' }).findLast((m) => m.direction === 'in');
     if (anchor) {
+      // stored before the send: a crash right after it still links the pick to this item
+      store.kv.set(anchorKey(anchor.client_msg_id), attention.id);
       // buttons need a Grok message to hang on: the latest conversation (question verbatim)
       await grok.reply(anchor.client_msg_id, {
         status: 'waiting_user',
@@ -225,10 +227,11 @@ export function createHub(deps: HubDeps): Hub {
         question: attention.question,
         options: attention.options,
       });
-      store.kv.set(anchorKey(anchor.client_msg_id), attention.id);
       return;
     }
     const notice = await grok.notify(attentionNotice(attention));
+    // the notice id exists only after the send: a crash between the send and this write leaves
+    // the notice without an anchor (a pick is then matched by its question text, matchAttention)
     if (notice.id) store.kv.set(anchorKey(notice.id), attention.id);
     if (!notice.pushed) logger.warn('grokmsg notify was not pushed (webhook not set)');
   }
@@ -272,7 +275,22 @@ export function createHub(deps: HubDeps): Hub {
     }
   }
 
+  /**
+   * One outbox item, at most once per signature: the `outbox.send` effect runs again when the
+   * service stops between a successful send and the outbox update, so the send is recorded
+   * (`sentKey`) right after it and a repeat is skipped. A crash between the send and that record
+   * can still repeat it once.
+   */
   async function deliver(item: OutboxItem): Promise<void> {
+    if (store.kv.get(sentKey(item.signature)) !== undefined) {
+      logger.info('outbox item already sent; not sent again', { outbox_id: item.id });
+      return;
+    }
+    await deliverOnce(item);
+    store.kv.set(sentKey(item.signature), clock.now().toISOString());
+  }
+
+  async function deliverOnce(item: OutboxItem): Promise<void> {
     if (item.kind === 'reply') return sendReply(item);
     if (item.kind === 'attention') return sendAttention(item);
     if (IMMEDIATE_KINDS.has(item.kind) || item.signature.startsWith('digest:')) {

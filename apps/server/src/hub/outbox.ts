@@ -23,6 +23,11 @@ export const metaKey = (outboxId: string) => `hub:outbox:${outboxId}`;
 export const summaryKey = (outboxId: string) => `hub:summary:${outboxId}`;
 /** grokmsg id (a message we replied to with options, or a notice) → attention id. */
 export const anchorKey = (grokId: string) => `hub:anchor:${grokId}`;
+/**
+ * Set (to the time) once the outbox item with this signature went out: the `outbox.send` effect
+ * may run again after a crash between the send and the outbox update, and must not resend.
+ */
+export const sentKey = (signature: string) => `hub:sent:${signature}`;
 
 export function readMeta(kv: KvRepository, outboxId: string): ReplyMeta | undefined {
   const raw = kv.get(metaKey(outboxId));

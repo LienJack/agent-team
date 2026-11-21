@@ -1,5 +1,6 @@
 // Ports (implemented by db, runners, git, server)
 export * from './ports/index.js';
+export { isWorktreeIntegrityError, WorktreeIntegrityError } from './ports/git.js';
 export * from './errors.js';
 
 // In-memory store (tests, and the reference behaviour for the SQLite store)
@@ -25,6 +26,7 @@ export {
   planDispatch,
   roleFor,
   type DeferReason,
+  type Deferred,
   type PlanInput,
   type PlannedDispatch,
   type PlanResult,

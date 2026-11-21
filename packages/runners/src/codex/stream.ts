@@ -85,9 +85,16 @@ export class CodexStream {
     return q ? { ...result, quota: q } : result;
   }
 
-  /** Result after the event stream ended without an exception. */
+  /**
+   * Result after the event stream ended without an exception. The last agent message counts only
+   * after `turn.completed` (codex's own success signal): a stream that stops early — however
+   * receipt-like its last message — is a crash.
+   */
   finish(): RunResult {
     if (this.failure && !this.completed) return this.failed(this.failure);
+    if (!this.completed) {
+      return errorResult('crash', 'codex ended without turn.completed', this.partial());
+    }
     if (this.lastMessage === undefined) {
       return errorResult('bad_output', 'codex ended without an agent message', this.partial());
     }

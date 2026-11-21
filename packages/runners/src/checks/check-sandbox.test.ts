@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -114,9 +114,39 @@ describe.skipIf(!checkSandboxAvailable())('H1 machine checks under Seatbelt (mac
     expect(out.tail).toContain('?? a.txt');
   });
 
+  it('the worktree .git pointer cannot be rewritten, replaced, renamed or removed (docs/adr/0018)', async () => {
+    const work = join(tmp.dir, 'work');
+    writeFileSync(join(work, '.git'), 'gitdir: /original\n');
+    mkdirSync(join(work, 'sub'));
+    const attempts = [
+      'printf "gitdir: /primary/.git\\n" > .git',
+      'mv .git moved',
+      'rm -f .git',
+      'ln -sf /primary/.git .git',
+      'mv sub .git',
+      'cp /etc/hosts .git',
+    ];
+    const checks = createCheckExecutor({
+      sandbox: { home: join(tmp.dir, 'home'), denyPaths: [join(tmp.dir, 'data')] },
+    });
+    for (const [i, cmd] of attempts.entries()) {
+      await checks.run({
+        cwd: work,
+        name: `tamper-${i}`,
+        cmd,
+        logPath: join(tmp.dir, `tamper-${i}.log`),
+        timeoutMs: 10_000,
+      });
+      expect({ cmd, pointer: readFileSync(join(work, '.git'), 'utf8') }).toEqual({
+        cmd,
+        pointer: 'gitdir: /original\n',
+      });
+    }
+  });
+
   it('without a policy the same check can do all of it (the control)', async () => {
     writeFileSync(join(tmp.dir, 'work', 'probe.cjs'), script());
-    const out = await createCheckExecutor().run({
+    const out = await createCheckExecutor({ allowUnsandboxed: true }).run({
       cwd: join(tmp.dir, 'work'),
       name: 'probe',
       cmd: `${node} probe.cjs`,

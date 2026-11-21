@@ -6,6 +6,7 @@ export * from './runner.js';
 export * from './domain.js';
 export * from './records.js';
 export * from './events.js';
+export * from './waiting.js';
 export * from './config/models.js';
 export * from './config/service.js';
 export * from './env.js';

@@ -115,6 +115,7 @@ export const run = sqliteTable(
     receipt: text({ mode: 'json' }).$type<NonNullable<Run['receipt']>>(),
     usage: text({ mode: 'json' }).$type<NonNullable<Run['usage']>>(),
     cost_usd: real(),
+    cost_estimated: integer({ mode: 'boolean' }).notNull().default(false),
     log_dir: text().notNull(),
     pid: integer(),
     pid_started_at: text(),

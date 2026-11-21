@@ -87,7 +87,11 @@ export interface TeamClient {
   listProjects(): Promise<Project[]>;
   createProject(body: ProjectCreateBody): Promise<Project>;
   listTasks(query?: TaskListQuery): Promise<Task[]>;
-  createTask(body: TaskCreateBody): Promise<Task>;
+  /**
+   * `idempotencyKey`: a caller-chosen `Idempotency-Key` (the leader's `team task add` derives it
+   * from its turn and the body, so a replayed turn cannot create the same task twice).
+   */
+  createTask(body: TaskCreateBody, options?: { idempotencyKey?: string }): Promise<Task>;
   getTask(id: string): Promise<TaskDetail>;
   taskAction(id: string, action: SimpleTaskAction, reason?: string): Promise<Task>;
   rejectTask(id: string, note: string): Promise<Task>;
@@ -183,7 +187,11 @@ export function createTeamClient(options: TeamClientOptions): TeamClient {
     createProject: async (body) => (await call(() => raw.POST('/api/projects', { body }))).project,
     listTasks: async (query = {}) =>
       (await call(() => raw.GET('/api/tasks', { params: { query } }))).tasks,
-    createTask: async (body) => (await call(() => raw.POST('/api/tasks', { body }))).task,
+    createTask: async (body, callOptions) => {
+      const key = callOptions?.idempotencyKey;
+      const headers = key === undefined ? {} : { headers: { [IDEMPOTENCY_HEADER]: key } };
+      return (await call(() => raw.POST('/api/tasks', { body, ...headers }))).task;
+    },
     getTask: (id) => call(() => raw.GET('/api/tasks/{id}', byId(id))),
     taskAction: async (id, action, reason) => {
       const init = { ...byId(id), body: reason === undefined ? {} : { reason } };

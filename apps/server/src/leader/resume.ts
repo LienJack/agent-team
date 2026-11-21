@@ -13,6 +13,15 @@ function clip(text: string, max = 160): string {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
+/**
+ * Text a worker wrote (receipt summaries, `needs_leader`), quoted on one line: the brief is built
+ * without a model, but these parts are not the service's words — they are data, never
+ * instructions, and cannot open a bracketed header or close the quote.
+ */
+function quoted(text: string, max = 160): string {
+  return `「${clip(text.replace(/[「」[\]]/g, ' '), max)}」`;
+}
+
 function isReview(receipt: ImplReceipt | ReviewReceipt): receipt is ReviewReceipt {
   return 'verdict' in receipt;
 }
@@ -28,13 +37,13 @@ function receiptLine(run: Run): string {
   const receipt = run.receipt!;
   if (isReview(receipt)) {
     const mustFix = receipt.findings.filter((f) => f.severity === 'must_fix').length;
-    return `- \`${run.task_id}\` \`${run.id}\` review：${receipt.verdict}（must_fix ${mustFix}）— ${clip(receipt.summary)}`;
+    return `- \`${run.task_id}\` \`${run.id}\` review：${receipt.verdict}（must_fix ${mustFix}）— worker 摘要 ${quoted(receipt.summary)}`;
   }
   const files =
     receipt.files_changed.length > 0 ? `（${receipt.files_changed.length} 個檔案）` : '';
   const leader =
-    receipt.needs_leader !== '' ? `；需要 leader：${clip(receipt.needs_leader, 80)}` : '';
-  return `- \`${run.task_id}\` \`${run.id}\` ${run.kind}：${receipt.status}${files} — ${clip(receipt.summary)}${leader}`;
+    receipt.needs_leader !== '' ? `；需要 leader：${quoted(receipt.needs_leader, 80)}` : '';
+  return `- \`${run.task_id}\` \`${run.id}\` ${run.kind}：${receipt.status}${files} — worker 摘要 ${quoted(receipt.summary)}${leader}`;
 }
 
 function attentionLine(item: Attention): string {
@@ -82,7 +91,12 @@ export function resumeBrief(deps: { store: Store; clock: Clock }): string {
         taskLine(t, t.current_run_id ? runById.get(t.current_run_id) : undefined),
       ),
     ),
-    ...section('未讀回執', shown.map(receiptLine), unread.length - shown.length),
+    // 「…」 = what the worker wrote (data, not the service's words)
+    ...section(
+      '未讀回執（「」內是 worker 寫的）',
+      shown.map(receiptLine),
+      unread.length - shown.length,
+    ),
     ...section('待決事項', open.map(attentionLine)),
     '## 其他',
     `排隊 ${count('queued')}、草稿 ${count('draft')}、阻塞 ${count('blocked')}、失敗 ${count('failed')}、完成 ${count('done')}`,

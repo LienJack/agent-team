@@ -54,6 +54,8 @@ export function createRunnerRegistry(opts: RunnerRegistryOptions): ManagedRunner
       new DshRunner({
         env: opts.env,
         ...logger,
+        ...sandbox,
+        ...(opts.dsh?.allowUnsandboxed === true ? { allowUnsandboxed: true } : {}),
         ...(opts.commands?.dsh ? { command: opts.commands.dsh } : {}),
       }),
     );

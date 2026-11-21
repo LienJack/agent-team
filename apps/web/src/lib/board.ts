@@ -40,6 +40,8 @@ export interface CardSummary {
   /** Sum of all run durations (a live run counts until `now`). */
   elapsedMs: number | undefined;
   costUsd: number | null;
+  /** `costUsd` includes an estimate (usage × models.json price). */
+  costEstimated: boolean;
   tokens: number;
   commit: string | null;
 }
@@ -73,6 +75,7 @@ export function summarizeTask(
     liveSince: live ? run.started_at : undefined,
     elapsedMs: task.run_totals.runs > 0 ? elapsed : undefined,
     costUsd: task.run_totals.cost_usd,
+    costEstimated: task.run_totals.cost_estimated,
     tokens: usageTokens(task.run_totals.usage),
     commit: task.head_sha,
   };

@@ -16,6 +16,7 @@ import {
   MessageStatusSchema,
 } from './domain.js';
 import { AttentionIdSchema, MessageIdSchema, OutboxIdSchema, WorkspaceIdSchema } from './ids.js';
+import { TaskWaitingSchema } from './waiting.js';
 import { EffectKindSchema, NotifyKindSchema } from './records.js';
 import { UsageSchema } from './runner.js';
 import { RunKindSchema, RunOutcomeSchema, RunStateSchema, TaskStatusSchema } from './status.js';
@@ -47,6 +48,12 @@ export const EVENT_DATA_SCHEMAS = {
     attempts: NonNegativeIntSchema,
     retry_at: IsoDateTimeSchema.nullable(),
   }),
+  /**
+   * Why a waiting task (queued, or review waiting for a reviewer) is not dispatched yet. Emitted
+   * when the reason changes, at most once per task every 30 s (validation 2026-11-21: overlap
+   * waits were silent).
+   */
+  'task.waiting': TaskWaitingSchema,
   'task.base_drift': z.object({
     action: z.enum(['rebuilt', 'blocked', 'accepted']),
     base_sha: ShaSchema,
@@ -72,7 +79,8 @@ export const EVENT_DATA_SCHEMAS = {
   'workspace.kept': z.object({
     workspace_id: WorkspaceIdSchema.nullable(),
     path: z.string(),
-    reason: z.enum(['dirty']),
+    /** dirty = uncommitted changes; tampered = failed the identity check (docs/adr/0018). */
+    reason: z.enum(['dirty', 'tampered']),
     changes: NonNegativeIntSchema,
   }),
 
@@ -102,6 +110,7 @@ export const EVENT_DATA_SCHEMAS = {
     error: nullableString,
     usage: UsageSchema.nullable(),
     cost_usd: z.number().nullable(),
+    cost_estimated: z.boolean().optional(),
   }),
   'run.verified': z.object({
     outcome: z.enum(['ok', 'rejected']),

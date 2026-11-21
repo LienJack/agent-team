@@ -1,10 +1,17 @@
-import { commitMessage, joinPosix, RUN_LOG_FILES, type Task } from '@agent-team/schema';
-import type { GitPort } from '../ports/git.js';
+import {
+  commitMessage,
+  joinPosix,
+  RUN_LOG_FILES,
+  type EffectRecord,
+  type Task,
+} from '@agent-team/schema';
+import { isWorktreeIntegrityError, type GitPort, type WorktreeRef } from '../ports/git.js';
 import { filesOutside, isPathOwned } from '../util/paths.js';
 import { lastLines } from '../util/time.js';
 import type { EngineContext, Tx } from './context.js';
 import { projectIgnoresCase } from './dispatch.js';
 import { effectPayload, type EffectFinalizer, type EffectHandler } from './effect-queue.js';
+import { blockForIntegrity, worktreeRef } from './integrity.js';
 import { blockTask, requestFix } from './outcomes.js';
 import { saveRun, saveTask, saveWorkspace } from './records.js';
 
@@ -29,7 +36,7 @@ function list(files: readonly string[], max = 30): string {
  */
 async function outOfBounds(
   git: GitPort,
-  worktreePath: string,
+  ref: WorktreeRef,
   files: readonly string[],
   task: Task,
   ignoreCase: boolean,
@@ -38,7 +45,7 @@ async function outOfBounds(
   const out = filesOutside(files, task.owned_paths, opts);
   const owned = files.filter((f) => !out.includes(f));
   if (owned.length === 0) return out;
-  const resolved = await git.resolvePaths({ worktreePath, files: owned });
+  const resolved = await git.resolvePaths({ worktreePath: ref.worktreePath, files: owned });
   for (const file of owned) {
     if (!(file in resolved)) continue; // deleted
     const target = resolved[file];
@@ -61,106 +68,15 @@ async function outOfBounds(
  */
 export const verifyHandler: EffectHandler = {
   async run(ctx, effect) {
-    const { run_id: runId } = effectPayload(effect, 'run.verify');
-    const run = ctx.store.runs.get(runId);
-    const task = run ? ctx.store.tasks.get(run.task_id) : undefined;
-    if (!run || !task || run.state !== 'succeeded' || run.outcome !== null) return undefined;
-    if (task.status !== 'verifying' || task.current_run_id !== run.id) return undefined;
-    const project = ctx.store.projects.get(task.project_id);
-    const ws = ctx.store.workspaces.get(run.workspace_id);
-    if (!project || !ws) {
-      return (tx) => rejectRun(ctx, tx, runId, 'workspace_missing', '找不到任務的 worktree 紀錄。');
+    try {
+      return await verifyRun(ctx, effect);
+    } catch (err) {
+      // a tampered worktree (docs/adr/0018): no fix run, no retry — a human decides
+      if (!isWorktreeIntegrityError(err)) throw err;
+      const { run_id: runId } = effectPayload(effect, 'run.verify');
+      const run = ctx.store.runs.get(runId);
+      return run ? (tx) => blockForIntegrity(ctx, tx, run.task_id, err, runId) : undefined;
     }
-    const { git, checks } = ctx.deps;
-    const signal = ctx.shutdownController.signal;
-    const ignoreCase = await projectIgnoresCase(ctx, project);
-
-    // step 3: there are changes, and all of them are owned
-    const all = await git.changedFiles({ worktreePath: ws.path, sinceSha: ws.base_sha });
-    const fresh =
-      ws.head_sha === null
-        ? all
-        : await git.changedFiles({ worktreePath: ws.path, sinceSha: ws.head_sha });
-    // a fix run may leave the committed head as it is (e.g. the person answered that a review
-    // finding needs no change): it is checked again and goes back to review without a new commit
-    const keepsHead = run.kind === 'fix' && ws.head_sha !== null && all.length > 0;
-    if (fresh.length === 0 && !keepsHead) {
-      return (tx) =>
-        rejectRun(ctx, tx, runId, 'no_changes', 'worktree 沒有任何變更；請實際完成派工單的修改。');
-    }
-    const outside = await outOfBounds(git, ws.path, all, task, ignoreCase);
-    if (outside.length > 0) {
-      return (tx) =>
-        rejectRun(
-          ctx,
-          tx,
-          runId,
-          `out_of_bounds: ${outside.slice(0, 10).join(', ')}`,
-          `下列檔案不在 owned_paths 內，請還原它們的變更：${list(outside)}`,
-        );
-    }
-
-    // step 4: machine checks, one by one (full output goes to the run's log dir)
-    const results: CheckSummary[] = [];
-    for (const [i, check] of project.checks.entries()) {
-      const outcome = await checks.run({
-        cwd: ws.path,
-        name: check.name,
-        cmd: check.cmd,
-        logPath: joinPosix(
-          run.log_dir,
-          RUN_LOG_FILES.checksDir,
-          `${i + 1}-${slug(check.name)}.log`,
-        ),
-        timeoutMs: ctx.config.engine.check_timeout_ms,
-        signal,
-        repoPath: project.repo_path,
-      });
-      if (signal.aborted) throw new Error('verification aborted: service shutdown');
-      results.push({
-        name: check.name,
-        passed: outcome.passed,
-        tail: lastLines(outcome.tail, CHECK_TAIL_LINES),
-      });
-    }
-    const failed = results.filter((r) => !r.passed);
-    if (failed.length > 0) {
-      const notes = [
-        '機器檢查未通過：',
-        ...failed.map((r) => `### ${r.name}：fail\n\n\`\`\`\n${r.tail}\n\`\`\``),
-      ].join('\n\n');
-      return (tx) =>
-        rejectRun(
-          ctx,
-          tx,
-          runId,
-          `checks_failed: ${failed.map((r) => r.name).join(', ')}`,
-          notes,
-          results,
-        );
-    }
-
-    // step 5: the list again, right before committing (checks run worker-authored code)
-    if (signal.aborted) throw new Error('verification aborted: service shutdown');
-    const after = await git.changedFiles({ worktreePath: ws.path, sinceSha: ws.base_sha });
-    const added = after.filter((f) => !all.includes(f));
-    const nowOutside = await outOfBounds(git, ws.path, after, task, ignoreCase);
-    const unexpected = [...new Set([...added, ...nowOutside])];
-    if (unexpected.length > 0) {
-      return (tx) =>
-        rejectRun(
-          ctx,
-          tx,
-          runId,
-          `changed_during_checks: ${unexpected.slice(0, 10).join(', ')}`,
-          `機器檢查執行後多出（或越界）的檔案，未提交任何東西：${list(unexpected)}。檢查不得寫入受版控的檔案；請找出是哪個檢查或測試產生它們並修正。`,
-          results,
-        );
-    }
-    // service-side commit of exactly the verified files
-    const message = commitMessage(task.id, task.title);
-    const commit = await git.commitFiles({ worktreePath: ws.path, message, files: all });
-    return acceptRun(runId, ws.id, { ...commit, message }, results);
   },
 
   onDead(ctx, tx, effect, error) {
@@ -174,6 +90,133 @@ export const verifyHandler: EffectHandler = {
     }
   },
 };
+
+async function verifyRun(
+  ctx: EngineContext,
+  effect: EffectRecord,
+): Promise<EffectFinalizer | undefined> {
+  const { run_id: runId } = effectPayload(effect, 'run.verify');
+  const run = ctx.store.runs.get(runId);
+  const task = run ? ctx.store.tasks.get(run.task_id) : undefined;
+  if (!run || !task || run.state !== 'succeeded' || run.outcome !== null) return undefined;
+  if (task.status !== 'verifying' || task.current_run_id !== run.id) return undefined;
+  const project = ctx.store.projects.get(task.project_id);
+  const ws = ctx.store.workspaces.get(run.workspace_id);
+  if (!project || !ws) {
+    return (tx) => rejectRun(ctx, tx, runId, 'workspace_missing', '找不到任務的 worktree 紀錄。');
+  }
+  const { git, checks } = ctx.deps;
+  const signal = ctx.shutdownController.signal;
+  const ignoreCase = await projectIgnoresCase(ctx, project);
+  const ref = worktreeRef(project, ws);
+
+  // step 3: there are changes, and all of them are owned
+  const all = await git.changedFiles({ ...ref, sinceSha: ws.base_sha });
+  const fresh =
+    ws.head_sha === null ? all : await git.changedFiles({ ...ref, sinceSha: ws.head_sha });
+  // a fix run may leave the committed head as it is (e.g. the person answered that a review
+  // finding needs no change): it is checked again and goes back to review without a new commit
+  const keepsHead = run.kind === 'fix' && ws.head_sha !== null && all.length > 0;
+  if (fresh.length === 0 && !keepsHead) {
+    return (tx) =>
+      rejectRun(ctx, tx, runId, 'no_changes', 'worktree 沒有任何變更；請實際完成派工單的修改。');
+  }
+  const outside = await outOfBounds(git, ref, all, task, ignoreCase);
+  if (outside.length > 0) {
+    return (tx) =>
+      rejectRun(
+        ctx,
+        tx,
+        runId,
+        `out_of_bounds: ${outside.slice(0, 10).join(', ')}`,
+        `下列檔案不在 owned_paths 內，請還原它們的變更：${list(outside)}`,
+      );
+  }
+
+  // step 4: machine checks, one by one (full output goes to the run's log dir)
+  const results: CheckSummary[] = [];
+  for (const [i, check] of project.checks.entries()) {
+    const outcome = await checks.run({
+      cwd: ws.path,
+      name: check.name,
+      cmd: check.cmd,
+      logPath: joinPosix(run.log_dir, RUN_LOG_FILES.checksDir, `${i + 1}-${slug(check.name)}.log`),
+      timeoutMs: ctx.config.engine.check_timeout_ms,
+      signal,
+      repoPath: project.repo_path,
+    });
+    if (signal.aborted) throw new Error('verification aborted: service shutdown');
+    if (outcome.refused !== undefined) {
+      // not a worker problem (no sandbox for checks here; docs/adr/0019): no fix run
+      const why = outcome.refused;
+      return (tx) => refuseChecks(ctx, tx, runId, check.name, why);
+    }
+    results.push({
+      name: check.name,
+      passed: outcome.passed,
+      tail: lastLines(outcome.tail, CHECK_TAIL_LINES),
+    });
+  }
+  const failed = results.filter((r) => !r.passed);
+  if (failed.length > 0) {
+    const notes = [
+      '機器檢查未通過：',
+      ...failed.map((r) => `### ${r.name}：fail\n\n\`\`\`\n${r.tail}\n\`\`\``),
+    ].join('\n\n');
+    return (tx) =>
+      rejectRun(
+        ctx,
+        tx,
+        runId,
+        `checks_failed: ${failed.map((r) => r.name).join(', ')}`,
+        notes,
+        results,
+      );
+  }
+
+  // step 5: the list again, right before committing (checks run worker-authored code)
+  if (signal.aborted) throw new Error('verification aborted: service shutdown');
+  const after = await git.changedFiles({ ...ref, sinceSha: ws.base_sha });
+  const added = after.filter((f) => !all.includes(f));
+  const nowOutside = await outOfBounds(git, ref, after, task, ignoreCase);
+  const unexpected = [...new Set([...added, ...nowOutside])];
+  if (unexpected.length > 0) {
+    return (tx) =>
+      rejectRun(
+        ctx,
+        tx,
+        runId,
+        `changed_during_checks: ${unexpected.slice(0, 10).join(', ')}`,
+        `機器檢查執行後多出（或越界）的檔案，未提交任何東西：${list(unexpected)}。檢查不得寫入受版控的檔案；請找出是哪個檢查或測試產生它們並修正。`,
+        results,
+      );
+  }
+  // service-side commit of exactly the verified files
+  const message = commitMessage(task.id, task.title);
+  const commit = await git.commitFiles({
+    ...ref,
+    baseBranch: project.base_branch,
+    message,
+    files: all,
+  });
+  return acceptRun(runId, ws.id, { ...commit, message }, results);
+}
+
+/** The checks could not be run sandboxed: reject without a fix run and block for a human. */
+function refuseChecks(ctx: EngineContext, tx: Tx, runId: string, name: string, why: string): void {
+  const run = tx.r.runs.get(runId);
+  if (!run || run.outcome !== null) return;
+  const reason = `checks_unsandboxed: ${name}`;
+  saveRun(tx, run, { outcome: 'rejected', reject_reason: reason });
+  tx.emit(
+    'run.verified',
+    { outcome: 'rejected', reject_reason: reason, checks: [{ name, passed: false }] },
+    { task_id: run.task_id, run_id: run.id },
+  );
+  const task = tx.r.tasks.get(run.task_id);
+  if (!task || task.status !== 'verifying' || task.current_run_id !== run.id) return;
+  blockTask(ctx, tx, task, `機器檢查沒有執行：${why}`);
+}
 
 function checksOf(results: CheckSummary[]) {
   return results.map(({ name, passed }) => ({ name, passed }));

@@ -163,6 +163,7 @@ export function entityContract(store: () => Store): void {
         receipt,
         usage: { input_tokens: 3 },
         cost_usd: 0.5,
+        cost_estimated: true,
         outcome: 'ok' as const,
       };
       expect(s.runs.update(updated)).toBe(true);

@@ -159,6 +159,7 @@
                 ]
               },
               "cost_usd": { "type": ["number", "null"], "minimum": 0 },
+              "cost_estimated": { "type": "boolean" },
               "usage": {
                 "type": ["object", "null"],
                 "properties": {
@@ -180,10 +181,32 @@
               "runner",
               "state",
               "cost_usd",
+              "cost_estimated",
               "usage",
               "started_at",
               "ended_at"
             ]
+          },
+          "waiting": {
+            "type": ["object", "null"],
+            "properties": {
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "path_overlap",
+                  "no_slot",
+                  "runner_cooldown",
+                  "backoff",
+                  "worker_alive",
+                  "base_drift"
+                ]
+              },
+              "detail": { "type": ["string", "null"] },
+              "blocking_task_id": { "type": ["string", "null"], "pattern": "^t_[0-9a-z]{1,32}$" },
+              "retry_at": { "type": ["string", "null"], "format": "date-time" },
+              "since": { "type": "string", "format": "date-time" }
+            },
+            "required": ["reason", "detail", "blocking_task_id", "retry_at", "since"]
           },
           "head_sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{4,64}$" },
           "run_totals": {
@@ -191,6 +214,7 @@
             "properties": {
               "runs": { "type": "integer", "minimum": 0 },
               "cost_usd": { "type": ["number", "null"], "minimum": 0 },
+              "cost_estimated": { "type": "boolean" },
               "usage": {
                 "type": "object",
                 "properties": {
@@ -203,7 +227,7 @@
               },
               "finished_ms": { "type": "integer", "minimum": 0 }
             },
-            "required": ["runs", "cost_usd", "usage", "finished_ms"]
+            "required": ["runs", "cost_usd", "cost_estimated", "usage", "finished_ms"]
           }
         },
         "required": [
@@ -229,6 +253,7 @@
           "created_at",
           "updated_at",
           "latest_run",
+          "waiting",
           "head_sha",
           "run_totals"
         ]
@@ -362,6 +387,7 @@
             }
           },
           "cost_usd": { "type": ["number", "null"], "minimum": 0 },
+          "cost_estimated": { "type": "boolean" },
           "log_dir": { "type": "string", "minLength": 1 },
           "pid": { "type": ["integer", "null"], "exclusiveMinimum": 0 },
           "pid_started_at": { "type": ["string", "null"] },
@@ -387,6 +413,7 @@
           "receipt",
           "usage",
           "cost_usd",
+          "cost_estimated",
           "log_dir",
           "pid",
           "pid_started_at",

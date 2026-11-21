@@ -26,9 +26,11 @@ const runStop: EffectHandler = {
 const workspaceRemove: EffectHandler = {
   async run(ctx, effect) {
     const p = effectPayload(effect, 'workspace.remove');
+    const known = p.workspace_id ? ctx.store.workspaces.get(p.workspace_id) : undefined;
     const res = await ctx.deps.git.removeWorktree({
       repoPath: p.repo_path,
       worktreePath: p.path,
+      ...(known ? { branch: known.branch } : {}),
       force: p.reason === 'orphan' && p.workspace_id === null,
     });
     if (!res.removed) {
@@ -44,7 +46,10 @@ const workspaceRemove: EffectHandler = {
         openAttention(ctx, tx, {
           task_id: ws.task_id,
           kind: 'decision',
-          question: `任務 ${ws.task_id} 的 worktree ${p.path} 有 ${res.changes} 個未提交的變更，已保留不刪除；請檢查後手動處理（保留或捨棄）。`,
+          question:
+            res.reason === 'tampered'
+              ? `任務 ${ws.task_id} 的 worktree ${p.path} 沒有通過身分檢查（${res.detail}），已保留不刪除、也沒有在其中執行 git；請檢查後手動處理（docs/adr/0018）。`
+              : `任務 ${ws.task_id} 的 worktree ${p.path} 有 ${res.changes} 個未提交的變更，已保留不刪除；請檢查後手動處理（保留或捨棄）。`,
           options: ['保留', '已手動處理'],
         });
       };
@@ -167,6 +172,15 @@ export class EffectExecutor {
         finalize?.(tx);
       });
     } catch (err) {
+      // a shutdown aborted it (e.g. a running check): not a failure — the row stays exactly as
+      // it was and runs again on the next start, without spending one of its attempts
+      if (this.ctx.stopping) {
+        this.ctx.logger.info('effect interrupted by shutdown; kept for the next start', {
+          kind: effect.kind,
+          key: effect.key,
+        });
+        return;
+      }
       this.fail(effect, handler, errorMessage(err));
     }
   }

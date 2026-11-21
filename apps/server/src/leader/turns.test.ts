@@ -63,6 +63,8 @@ describe('§9 leader turns (fake claude)', () => {
       '--mcp-config',
       '{"mcpServers":{}}',
       '--restricted',
+      '--settings',
+      expect.stringContaining('"sandbox":{"enabled":true'),
       '--tools',
       'Bash',
       '--allowedTools',
@@ -84,6 +86,26 @@ describe('§9 leader turns (fake claude)', () => {
       args(['--resume', sid]),
     ]);
     for (const t of turns) {
+      // Bash in Claude Code's sandbox: DATA closed except the shim's needs, one unix socket
+      const settings = JSON.parse(t.argv[t.argv.indexOf('--settings') + 1]!) as {
+        sandbox: {
+          filesystem: { denyRead: string[]; allowRead: string[] };
+          network: { allowUnixSockets: string[]; allowLocalBinding: boolean; allowedDomains: [] };
+        };
+      };
+      const data = h.dataDir;
+      expect(settings.sandbox.filesystem.denyRead).toContain(data);
+      expect(settings.sandbox.filesystem.allowRead).toContain(
+        join(data, 'leader', 'listener.json'),
+      );
+      expect(settings.sandbox.filesystem.allowRead).not.toContain(
+        join(data, 'run', 'listener.json'),
+      );
+      expect(settings.sandbox.network).toMatchObject({
+        allowedDomains: [],
+        allowLocalBinding: false,
+        allowUnixSockets: [join(data, 'leader', 'api.sock')],
+      });
       expect(t.argv.join(' ')).not.toMatch(/dangerously|bypassPermissions/);
       expect(t.stdinClosed).toBe(true);
       // allow-listed environment only: no tokens, passwords or keys, no enclosing agent session

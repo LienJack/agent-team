@@ -1,4 +1,4 @@
-import type { Engine, Store, Tx } from '@agent-team/core';
+import { TeamError, type Engine, type Store, type Tx } from '@agent-team/core';
 import type { Message, MessageChannel, MessageSource } from '@agent-team/schema';
 
 // Leader messages in the database (spec §9 回覆持久化): every reply is an outgoing message that
@@ -9,6 +9,40 @@ export const replyKey = (inboundId: string) => `reply:${inboundId}`;
 
 export function findReply(store: Pick<Store, 'messages'>, inbound: Message): Message | undefined {
   return store.messages.findByClientMsgId(inbound.channel, replyKey(inbound.id));
+}
+
+/**
+ * The stored reply of `inbound` (as the API returns it), undefined while none exists, or a
+ * conflict for a duplicate input that was handled without one (and is not queued any more).
+ */
+export function storedAnswer(
+  store: Pick<Store, 'messages'>,
+  inbound: Message,
+  info: { duplicate: boolean; inflight: boolean },
+): { reply: string; reply_message_id: string } | undefined {
+  const stored = findReply(store, inbound);
+  if (stored) return { reply: stored.body, reply_message_id: stored.id };
+  if (!info.inflight && info.duplicate && inbound.status !== 'new') {
+    throw new TeamError(
+      'conflict',
+      `message ${inbound.id} was already handled without a reply`,
+      'send it again with a new client_msg_id',
+    );
+  }
+  return undefined;
+}
+
+/** Stored human inputs that never got an answer (restart, rate limit): queued again. */
+export function unansweredMessages(store: Pick<Store, 'messages'>): Message[] {
+  return store.messages
+    .list()
+    .filter(
+      (m) =>
+        m.direction === 'in' &&
+        m.status === 'new' &&
+        m.source !== 'service' &&
+        findReply(store, m) === undefined,
+    );
 }
 
 export function insertMessage(

@@ -1,20 +1,35 @@
 import type { EventRecord } from '@agent-team/schema';
 
 /**
- * Engine events waiting for the leader's next digest turn (spec §9 服務端合併後的事件批次): the
- * events of one `event_window_ms` window become one turn. Bounded: the oldest are dropped first.
+ * Engine events waiting for the leader's next digest turn (spec §9 服務端合併後的事件批次).
+ * A digest is due once no relevant event arrived for `windowMs` (a quiet window: tasks finishing
+ * a few seconds apart become ONE digest — validation 2026-11-21 had three digests for three
+ * tasks), but never later than `maxWaitMs` after the oldest buffered event, and at once when
+ * `maxBatch` events are waiting. One digest takes at most `maxBatch` events (the oldest); the
+ * rest are due right after it. Bounded: beyond `max` the oldest are dropped first.
  */
 export class EventBuffer {
   private list: EventRecord[] = [];
-  /** `Date.now()` when the oldest buffered event arrived. */
+  /** When the oldest buffered event arrived. */
   private since: number | undefined;
+  /** When the newest relevant event arrived. */
+  private last: number | undefined;
   /** Highest seq of any committed batch seen (relevant or not). */
   seenSeq = 0;
+  private readonly maxWaitMs: number;
+  private readonly maxBatch: number;
+  private readonly max: number;
+  private readonly now: () => number;
 
   constructor(
     private readonly windowMs: number,
-    private readonly max = 500,
-  ) {}
+    opts: { maxWaitMs?: number; maxBatch?: number; max?: number; now?: () => number } = {},
+  ) {
+    this.maxWaitMs = Math.max(windowMs, opts.maxWaitMs ?? windowMs);
+    this.maxBatch = Math.max(1, opts.maxBatch ?? 30);
+    this.max = opts.max ?? 500;
+    this.now = opts.now ?? Date.now;
+  }
 
   get size(): number {
     return this.list.length;
@@ -24,7 +39,9 @@ export class EventBuffer {
   load(events: readonly EventRecord[], lastSeq: number): void {
     this.seenSeq = lastSeq;
     this.list = events.slice(-this.max);
-    this.since = this.list.length > 0 ? Date.now() : undefined;
+    const at = this.list.length > 0 ? this.now() : undefined;
+    this.since = at;
+    this.last = at;
   }
 
   /** Add the relevant new events of a committed batch; true when anything was added. */
@@ -36,28 +53,44 @@ export class EventBuffer {
       if (!relevant(event)) continue;
       this.list.push(event);
       if (this.list.length > this.max) this.list.shift();
-      this.since ??= Date.now();
       added = true;
+    }
+    if (added) {
+      const at = this.now();
+      this.since ??= at;
+      this.last = at;
     }
     return added;
   }
 
-  /** Milliseconds until the window of the oldest buffered event closes (0 = a digest is due). */
+  /** Milliseconds until the next digest is due (0 = now). */
   waitMs(): number {
-    return Math.max(0, (this.since ?? 0) + this.windowMs - Date.now());
+    if (this.list.length === 0) return 0;
+    if (this.list.length >= this.maxBatch) return 0;
+    const now = this.now();
+    const quiet = (this.last ?? now) + this.windowMs;
+    const cap = (this.since ?? now) + this.maxWaitMs;
+    return Math.max(0, Math.min(quiet, cap) - now);
   }
 
-  /** Everything buffered, for one digest turn. */
+  /** The oldest `maxBatch` buffered events, for one digest turn; the rest stay due. */
   take(): EventRecord[] {
-    const out = this.list;
-    this.list = [];
-    this.since = undefined;
+    const out = this.list.slice(0, this.maxBatch);
+    this.list = this.list.slice(out.length);
+    if (this.list.length === 0) {
+      this.since = undefined;
+      this.last = undefined;
+    } else {
+      this.since = this.now() - this.maxWaitMs; // they have waited already: due right away
+    }
     return out;
   }
 
   /** A digest whose turn did not run goes back in front, due at once. */
   putBack(events: readonly EventRecord[]): void {
     this.list = [...events, ...this.list];
-    this.since = Date.now() - this.windowMs;
+    const at = this.now();
+    this.since = at - this.maxWaitMs;
+    this.last ??= at;
   }
 }

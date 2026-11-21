@@ -47,6 +47,27 @@ export const ServiceConfigSchema = z.strictObject({
       summary_max_chars: z.number().int().positive().default(500),
     })
     .prefault({}),
+  /** Machine checks (spec §6 step 4; docs/adr/0019). */
+  checks: z
+    .strictObject({
+      /**
+       * Run checks without a sandbox where `sandbox-exec` is missing (Linux until bubblewrap
+       * support exists). Default false: such a check is not run and the task is blocked.
+       */
+      allow_unsandboxed: z.boolean().default(false),
+    })
+    .prefault({}),
+  /** Worker runner settings (docs/adr/0019). */
+  runners: z
+    .strictObject({
+      dsh: z
+        .strictObject({
+          /** Run dsh without Seatbelt where it is missing. Default false: dsh is unavailable. */
+          allow_unsandboxed: z.boolean().default(false),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
   /** Service-side commits (spec §6 step 5). */
   git: z
     .strictObject({
@@ -107,8 +128,16 @@ export const ServiceConfigSchema = z.strictObject({
       enabled: z.boolean().default(true),
       /** Send `/compact` above this many context tokens (spec §9). */
       compact_threshold_tokens: z.number().int().positive().default(60000),
-      /** Engine events arriving within this window are handed to the leader as one digest. */
-      event_window_ms: ms.default(3000),
+      /**
+       * Quiet window of the leader's event digest: it is due once no relevant event arrived for
+       * this long, so tasks finishing a few seconds apart become one turn (validation
+       * 2026-11-21: 3 s gave three digests for three tasks).
+       */
+      event_window_ms: ms.default(15000),
+      /** A digest is never later than this after its oldest event. */
+      event_max_wait_ms: ms.default(60000),
+      /** Events per digest turn (more wait for the next one; a full batch is due at once). */
+      digest_max_events: z.number().int().positive().default(30),
       /** One leader turn (one `claude -p` process) is killed after this long. */
       turn_timeout_ms: ms.default(600000),
       /**

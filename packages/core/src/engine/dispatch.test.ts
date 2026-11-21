@@ -114,7 +114,12 @@ describe('§14 四種派工結果 — four dispatch outcomes', () => {
     const report = await h.engine.tick();
     expect(report.dispatched.map((d) => d.outcome)).toEqual(['accepted', 'accepted', 'accepted']);
     expect(report.deferred).toEqual([
-      { task_id: tasks[3]!.id, reason: 'role_slots', retry_at: null },
+      {
+        task_id: tasks[3]!.id,
+        reason: 'role_slots',
+        retry_at: null,
+        detail: 'impl_C: 3 slot(s) in use',
+      },
     ]);
     expect(h.store.runs.list({ task_id: tasks[3]!.id })).toEqual([]);
     expect(h.get(tasks[3]!.id)).toMatchObject({ status: 'queued', attempts: 0, version: 1 });
@@ -134,7 +139,12 @@ describe('§14 四種派工結果 — four dispatch outcomes', () => {
     // impl_C uses only dsh models in the test config, so the task waits
     const report = await h.engine.tick();
     expect(report.deferred).toEqual([
-      { task_id: task.id, reason: 'no_model', retry_at: '2026-11-21T00:15:00.000Z' },
+      {
+        task_id: task.id,
+        reason: 'no_model',
+        retry_at: '2026-11-21T00:15:00.000Z',
+        detail: 'no usable model for impl_C',
+      },
     ]);
     expect(h.get(task.id)).toMatchObject({ status: 'queued', attempts: 0 });
   });

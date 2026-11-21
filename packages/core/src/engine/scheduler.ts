@@ -59,9 +59,19 @@ export type DeferReason =
   | 'backoff'
   | 'worker_alive';
 
+export interface Deferred {
+  task_id: string;
+  reason: DeferReason;
+  retry_at: string | null;
+  /** The path-holding task it may overlap (`path_overlap`; '' = one being dispatched). */
+  blocking_task_id?: string;
+  /** The full role (`role_slots`) or why no model resolved (`no_model`). */
+  detail?: string;
+}
+
 export interface PlanResult {
   dispatch: PlannedDispatch[];
-  deferred: Array<{ task_id: string; reason: DeferReason; retry_at: string | null }>;
+  deferred: Deferred[];
   /** Tasks whose role cannot be resolved at all (unknown/disabled role): to be blocked. */
   invalid: Array<{ task: Task; reason: string }>;
 }
@@ -109,8 +119,11 @@ export function planDispatch(input: PlanInput): PlanResult {
 
   for (const task of waiting) {
     const kind = nextRunKind(task)!;
-    const defer = (reason: DeferReason, retryAt: string | null = null) =>
-      result.deferred.push({ task_id: task.id, reason, retry_at: retryAt });
+    const defer = (
+      reason: DeferReason,
+      retryAt: string | null = null,
+      extra: Pick<Deferred, 'blocking_task_id' | 'detail'> = {},
+    ) => result.deferred.push({ task_id: task.id, reason, retry_at: retryAt, ...extra });
     if (isAfter(task.retry_at, now)) {
       defer('backoff', task.retry_at);
       continue;
@@ -134,11 +147,13 @@ export function planDispatch(input: PlanInput): PlanResult {
       continue;
     }
     if ((roleCount.get(role) ?? 0) >= roleCfg.slots) {
-      defer('role_slots');
+      defer('role_slots', null, { detail: `${role}: ${roleCfg.slots} slot(s) in use` });
       continue;
     }
-    if (kind !== 'review' && held.some((h) => h.id !== task.id && overlaps(h, task))) {
-      defer('path_overlap');
+    const blocker =
+      kind === 'review' ? undefined : held.find((h) => h.id !== task.id && overlaps(h, task));
+    if (blocker) {
+      defer('path_overlap', null, { blocking_task_id: blocker.id });
       continue;
     }
     const exclude =
@@ -147,8 +162,9 @@ export function planDispatch(input: PlanInput): PlanResult {
         : [];
     const resolved = input.resolve(role, exclude);
     if (!resolved.ok) {
-      if (resolved.reason === 'no_candidate') defer('no_model', resolved.retryAt);
-      else result.invalid.push({ task, reason: `${resolved.reason} ${role}` });
+      if (resolved.reason === 'no_candidate') {
+        defer('no_model', resolved.retryAt, { detail: `no usable model for ${role}` });
+      } else result.invalid.push({ task, reason: `${resolved.reason} ${role}` });
       continue;
     }
     result.dispatch.push({ task, kind, role, human, resolved });

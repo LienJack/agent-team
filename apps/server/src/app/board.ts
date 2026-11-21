@@ -30,11 +30,15 @@ export function cardFields(
 ): Pick<BoardTask, 'latest_run' | 'head_sha' | 'run_totals'> {
   let latest: Run | undefined;
   let cost: number | null = null;
+  let estimated = false;
   let finished = 0;
   const usage: Usage = {};
   for (const run of runs) {
     if (!latest || run.started_at >= latest.started_at) latest = run;
-    if (run.cost_usd !== null) cost = (cost ?? 0) + run.cost_usd;
+    if (run.cost_usd !== null) {
+      cost = (cost ?? 0) + run.cost_usd;
+      estimated ||= run.cost_estimated;
+    }
     addUsage(usage, run.usage);
     if (run.ended_at !== null) {
       finished += Math.max(0, Date.parse(run.ended_at) - Date.parse(run.started_at));
@@ -51,17 +55,27 @@ export function cardFields(
           runner: shown.runner,
           state: shown.state,
           cost_usd: shown.cost_usd,
+          cost_estimated: shown.cost_estimated,
           usage: shown.usage,
           started_at: shown.started_at,
           ended_at: shown.ended_at,
         }
       : null,
     head_sha: workspace?.head_sha ?? null,
-    run_totals: { runs: runs.length, cost_usd: cost, usage, finished_ms: finished },
+    run_totals: {
+      runs: runs.length,
+      cost_usd: cost,
+      cost_estimated: estimated,
+      usage,
+      finished_ms: finished,
+    },
   };
 }
 
-function boardTasks(store: Store): BoardTask[] {
+function boardTasks(
+  store: Store,
+  waitingOf: (taskId: string) => BoardTask['waiting'],
+): BoardTask[] {
   const runsByTask = new Map<string, Run[]>();
   for (const run of store.runs.list()) {
     const list = runsByTask.get(run.task_id);
@@ -71,6 +85,8 @@ function boardTasks(store: Store): BoardTask[] {
   return store.tasks.list().map((task) => ({
     ...task,
     ...cardFields(task, runsByTask.get(task.id) ?? [], store.workspaces.findCurrentByTask(task.id)),
+    // why a waiting task is not dispatched (the engine's last scheduling pass; task.waiting)
+    waiting: task.status === 'queued' || task.status === 'review' ? waitingOf(task.id) : null,
   }));
 }
 
@@ -81,7 +97,7 @@ export function boardSnapshot(ctx: AppContext): StateResponse {
     last_seq: store.events.lastSeq(),
     generated_at: ctx.clock.now().toISOString(),
     projects: store.projects.list(),
-    tasks: boardTasks(store),
+    tasks: boardTasks(store, (id) => ctx.engine.waitingOf(id)),
     active_runs: store.runs.list({ states: ['starting', 'running'] }),
     open_attention: store.attention.list({ statuses: ['open'] }),
     runners: ctx.engine.runnerStatuses(),

@@ -88,6 +88,14 @@ export const ENV_VARS = [
       '`team` 改讀這個 listener 檔（預設 DATA/run/listener.json）；leader 的 shim 指向 DATA/leader/listener.json（leader 權杖，身分由伺服器依權杖判定）',
   },
   {
+    name: 'AGENT_TEAM_IDEMPOTENCY_SEED',
+    source: 'process',
+    secret: false,
+    required: false,
+    description:
+      '`team task add` 以「種子 + 內容雜湊」當 Idempotency-Key（leader 的 shim 由 DATA/leader/turn-key 帶入目前 turn 的訊息 id），同一則訊息重放時不重複建立相同任務',
+  },
+  {
     name: 'AGENT_TEAM_SERVER_ENTRY',
     source: 'process',
     secret: false,

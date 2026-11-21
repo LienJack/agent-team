@@ -5,7 +5,7 @@ import { createTestEngine } from '@agent-team/core/testing';
 import type { RunStartedInfo } from '@agent-team/schema';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ClaudeRunner } from './claude/runner.js';
-import { CODEX_EXEC_FLAGS, CodexRunner } from './codex/runner.js';
+import { CODEX_EXEC_FLAGS, CODEX_ISOLATION_FLAGS, CodexRunner } from './codex/runner.js';
 import { DshRunner } from './dsh/runner.js';
 import { fixtureLines, fixtureText, makeSpec, tempDir } from './test-support.js';
 import {
@@ -49,7 +49,9 @@ const KINDS: Kind[] = [
       { argv: ['--version'], stdout: 'codex-cli 0.171.0' },
       {
         argv: ['exec', '--help'],
-        stdout: [...CODEX_EXEC_FLAGS, '--json'].map((f) => `  ${f} <x>`).join('\n'),
+        stdout: [...CODEX_EXEC_FLAGS, ...CODEX_ISOLATION_FLAGS, '--json']
+          .map((f) => `  ${f} <x>`)
+          .join('\n'),
       },
       { argv: ['login', 'status'], stdout: 'Logged in using ChatGPT' },
     ],
@@ -68,7 +70,7 @@ const KINDS: Kind[] = [
       },
     ],
     first: fixtureLines(fixtures('dsh'), 'success.jsonl')[0]!,
-    make: (command) => new DshRunner({ env: () => KEY, command }),
+    make: (command) => new DshRunner({ env: () => KEY, command, allowUnsandboxed: true }),
     model: 'deepseek/deepseek-v4.1-flash',
   },
 ];

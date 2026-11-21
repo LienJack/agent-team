@@ -1,5 +1,13 @@
 import { execFile } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -45,6 +53,28 @@ describe('§9 leader team shim', () => {
     expect(readFileSync(record, 'utf8').trim()).toBe(
       `${join(dir, "da'ta", 'leader', 'listener.json')}|${join(dir, "da'ta")}|/repo/apps/cli/dist/bin.js task list --status queued`,
     );
+  });
+
+  it('passes the current turn seed (DATA/leader/turn-key) and drops proxy settings', async () => {
+    const node = join(dir, 'node');
+    writeFileSync(
+      node,
+      `#!/bin/sh\necho "$AGENT_TEAM_IDEMPOTENCY_SEED|$HTTPS_PROXY" > '${record}'\n`,
+    );
+    chmodSync(node, 0o755);
+    expect((await run('task', 'list')).code).toBe(0);
+    expect(readFileSync(record, 'utf8').trim()).toBe('|'); // no turn running: no seed
+    mkdirSync(join(dir, "da'ta", 'leader'), { recursive: true });
+    writeFileSync(join(dir, "da'ta", 'leader', 'turn-key'), 'leader:msg:m_abc\n');
+    await new Promise<void>((done) =>
+      execFile(
+        shim,
+        ['task', 'list'],
+        { env: { PATH: '/usr/bin:/bin', HTTPS_PROXY: 'http://u:p@proxy:1' } },
+        () => done(),
+      ),
+    );
+    expect(readFileSync(record, 'utf8').trim()).toBe('leader:msg:m_abc|');
   });
 
   it('refuses --ticket-file (a local file read) without starting node', async () => {

@@ -26,10 +26,17 @@ export function taskLine(t: Task): string {
   return `${t.id} [${t.status}] ${t.tier} ${t.impl_role} ${clip(t.title, 70)}`;
 }
 
+/** ` $0.0670` reported by the runner, ` ~$0.0012 (estimated)` from usage × models.json price. */
+export function costText(usd: number | null, estimated: boolean): string {
+  if (usd === null) return '';
+  return estimated ? ` ~$${usd.toFixed(4)} (estimated)` : ` $${usd.toFixed(4)}`;
+}
+
 export function runLine(r: Run): string {
   const outcome = r.outcome ? ` ${r.outcome}` : '';
   const reason = r.reject_reason ? ` (${clip(r.reject_reason, 60)})` : '';
-  return `${r.id} ${r.kind} ${r.role} ${r.model_alias} ${r.state}${outcome}${reason}`;
+  const cost = costText(r.cost_usd, r.cost_estimated);
+  return `${r.id} ${r.kind} ${r.role} ${r.model_alias} ${r.state}${outcome}${reason}${cost}`;
 }
 
 export function attentionLine(a: Attention): string {

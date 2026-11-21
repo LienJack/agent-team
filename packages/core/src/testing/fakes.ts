@@ -133,6 +133,7 @@ export class FakeCheckExecutor implements CheckExecutor {
       exitCode: partial.exitCode ?? (passed ? 0 : 1),
       tail: partial.tail ?? (passed ? 'ok' : 'failed'),
       durationMs: partial.durationMs ?? 1,
+      ...(partial.refused === undefined ? {} : { refused: partial.refused }),
     };
   }
 }

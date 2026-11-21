@@ -1,4 +1,5 @@
-import { mkdir } from 'node:fs/promises';
+import { chmod, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   Engine,
   errorMessage,
@@ -11,6 +12,7 @@ import {
   type RunnerRegistry,
   type Store,
 } from '@agent-team/core';
+import { DATA_LAYOUT } from '@agent-team/schema';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import type { Context } from 'hono';
 import { createApp } from './app/app.js';
@@ -29,6 +31,7 @@ import type { Leader, LeaderRuntime } from './leader/types.js';
 import {
   boardUrls,
   listen,
+  listenUnix,
   removeListenerFile,
   writeListenerFile,
   type Listening,
@@ -174,6 +177,7 @@ export function createService(deps: ServiceDeps): Service {
   };
 
   let local: Listening | undefined;
+  let leaderSocket: { path: string; close(): Promise<void> } | undefined;
   let lan: Listening | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   let logWatch: RunLogWatcher | undefined;
@@ -191,7 +195,7 @@ export function createService(deps: ServiceDeps): Service {
           .catch((err: unknown) => logger.warn('stop failed', { error: errorMessage(err) }));
       }
       events.closeAll();
-      await Promise.all([local?.close(), lan?.close()]);
+      await Promise.all([local?.close(), lan?.close(), leaderSocket?.close()]);
       const { abandonedRuns } = await engine.shutdown();
       if (abandonedRuns.length > 0) {
         logger.info('stopped live runs (requeued with a recovery note)', {
@@ -211,6 +215,8 @@ export function createService(deps: ServiceDeps): Service {
   async function start(): Promise<RunningService> {
     try {
       await mkdir(dataDir, { recursive: true, mode: 0o700 });
+      // an existing DATA keeps its mode otherwise (database, run logs: owner only)
+      await chmod(dataDir, 0o700);
       const report = await engine.recover();
       logger.info('recovery completed', {
         abandoned_runs: report.abandonedRuns.length,
@@ -226,10 +232,21 @@ export function createService(deps: ServiceDeps): Service {
       const localApp = createApp(context, { listener: 'local', token, leaderToken });
       local = await listen(localApp.fetch, service.local.host, service.local.port);
       listenerFile = { path: await writeListenerFile(dataDir, { addr: local.url, token }), token };
+      // the leader's `team` reaches the same app through a unix socket: its sandbox allows
+      // that socket and no TCP (docs/adr/0012); when it cannot be bound the leader is unavailable
+      try {
+        leaderSocket = await listenUnix(localApp.fetch, join(dataDir, DATA_LAYOUT.leaderSocket));
+      } catch (err) {
+        logger.warn('leader socket not available', { error: errorMessage(err) });
+      }
       leaderListenerFile = {
         path: await writeListenerFile(
           dataDir,
-          { addr: local.url, token: leaderToken },
+          {
+            addr: local.url,
+            token: leaderToken,
+            ...(leaderSocket ? { socket: leaderSocket.path } : {}),
+          },
           'leaderListener',
         ),
         token: leaderToken,

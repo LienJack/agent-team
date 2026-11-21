@@ -30,7 +30,7 @@ describe('git review diff (docs/adr/0008)', () => {
     writeFileSync(join(wt.worktreePath, 'b.txt'), 'dirty\n');
 
     const d = await fx.port.reviewDiff({
-      worktreePath: wt.worktreePath,
+      ...wt.ref,
       baseSha: wt.baseSha,
       headSha: c.sha,
       maxChars: 60_000,
@@ -52,7 +52,7 @@ describe('git review diff (docs/adr/0008)', () => {
     writeFileSync(join(wt.worktreePath, 'b.txt'), 'small\n');
     const c = await commitChanges(fx, wt.worktreePath, 'work');
     const d = await fx.port.reviewDiff({
-      worktreePath: wt.worktreePath,
+      ...wt.ref,
       baseSha: wt.baseSha,
       headSha: c.sha,
       maxChars: 1000,

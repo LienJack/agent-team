@@ -34,11 +34,12 @@ import { blockTask } from './outcomes.js';
 import { abandonLiveRuns, recover, sweepWorkspaces, type RecoveryReport } from './recovery.js';
 import { isHalfOpen, resolveRole, type QuotaState } from './resolve-role.js';
 import { runnerStatuses } from './runner-health.js';
-import { planDispatch, PATH_HOLDING_STATUSES, type DeferReason } from './scheduler.js';
+import { planDispatch, PATH_HOLDING_STATUSES, type Deferred } from './scheduler.js';
+import { trackWaiting, type WaitingEntry } from './waiting.js';
 
 export interface TickReport {
   dispatched: DispatchReport[];
-  deferred: Array<{ task_id: string; reason: DeferReason; retry_at: string | null }>;
+  deferred: Deferred[];
   blocked: Array<{ task_id: string; reason: string }>;
   effectsStarted: number;
   cleanupQueued: number;
@@ -76,6 +77,11 @@ export class Engine {
       this.suspended = false;
       this.wake();
     }
+  }
+
+  /** Why a waiting task is not dispatched (board cards; null when not waiting/unknown). */
+  waitingOf(taskId: string): WaitingEntry | null {
+    return this.ctx.waiting.get(taskId)?.shown ?? null;
   }
 
   /** Current per-runner health/availability (the `/quota` view). */
@@ -189,6 +195,7 @@ export class Engine {
         blocked.push({ task_id: planned.task.id, reason: 'base_drift' });
       }
     }
+    trackWaiting(ctx, plan.deferred, blocked);
     const effectsStarted = this.effects.runDue();
     return { dispatched, deferred: plan.deferred, blocked, effectsStarted, cleanupQueued };
   }

@@ -1,4 +1,10 @@
-import type { GitPort, RemoveWorktreeResult, ReviewDiff } from '../ports/git.js';
+import {
+  WorktreeIntegrityError,
+  type GitPort,
+  type RemoveWorktreeResult,
+  type ReviewDiff,
+  type WorktreeRef,
+} from '../ports/git.js';
 
 interface Commit {
   sha: string;
@@ -34,8 +40,29 @@ export class FakeGit implements GitPort {
   readonly symlinks = new Map<string, Map<string, string | null>>();
   /** Repositories on a case-insensitive filesystem. */
   readonly caseInsensitive = new Set<string>();
+  /** worktree path → why it fails the identity check (`tamper()`). */
+  readonly tampered = new Map<string, string>();
   private counter = 0;
   private readonly failures = new Map<Method, number>();
+
+  /** Simulate a worker rewriting the worktree's `.git` (docs/adr/0018). */
+  tamper(worktreePath: string, reason = '.git points at the primary checkout'): this {
+    this.tampered.set(worktreePath, reason);
+    return this;
+  }
+
+  /** The identity check every worktree git operation does first. */
+  private verify(ref: WorktreeRef, baseBranch?: string): void {
+    const why = this.tampered.get(ref.worktreePath);
+    if (why !== undefined) throw new WorktreeIntegrityError(ref.worktreePath, why);
+    const wt = this.worktrees.get(ref.worktreePath);
+    if (wt && (wt.branch !== ref.branch || wt.repoPath !== ref.repoPath)) {
+      throw new WorktreeIntegrityError(ref.worktreePath, `HEAD is ${wt.branch}, not ${ref.branch}`);
+    }
+    if (baseBranch !== undefined && ref.branch === baseBranch) {
+      throw new WorktreeIntegrityError(ref.worktreePath, 'HEAD is on the base branch');
+    }
+  }
 
   private sha(): string {
     this.counter += 1;
@@ -128,6 +155,7 @@ export class FakeGit implements GitPort {
     this.record('ensureWorktree', input);
     const existing = this.worktrees.get(input.worktreePath);
     if (existing) {
+      this.verify(input);
       return { baseSha: existing.baseSha, headSha: this.headOf(existing), created: false };
     }
     const baseSha = this.tipOf(input.repoPath, input.baseBranch);
@@ -144,10 +172,15 @@ export class FakeGit implements GitPort {
   async removeWorktree(input: {
     repoPath: string;
     worktreePath: string;
+    branch?: string;
     force?: boolean;
   }): Promise<RemoveWorktreeResult> {
     this.record('removeWorktree', input);
     const wt = this.worktrees.get(input.worktreePath);
+    const why = this.tampered.get(input.worktreePath);
+    if (wt && why !== undefined && input.force !== true) {
+      return { removed: false, reason: 'tampered', changes: 0, detail: why };
+    }
     if (wt && wt.dirty.size > 0 && input.force !== true) {
       return { removed: false, reason: 'dirty', changes: wt.dirty.size };
     }
@@ -155,21 +188,24 @@ export class FakeGit implements GitPort {
     return { removed: true };
   }
 
-  async resetWorktree(input: { worktreePath: string; toSha: string }): Promise<void> {
+  async resetWorktree(input: WorktreeRef & { toSha: string }): Promise<void> {
     this.record('resetWorktree', input);
+    this.verify(input);
     const wt = this.wt(input.worktreePath);
     if (wt.dirty.size > 0 || wt.commits.length > 0) throw new Error('worktree is not pristine');
     wt.baseSha = input.toSha;
   }
 
-  async status(input: { worktreePath: string }) {
+  async status(input: WorktreeRef) {
     this.record('status', input);
+    this.verify(input);
     const wt = this.wt(input.worktreePath);
     return { headSha: this.headOf(wt), clean: wt.dirty.size === 0 };
   }
 
-  async changedFiles(input: { worktreePath: string; sinceSha: string }): Promise<string[]> {
+  async changedFiles(input: WorktreeRef & { sinceSha: string }): Promise<string[]> {
     this.record('changedFiles', input);
+    this.verify(input);
     const wt = this.wt(input.worktreePath);
     const idx = wt.commits.findIndex((c) => c.sha === input.sinceSha);
     const after = input.sinceSha === wt.baseSha ? wt.commits : wt.commits.slice(idx + 1);
@@ -179,8 +215,11 @@ export class FakeGit implements GitPort {
   }
 
   /** Commits the listed dirty files only; other dirty files stay uncommitted. */
-  async commitFiles(input: { worktreePath: string; message: string; files: readonly string[] }) {
+  async commitFiles(
+    input: WorktreeRef & { baseBranch: string; message: string; files: readonly string[] },
+  ) {
     this.record('commitFiles', input);
+    this.verify(input, input.baseBranch);
     const wt = this.wt(input.worktreePath);
     const files = [...wt.dirty].filter((f) => input.files.includes(f)).sort();
     if (files.length === 0) return { sha: this.headOf(wt), created: false };
@@ -197,6 +236,7 @@ export class FakeGit implements GitPort {
     baseBranch: string;
   }) {
     this.record('rebuildWorktree', input);
+    this.tampered.delete(input.worktreePath); // a rebuild repairs and re-creates it
     const baseSha = this.tipOf(input.repoPath, input.baseBranch);
     this.worktrees.set(input.worktreePath, {
       repoPath: input.repoPath,
@@ -243,13 +283,11 @@ export class FakeGit implements GitPort {
    * One fake section per file committed in `baseSha..headSha` (`diff --git a/f b/f` + one added
    * line), filled whole while it fits in `maxChars`, like the real port.
    */
-  async reviewDiff(input: {
-    worktreePath: string;
-    baseSha: string;
-    headSha: string;
-    maxChars: number;
-  }): Promise<ReviewDiff> {
+  async reviewDiff(
+    input: WorktreeRef & { baseSha: string; headSha: string; maxChars: number },
+  ): Promise<ReviewDiff> {
     this.record('reviewDiff', input);
+    this.verify(input);
     const wt = this.wt(input.worktreePath);
     const from =
       input.baseSha === wt.baseSha ? 0 : wt.commits.findIndex((c) => c.sha === input.baseSha) + 1;

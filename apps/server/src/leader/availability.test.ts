@@ -9,9 +9,7 @@ import {
   turnSteps,
 } from '../testing/fake-claude.js';
 import { local, type Loose, type TestService } from '../testing/harness.js';
-import { LEADER_OPTIONAL_FLAGS, LEADER_REQUIRED_FLAGS, leaderArgs } from './args.js';
 import type { LeaderImpl } from './leader.js';
-import { LEADER_SYSTEM_PROMPT } from './prompt/system-v2.js';
 import { LEADER_SESSION_KEY } from './types.js';
 
 // spec §9 額度與登入: a rate limit or a missing login makes the leader unavailable without
@@ -152,15 +150,11 @@ describe('§9 leader availability (fake claude)', () => {
     await h.service.start();
     await send('一', '1');
     const first = h.store.kv.get(LEADER_SESSION_KEY)!;
-    // resuming the old session fails; the new session's first turn answers
-    const resume = leaderArgs({
-      model: 'claude-sonnet',
-      effort: 'medium',
-      sessionId: first,
-      resume: true,
-      systemPrompt: LEADER_SYSTEM_PROMPT,
-      flags: new Set([...LEADER_REQUIRED_FLAGS, ...LEADER_OPTIONAL_FLAGS]),
-    });
+    // resuming the old session fails; the new session's first turn answers (same argv as the
+    // first turn, with --resume instead of --session-id: the settings JSON is identical)
+    const firstArgv = fake.turns()[0]!.argv;
+    const at = firstArgv.indexOf('--session-id');
+    const resume = [...firstArgv.slice(0, at), '--resume', first, ...firstArgv.slice(at + 2)];
     await fake.set(turnSteps({ text: '新的' }), {
       responses: [
         { argv: resume, stderr: `No conversation found with session ID: ${first}`, exit: 1 },

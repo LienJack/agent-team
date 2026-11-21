@@ -51,8 +51,8 @@ const CODEX_JSON_FLAGS = ['--experimental-json', '--json'] as const;
 /**
  * Isolation from the user's own Codex setup (docs/adr/0011): `--ignore-user-config` skips
  * `$CODEX_HOME/config.toml` (MCP servers, plugins, apps; the ChatGPT login in `CODEX_HOME` still
- * works) and `--ignore-rules` skips execpolicy `.rules`. Passed after `exec` by the group wrapper,
- * only when the probe finds them in `codex exec --help`.
+ * works) and `--ignore-rules` skips execpolicy `.rules`. Passed after `exec` by the group wrapper.
+ * Required: a CLI whose `codex exec --help` lacks either makes the runner unavailable.
  */
 export const CODEX_ISOLATION_FLAGS = ['--ignore-user-config', '--ignore-rules'] as const;
 /** `--config` overrides for every run: no skill catalogue in the prompt (docs/adr/0011). */
@@ -140,12 +140,14 @@ export class CodexRunner implements Runner, Resumable {
     const missing: string[] = CODEX_EXEC_FLAGS.filter((f) => !found.has(f));
     const json = CODEX_JSON_FLAGS.filter((f) => found.has(f));
     if (json.length === 0) missing.push('--json');
-    for (const f of missing) problems.push(`codex exec flag ${f} not supported`);
+    // required (docs/adr/0011): without them the user's config.toml and rules would apply
     this.isolation = CODEX_ISOLATION_FLAGS.filter((flag) => found.has(flag));
     for (const flag of CODEX_ISOLATION_FLAGS.filter((x) => !found.has(x))) {
-      problems.push(
-        `optional codex exec flag ${flag} not supported; the user's config/rules apply`,
-      );
+      missing.push(flag);
+    }
+    for (const f of missing) {
+      const isolation = (CODEX_ISOLATION_FLAGS as readonly string[]).includes(f);
+      problems.push(`${isolation ? 'required ' : ''}codex exec flag ${f} not supported`);
     }
     if (credentials === 'missing') problems.push('codex is not logged in (run `codex login`)');
     this.last = {

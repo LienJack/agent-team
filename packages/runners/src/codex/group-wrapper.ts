@@ -6,8 +6,10 @@
 // runs this script, which:
 //   1. starts the real command (`AGENT_TEAM_REAL_CMD`, a JSON argv prefix) with the SDK's
 //      arguments appended, in a NEW process group (detached), sharing our stdin/stdout/stderr;
-//      `AGENT_TEAM_EXEC_ARGS` (JSON list, e.g. `--ignore-user-config`) is inserted right after
-//      the SDK's leading `exec` subcommand, where codex accepts exec options;
+//      `AGENT_TEAM_EXEC_ARGS` (JSON list, e.g. `--ignore-user-config` and the sandbox profile) is
+//      inserted right after the SDK's leading `exec` subcommand, where codex accepts exec
+//      options — and when that is not possible (no `exec`, a malformed list) codex is not
+//      started at all (exit 126): it would otherwise run without the profile;
 //   2. writes that group id to `AGENT_TEAM_PGID_FILE` so the runner can kill the group itself;
 //   3. on SIGTERM/SIGINT/SIGHUP (the SDK's abort) terminates the whole group: SIGTERM, then
 //      SIGKILL after the grace period;
@@ -31,18 +33,27 @@ function main(): void {
   }
   const argv = cmd as string[];
   const pgidFile = process.env.AGENT_TEAM_PGID_FILE;
-  let extra: unknown;
+  // the exec args carry the sandbox profile and the isolation flags: if they cannot be applied
+  // exactly, codex must not start at all (fail closed; it would run with its defaults)
+  const refuse = (why: string): never => {
+    process.stderr.write(`agent-team codex wrapper: refusing to start codex: ${why}\n`);
+    process.exit(126);
+  };
+  let extra: unknown = [];
   try {
     extra = JSON.parse(process.env.AGENT_TEAM_EXEC_ARGS ?? '[]');
   } catch {
-    extra = [];
+    refuse('AGENT_TEAM_EXEC_ARGS is not valid JSON');
   }
-  const execArgs = Array.isArray(extra) ? extra.filter((a) => typeof a === 'string') : [];
+  if (!Array.isArray(extra) || !extra.every((a) => typeof a === 'string')) {
+    refuse('AGENT_TEAM_EXEC_ARGS is not a list of strings');
+  }
+  const execArgs = extra as string[];
   const sdkArgs = process.argv.slice(2);
-  const args =
-    sdkArgs[0] === 'exec' && execArgs.length > 0
-      ? ['exec', ...execArgs, ...sdkArgs.slice(1)]
-      : sdkArgs;
+  if (execArgs.length > 0 && sdkArgs[0] !== 'exec') {
+    refuse(`the SDK did not start \`exec\` (got ${JSON.stringify(sdkArgs[0] ?? null)})`);
+  }
+  const args = execArgs.length > 0 ? ['exec', ...execArgs, ...sdkArgs.slice(1)] : sdkArgs;
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
     if (v !== undefined && !k.startsWith('AGENT_TEAM_')) env[k] = v;

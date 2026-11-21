@@ -27,6 +27,8 @@ const EVENT_QUERIES = {
   'task.escalated': boardAndTask,
   'task.dispatch_failed': boardAndTask,
   'task.base_drift': boardAndTask,
+  // the card says why a queued task is not dispatched yet
+  'task.waiting': board,
 
   // the card shows the workspace's head sha (snapshot) and the drawer the workspace
   'workspace.created': boardAndTask,

@@ -58,13 +58,15 @@ export function claudeWorkerSettings(
     ...(repo ? [join(repo, '.git')] : []),
     ...HOME_READ.map((p) => join(home, p)),
   ];
+  // the worktree's `.git` pointer file: git must read it, nobody in the run may rewrite it
+  // (pointed at the primary `.git`, the service commit would land on the base branch;
+  // docs/adr/0018). Write-only deny: it is not in the read lists.
+  const pointer = join(strip(spec.cwd), '.git');
   // permission rules: `//` = absolute path; Read/Edit deny rules also reach the OS sandbox
-  const rules = deny.flatMap((p) => [
-    `Read(/${p})`,
-    `Read(/${p}/**)`,
-    `Edit(/${p})`,
-    `Edit(/${p}/**)`,
-  ]);
+  const rules = [
+    ...deny.flatMap((p) => [`Read(/${p})`, `Read(/${p}/**)`, `Edit(/${p})`, `Edit(/${p}/**)`]),
+    `Edit(/${pointer})`,
+  ];
   return {
     permissions: {
       blockReadsOutsideWorkingDirectories: true,
@@ -77,7 +79,7 @@ export function claudeWorkerSettings(
       allowUnsandboxedCommands: false,
       autoAllowBashIfSandboxed: true,
       excludedCommands: [],
-      filesystem: { denyRead: [...deny, home], allowRead, denyWrite: deny },
+      filesystem: { denyRead: [...deny, home], allowRead, denyWrite: [...deny, pointer] },
       network: {
         allowedDomains: spec.sandbox?.allowNetwork === true ? ['*'] : [],
         strictAllowlist: true,

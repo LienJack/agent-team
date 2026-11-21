@@ -16,8 +16,9 @@
 6. **合約先行**：資料結構與 API 只定義一次（Zod），服務端、CLI、MCP、網頁共用同一份型別與同一個客戶端。
 7. **薄入口**：CLI、MCP、網頁、Grok 橋接都只是 API 的包裝，不放業務邏輯。
 8. 憑證不進版控、不進資料庫、不進日誌、不進任何 API 回應；傳給子行程時只放它需要的那一個變數。
-9. **worker 在沙箱裡**：讀寫只限 worktree（與暫存、套件快取），DATA、`.env`、憑證目錄一律拒絕，連不到本機的服務埠；
-   身分由憑證決定，不由請求內容決定（ADR 0014）。
+9. **worker 在沙箱裡**：讀寫只限 worktree（與暫存、套件快取），DATA、`.env`、憑證目錄一律拒絕，worktree 的 `.git`
+   指標檔不可改寫，連不到本機的服務埠；沙箱起不來就不執行（fail closed）：claude、codex、dsh、機器檢查、leader 的 Bash
+   都一樣（ADR 0014、0018、0019、0012）。身分由憑證決定，不由請求內容決定（ADR 0014）。
 
 ## 2. 技術棧
 
@@ -70,9 +71,9 @@ docs/               spec.md、adr/、conventions.md
 |---|---|
 | 資料目錄 `DATA` | `~/.agent-team/`（`AGENT_TEAM_HOME` 可覆寫；測試一律覆寫到暫存目錄） |
 | 資料庫 | `DATA/team.db` |
-| 連線資訊 | `DATA/run/listener.json`（權限 0600）：`{ addr, token }`，operator 權杖，供 CLI／MCP 自動連線；`DATA/leader/listener.json`（0600）：leader 專用權杖，只給 leader 的 `team` shim（`AGENT_TEAM_LISTENER_FILE`） |
+| 連線資訊 | `DATA/run/listener.json`（權限 0600）：`{ addr, token }`，operator 權杖，供 CLI／MCP 自動連線；`DATA/leader/listener.json`（0600）：`{ addr, token, socket }`，leader 專用權杖與 unix socket `DATA/leader/api.sock`（0600，同一個本機 app），只給 leader 的 `team` shim（`AGENT_TEAM_LISTENER_FILE`）。DATA 啟動時設為 0700 |
 | 執行日誌 | `DATA/runs/<run_id>/{events.jsonl, stderr.log, prompt.md}` |
-| leader | `DATA/leader/cwd/`（空的工作目錄）、`DATA/leader/bin/team`（以 leader 身分執行的 shim）、`DATA/leader/turn/`（最近一個 turn 的日誌） |
+| leader | `DATA/leader/cwd/`（空的工作目錄）、`DATA/leader/bin/team`（以 leader 身分執行的 shim）、`DATA/leader/turn-key`（目前 turn 的冪等種子）、`DATA/leader/turn/`（最近一個 turn 的日誌） |
 | 任務 worktree | `<worktree_root>/<project>/<task_id>/`，預設 `~/RanoLabs/worktrees`，分支 `team/<task_id>` |
 | 金鑰 | 專案根目錄 `.env`（git 忽略；`AGENT_TEAM_ENV_FILE` 可改指）。`packages/schema` 定義需要哪些變數，`apps/server` 提供唯一的讀取函式，一次只回傳被要求的那一個 |
 
@@ -90,8 +91,10 @@ workspace    id, task_id, path, branch, base_sha, head_sha?, accepted_base_sha?,
 run          id, task_id, workspace_id, dispatch_id(unique), kind(impl|fix|review), role, model_alias, runner, model,
              state(starting|running|succeeded|failed|start_unknown|stopped|abandoned),
              outcome?(ok|rejected|error|rate_limited|timeout|cancelled), reject_reason?,
-             session_ref?, receipt?, usage?, cost_usd?, log_dir, pid?, pid_started_at?, launched_at?,
-             started_at, ended_at?
+             session_ref?, receipt?, usage?, cost_usd?, cost_estimated, log_dir, pid?, pid_started_at?,
+             launched_at?, started_at, ended_at?
+             -- cost_estimated：runner 沒回報費用（codex、dsh）時 cost_usd 是 token 用量 × models.json 牌價的估算
+             --   （未快取輸入與 cache 寫入用輸入價、cache 讀取用輸入價的 10%、輸出用輸出價），每個顯示處都標「估算」
 attention    id, task_id?, kind(decision|approval|question), question, options[], status(open|answered|superseded),
              answer?, answered_via?
 message      id, channel(leader|grok), direction(in|out), source(web|cli|mcp|grok|service), body,
@@ -134,9 +137,15 @@ ReviewReceipt  { dispatch_id, verdict(pass|needs_changes|blocked), summary(≤60
 3. worktree 確有變更（修正 run 已有服務端提交時可以不再修改：照常檢查、不新增提交、回到審查；ADR 0017）；實際變更檔案
    全部落在 `owned_paths` 內（以 git 為準，不以回執自述為準；symlink 解析後再比）。
 4. 專案的機器檢查全過（逐條執行，完整輸出存日誌，只把結果與最後 20 行留給修正單）。檢查執行 worker 寫的程式：
-   環境白名單（無金鑰、無 `SSH_AUTH_SOCK`、無權杖），macOS 上另以 `sandbox-exec` 套 worker 的拒絕清單（ADR 0014）。
+   環境白名單（無金鑰、無 `SSH_AUTH_SOCK`、無權杖），以 `sandbox-exec` 套 worker 的拒絕清單（ADR 0014）。沒有沙箱
+   （Linux）就不執行：任務阻塞並說明原因，不開修正輪；`service.json` 的 `checks.allow_unsandboxed: true` 才在沙箱外
+   執行（ADR 0019）。
 5. 提交前重算變更清單：檢查後多出任何檔案或出現越界 → 拒收、不提交。服務端只提交核對過的檔案
-   （`git add -- <檔案>`、`team(<task_id>): <title>`），不執行 repo 的 hooks（ADR 0016），記 `head_sha`。
+   （`git add -- <檔案>`、`team(<task_id>): <title>`），不執行 repo 的 hooks（ADR 0016），記 `head_sha`。服務端在
+   worktree 裡的**每一個** git 指令之前（派工、核對、提交、審查 diff、漂移、清理）都核對 worktree 身分：`.git` 是一般
+   檔案、`--git-dir` 是 `<repo>/.git/worktrees/<name>` 且其 `gitdir` 指回這個 worktree、`--git-common-dir` 是主 repo 的、
+   HEAD 在 `team/<task_id>`；`git commit` 前再核對一次，且絕不在基底分支上提交。不符 → run 拒收、不提交、任務阻塞並開
+   待決事項，只有人能重試（ADR 0018）。
 6. 任務進 `review`，排入審查 run（`review_A|B|C`）。審查者的模型別名不得與最近一次實作 run 相同。
 
 審查 `pass` → `done`。`needs_changes` → 修正 run（帶 must_fix 清單），`fix_rounds+1`；達到
@@ -157,6 +166,7 @@ interface Runner { readonly name; probe(): Promise<RunnerCapabilities>; run(spec
 確認執行檔存在、版本、支援的參數、憑證是否就緒（不顯示值）；不支援的參數不要傳。
 
 共同要求：參數一律用陣列，不經 shell；標準輸入明確關閉或寫入後關閉；子行程自成行程群組，逾時或取消時終止整個群組；
+傳給子行程的 `HTTP(S)_PROXY`／`ALL_PROXY` 去掉 `user:pass@`；run 日誌目錄 0700、檔案 0600（已存在的也收緊）；
 spawn 前呼叫 `onLaunching`、spawn 後以 `onSpawned` 回報 pid 與 OS 啟動時間（ADR 0015）；輸出逐行讀取，單行上限 1 MiB
 （超過截斷並標記，繼續讀下一行）；
 完成判定是「agent 的結束訊號」與「行程結束」先到者為準；原始事件流寫 `events.jsonl`；日誌寫入前遮蔽看起來像金鑰的字串。
@@ -164,13 +174,23 @@ spawn 前呼叫 `onLaunching`、spawn 後以 `onSpawned` 回報 pid 與 OS 啟�
 - **claude**：`claude -p --model … --output-format stream-json --verbose --json-schema … --safe-mode --restricted
   --settings <沙箱設定> --strict-mcp-config --mcp-config '{"mcpServers":{}}' --permission-mode dontAsk`，提示走標準輸入。
   可寫 run 開放 `Read Edit Write Glob Grep Bash`，唯讀 run 只有 `Read Glob Grep`。`--restricted`、`--settings` 是必要旗標，
-  不支援就不跑（沙箱內容見 ADR 0014）。從 `rate_limit_event` 取額度，從 `result` 取用量與費用。
+  不支援就不跑（沙箱內容見 ADR 0014；worktree 的 `.git` 列在 `denyWrite` 與 `Edit(...)` 拒絕規則，不在讀取拒絕）。從
+  `rate_limit_event` 取額度，從 `result` 取用量與費用。額度／登入錯誤只依結構化欄位（`rate_limit_event`、assistant 的
+  `error`、`api_error_status`）與 CLI 自己的文字（stderr、模型尚未輸出時的 result）判定，模型寫的文字不算。
   **不使用任何跳過權限檢查的參數。**
 - **codex**：SDK `startThread({ workingDirectory, approvalPolicy: 'never', model, modelReasoningEffort,
   skipGitRepoCheck: true })` + `runStreamed(prompt, { outputSchema, signal })`；沙箱用權限設定檔（`default_permissions` +
-  拒絕清單 + `allow_network`），不傳 `--sandbox`（ADR 0014）。
-- **dsh**：`dsh --profile headless --json -`；事件 `session`／`status`／`final`；無 schema 強制，取 `final.text` 中第一個完整
-  JSON 物件。`OPENROUTER_API_KEY` 只放進子行程環境，並設 `DSH_TELEMETRY_DISABLED=1`、`DSH_PERMISSION_MODE=workspace-write`。
+  拒絕清單 + `allow_network`，worktree 的 `.git` 唯讀），不傳 `--sandbox`（ADR 0014）。`--ignore-user-config`、
+  `--ignore-rules` 是必要旗標（不支援 → runner 不可用）；group wrapper 無法把這些參數放到 `exec` 之後時不啟動 codex。
+  只有收到 `turn.completed` 才接受最後一則 `agent_message`。
+- **dsh**：`sandbox-exec -p <worker 設定檔> dsh --profile headless --patch <run>/dsh.patch.yml --json -`；事件
+  `session`／`status`／`final`；無 schema 強制，最後一個 `turn_end` 是 `completed` 才取 `final.text` 中第一個完整 JSON
+  物件。整個 dsh 行程在 Seatbelt 內：讀寫只限 worktree、run 自己的 `dsh-state/`（patch 把 session 與 storage 導到這裡）
+  與暫存目錄，`~/.dsh` 只開放執行期需要的部分，DATA、`.env`、憑證目錄拒絕，服務的埠在任何位址都連不到；dsh 自己的
+  bash 沙箱無法巢狀（macOS 拒絕），在外層沙箱內改用 `danger-full-access`。沒有 `sandbox-exec` → runner 不可用，除非
+  `runners.dsh.allow_unsandboxed: true`（此時用 dsh 自己的 workspace-write／read-only）。hub 的整理呼叫走同一個 runner
+  （唯讀、沒有 worktree）。`OPENROUTER_API_KEY` 只放進子行程環境，並設 `DSH_TELEMETRY_DISABLED=1`；git 用
+  `GIT_CONFIG_GLOBAL=/dev/null` 與空的 `XDG_CONFIG_HOME`（dsh 會丟掉名稱含 KEY 的變數；ADR 0019）。
 - **fake**：一支照劇本檔執行的假 CLI，會把它收到的參數與環境變數記下來，可加速時間。所有非冒煙測試都用它。
 
 派工提示 = 固定的 worker 規則 + 派工單原文 + 回執 schema + `dispatch_id`（+ 重啟復原時的復原說明）。派工單、實作者摘要、
@@ -200,8 +220,11 @@ worker 規則：只改 owned_paths；不 commit、不 push；不要提問，解�
 - **熔斷半開**：冷卻期過後只放行一個試探 run，成功才關閉、失敗立即再開。
 - **effect lane**：同一 lane 保序、不同 lane 並行；一個 effect 結束後立刻接著跑同 lane 的下一個，不等巡檢。
 - **清理**：定時移除已完成任務的 worktree（預設完成後 72 小時；分支保留）。
-- 每個狀態變化寫一筆 `event`。另有兩種非狀態事件給看板即時更新：`leader.status_changed`（idle／busy／offline 與
-  可用性）、`run.log_advanced`（執行中 run 的日誌變長，只帶 run id 與位元組位置，每個 run 每 2 秒最多一筆；ADR 0013）。
+- 每個狀態變化寫一筆 `event`。另有三種非狀態事件給看板即時更新：`leader.status_changed`（idle／busy／offline 與
+  可用性）、`run.log_advanced`（執行中 run 的日誌變長，只帶 run id 與位元組位置，每個 run 每 2 秒最多一筆；ADR 0013）、
+  `task.waiting`（排隊的任務為什麼還沒派：`path_overlap` 與哪一張、`no_slot`、`runner_cooldown`、`backoff`、
+  `worker_alive`、`base_drift`；原因改變才寫、每個任務每 30 秒最多一筆；看板卡片顯示目前的原因）。
+- 服務關機中止的 effect（例如執行中的機器檢查）不算失敗、不消耗重試次數，下次啟動照原樣重跑。
 
 ## 9. Leader
 
@@ -209,10 +232,19 @@ worker 規則：只改 owned_paths；不 commit、不 push；不要提問，解�
 決定，與 worker 用不用假 runner 無關：`AGENT_TEAM_FAKE_RUNNERS=1` + 真的 leader 是最便宜的真實端到端組合。
 
 - 每則輸入：`claude -p --resume <id>`（首次 `--session-id`），精簡啟動：`--safe-mode --strict-mcp-config
-  --mcp-config '{"mcpServers":{}}' --restricted --tools Bash`，`--allowedTools` 只放行 leader 用得到的 `team` 子指令，
-  `--disallowedTools` 明確拒絕 Claude Code 會自動核准的唯讀指令（`ls`、`cat`、`echo`、`pwd`…），
-  `--permission-mode dontAsk`。剩下的範圍與實測見 ADR 0012。模型取角色 `leader`。
-- 輸入：人的訊息（任何入口）與服務端合併後的事件批次。序列處理；`client_msg_id` 去重。
+  --mcp-config '{"mcpServers":{}}' --restricted --settings <沙箱> --tools Bash`，`--allowedTools` 只放行 leader 用得到的
+  `team` 子指令，`--disallowedTools` 明確拒絕 Claude Code 會自動核准的唯讀指令（`ls`、`cat`、`echo`、`pwd`…），
+  `--permission-mode dontAsk --permission-prompts none`。`--restricted`、`--safe-mode`、`--disallowedTools`、
+  `--permission-prompts`、`--settings` 都是必要旗標：probe 找不到任何一個 leader 就不可用並說明缺哪個。Bash 在 Claude Code
+  的沙箱內：DATA 與家目錄拒讀，只開放 shim、空的工作目錄、leader 的 listener 檔與 turn-key、CLI 的 dist 與 node_modules；
+  網路沒有任何網域、沒有 loopback，只有 unix socket `DATA/leader/api.sock`（shim 的 `team` 經它連服務）。剩下的範圍與
+  實測見 ADR 0012。模型取角色 `leader`。
+- 輸入：人的訊息（任何入口）與服務端合併後的事件批次。序列處理；`client_msg_id` 去重。事件批次在
+  `leader.event_window_ms`（預設 15 秒）內沒有新事件才送出，最晚 `event_max_wait_ms`（60 秒），每批最多
+  `digest_max_events`（30）則。
+- 重放：每則輸入在 spawn 前於 kv 記「turn 已開始」，回覆存好（或確定失敗）才清除；仍有標記的輸入再跑時提示前面加一段
+  「可能已經做過，先 `team task list` 確認」。turn 期間 shim 以 `DATA/leader/turn-key` 帶入種子，`team task add` 以
+  「種子 + 內容雜湊」當 Idempotency-Key，同一個請求重放時伺服器回原結果、不重複建立（ADR 0012）。
 - `--append-system-prompt`：只做受理、拆解、派工、回報；不自己改程式碼；任務細節一律用 `team` 查，不憑記憶；
   需要人決定就 `team attention open`；回覆要短。
 - 上下文超過門檻（預設 60000 token）送 `/compact`。關鍵狀態全在資料庫，壓縮後丟失細節是預期行為。
@@ -229,7 +261,8 @@ worker 規則：只改 owned_paths；不 commit、不 push；不要提問，解�
 `service.json` 的 `grok.enabled` 控制，**預設關閉**（現有的中樞 session 監看同一個收件匣，不能同時開）。
 
 - 進：`grokmsg watch` → `grokmsg read <id>` → 原文寫入 message（去重鍵 = grokmsg id）→ 交給 leader。
-- 出：一律先寫 `outbox` 再發送（effect）。保序的單位：回覆同一則 Grok 訊息的「處理中」與最終回覆保序；主動通知
+- 出：一律先寫 `outbox` 再發送（effect）；送出成功即記 `hub:sent:<signature>`，effect 重跑時不重送；待決事項先寫
+  anchor 再送（notify 只能在送出後寫）。保序的單位：回覆同一則 Grok 訊息的「處理中」與最終回覆保序；主動通知
   依任務保序；兩者分開，失敗退避中的通知不會卡住回覆。leader 的回覆超過門檻時用角色 `hub_summarizer` 整理；
   待決事項的問題與選項不經模型，原樣以 `--question`、`--option` 傳遞。
 - 主動回報 `grokmsg notify`：任務完成／失敗、待決事項、阻塞、額度用完、worker 無回執、runner 熔斷。
@@ -249,6 +282,7 @@ worker 規則：只改 owned_paths；不 commit、不 push；不要提問，解�
   - 同一來源連續錯誤 5 次鎖定 15 分鐘。
   - 檢查 `Origin` 允許清單與 `Sec-Fetch-Site`，不符回 403。不使用寬鬆的 CORS。權杖與密碼不出現在網址。
   - 區網**不開放**：新增或修改 project（涉及本機路徑）、任何設定寫入。其餘（看板、聊天、待決事項、任務操作、日誌檢視）開放。
+  - 路由守衛（區網禁用、leader 禁用）把 `HEAD` 視為 `GET`，受保護路徑上未註冊的方法一律拒絕。
   - 區網內為未加密 HTTP；TLS 交給反向代理，v1 不做。
   - 看板（`apps/web/dist`）只由區網監聽埠提供；在這台電腦上也是開區網埠（例如 `http://127.0.0.1:4518`）登入。
   - `team serve` 印出看板網址（這台電腦與各區網位址）；密碼是啟動時產生的才印，且只印一次。
@@ -297,8 +331,10 @@ MCP 工具（薄包裝）：`ask_leader`（與 `team ask` 相同的等待方式�
 繁體中文介面，淺色與深色皆可讀，手機寬度可用。
 
 - 頂部：leader 狀態、三家 runner 可用性與額度、未決事項數。
-- 五欄看板；卡片：標題、tier、執行者、耗時、用量／費用、commit、狀態。
-- 卡片抽屜：派工單、回執、審查發現、run 清單、日誌尾段；操作：改派（角色清單來自 `GET /roles`）、重試、停止、通過、退回。
+- 五欄看板；卡片：標題、tier、執行者、耗時、用量／費用（估算值標「≈… 估算」）、commit、狀態；排隊中的卡片顯示等待原因
+  （`task.waiting`）。
+- 卡片抽屜：派工單、回執、審查發現、run 清單、日誌尾段；操作：改派（角色清單來自 `GET /roles`；請求進行中不重送）、
+  重試、停止、通過、退回。
 - 待決事項：問題 + 選項按鈕。聊天面板：直接對 leader（不等待：送出後回覆經 `leader.reply` 事件出現）。
 - 即時：訂閱 `/events`，斷線後用最後的 `seq` 接續；收到事件後重新讀取受影響的資源（對照表是一張以全部事件型別為鍵的表，
   新增事件型別時型別檢查會在那裡失敗）。日誌尾段跟著 `run.log_advanced`，頂部的 leader 狀態跟著 `leader.status_changed`。

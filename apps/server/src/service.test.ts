@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { request } from 'node:http';
 import { join } from 'node:path';
 import { ListenerFileSchema } from '@agent-team/schema';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -13,6 +14,42 @@ afterEach(async () => {
 });
 
 describe('§14 server — listeners and listener.json', () => {
+  it('DATA is owner-only (0700) even when it existed with a wider mode', async () => {
+    h = createTestService();
+    mkdirSync(h.dataDir, { recursive: true, mode: 0o755 });
+    chmodSync(h.dataDir, 0o755);
+    await h.service.start();
+    expect(statSync(h.dataDir).mode & 0o777).toBe(0o700);
+  });
+
+  it('serves the leader on a 0600 unix socket named in DATA/leader/listener.json, removed on stop', async () => {
+    h = createTestService();
+    await h.service.start();
+    const leaderFile = ListenerFileSchema.parse(
+      JSON.parse(readFileSync(join(h.dataDir, 'leader', 'listener.json'), 'utf8')),
+    );
+    const socket = join(h.dataDir, 'leader', 'api.sock');
+    expect(leaderFile.socket).toBe(socket);
+    expect(statSync(socket).isSocket()).toBe(true);
+    expect(statSync(socket).mode & 0o777).toBe(0o600);
+    const get = (token: string) =>
+      new Promise<number>((done, fail) => {
+        const req = request(
+          { socketPath: socket, path: '/api/state', headers: { authorization: `Bearer ${token}` } },
+          (res) => {
+            res.resume();
+            done(res.statusCode ?? 0);
+          },
+        );
+        req.once('error', fail);
+        req.end();
+      });
+    expect(await get(leaderFile.token)).toBe(200);
+    expect(await get('not-a-valid-token-000000000000')).toBe(401);
+    await h.service.stop();
+    expect(existsSync(socket)).toBe(false);
+  });
+
   it('writes DATA/run/listener.json (0600, fresh token, bound port) and removes it on stop', async () => {
     h = createTestService();
     const running = await h.service.start();

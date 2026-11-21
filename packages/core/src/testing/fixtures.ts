@@ -159,6 +159,7 @@ export function sampleRun(overrides: Partial<Run> = {}): Run {
     receipt: null,
     usage: null,
     cost_usd: null,
+    cost_estimated: false,
     log_dir: '/data/runs/r_000001',
     pid: null,
     pid_started_at: null,

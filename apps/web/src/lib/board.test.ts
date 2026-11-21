@@ -50,6 +50,7 @@ describe('summarizeTask — card fields straight from the snapshot', () => {
     runner: 'codex' as const,
     state: 'succeeded' as const,
     cost_usd: 0.05,
+    cost_estimated: false,
     usage: null,
     started_at: '2026-11-20T08:03:00.000Z',
     ended_at: '2026-11-20T08:04:00.000Z',
@@ -65,6 +66,7 @@ describe('summarizeTask — card fields straight from the snapshot', () => {
         run_totals: {
           runs: 2,
           cost_usd: 0.15,
+          cost_estimated: false,
           usage: { input_tokens: 1000, output_tokens: 200 },
           finished_ms: 180_000,
         },
@@ -92,7 +94,13 @@ describe('summarizeTask — card fields straight from the snapshot', () => {
           ended_at: null,
           cost_usd: null,
         }),
-        run_totals: { runs: 2, cost_usd: null, usage: {}, finished_ms: 30_000 },
+        run_totals: {
+          runs: 2,
+          cost_usd: null,
+          cost_estimated: false,
+          usage: {},
+          finished_ms: 30_000,
+        },
       }),
       now,
     );

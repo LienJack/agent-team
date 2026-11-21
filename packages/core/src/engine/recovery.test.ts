@@ -278,7 +278,7 @@ describe('cleanup sweep', () => {
     expect(h.git.worktrees.has(ws.path)).toBe(true);
     const removals = h.git.calls.filter((c) => c.method === 'removeWorktree');
     expect(removals.map((c) => c.input)).toEqual([
-      { repoPath: '/repos/demo', worktreePath: ws.path, force: false },
+      { repoPath: '/repos/demo', worktreePath: ws.path, branch: ws.branch, force: false },
     ]);
     expect(h.store.effects.list()).toEqual([]);
     const open = h.store.attention.list({ task_id: task.id, statuses: ['open'] });

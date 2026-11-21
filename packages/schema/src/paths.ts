@@ -10,6 +10,13 @@ export const DATA_LAYOUT = {
   listener: 'run/listener.json',
   /** Mode 0600; `{ addr, token }` with the leader-scoped token, read by the leader's `team`. */
   leaderListener: 'leader/listener.json',
+  /**
+   * Unix socket of the local listener for the leader's `team` (docs/adr/0012): the leader's
+   * sandbox allows exactly this socket and no TCP at all. Mode 0600, in the 0700 leader dir.
+   */
+  leaderSocket: 'leader/api.sock',
+  /** The current leader turn's idempotency seed, read by the leader's `team` shim (0600). */
+  leaderTurnKey: 'leader/turn-key',
   runs: 'runs',
 } as const;
 
@@ -27,7 +34,12 @@ export const ListenerFileSchema = z.object({
   /** Base URL of the local listener, e.g. `http://127.0.0.1:4517`. */
   addr: z.url(),
   token: z.string().min(16),
+  /** Reach `addr`'s server through this unix socket instead of TCP (the leader's listener). */
+  socket: z.string().min(1).optional(),
 });
+
+/** macOS `sun_path` holds 104 bytes including the terminator; Linux 108. */
+export const MAX_SOCKET_PATH_BYTES = 103;
 export type ListenerFile = z.infer<typeof ListenerFileSchema>;
 
 /** Join POSIX path segments without touching the filesystem. */

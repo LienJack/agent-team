@@ -58,8 +58,9 @@ export function makeBoardTask(over: Partial<BoardTask> = {}): BoardTask {
   return {
     ...makeTask(over),
     latest_run: null,
+    waiting: null,
     head_sha: null,
-    run_totals: { runs: 0, cost_usd: null, usage: {}, finished_ms: 0 },
+    run_totals: { runs: 0, cost_usd: null, cost_estimated: false, usage: {}, finished_ms: 0 },
     ...over,
   };
 }
@@ -83,6 +84,7 @@ export function makeRun(over: Partial<Run> = {}): Run {
     receipt: null,
     usage: null,
     cost_usd: null,
+    cost_estimated: false,
     log_dir: '/data/runs/r_1',
     pid: null,
     pid_started_at: null,

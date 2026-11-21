@@ -28,6 +28,7 @@ import { MessageIdSchema, ProjectIdSchema, RunIdSchema, TaskIdSchema } from '../
 import { RunnerStatusSchema } from '../records.js';
 import { RunnerCapabilitiesSchema, UsageSchema } from '../runner.js';
 import { RunKindSchema, RunStateSchema, TaskStatusSchema } from '../status.js';
+import { TaskWaitingSchema } from '../waiting.js';
 
 // Request/response bodies for the routes under /api (spec §11). Wire shapes are snake_case.
 
@@ -95,6 +96,8 @@ export const TaskRunSummarySchema = z.object({
   runner: RunnerNameSchema,
   state: RunStateSchema,
   cost_usd: z.number().nonnegative().nullable(),
+  /** `cost_usd` is estimated from usage × models.json prices (runner reported none). */
+  cost_estimated: z.boolean(),
   usage: UsageSchema.nullable(),
   started_at: IsoDateTimeSchema,
   ended_at: IsoDateTimeSchema.nullable(),
@@ -108,12 +111,16 @@ export type TaskRunSummary = z.infer<typeof TaskRunSummarySchema>;
  */
 export const BoardTaskSchema = TaskSchema.extend({
   latest_run: TaskRunSummarySchema.nullable(),
+  /** Why the waiting task is not dispatched yet (null when it is not waiting, or not known yet). */
+  waiting: TaskWaitingSchema.extend({ since: IsoDateTimeSchema }).nullable(),
   /** `head_sha` of the task's current workspace (null before the first commit). */
   head_sha: ShaSchema.nullable(),
   run_totals: z.object({
     runs: NonNegativeIntSchema,
-    /** Sum of known costs; null when no run reported one. */
+    /** Sum of known costs (reported or estimated); null when no run has one. */
     cost_usd: z.number().nonnegative().nullable(),
+    /** At least one part of `cost_usd` is an estimate. */
+    cost_estimated: z.boolean(),
     /** Summed token counts of all runs. */
     usage: UsageSchema,
     /** Summed duration of the runs that ended (ms). */

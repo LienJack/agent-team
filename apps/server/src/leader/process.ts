@@ -9,9 +9,10 @@ import {
   type ClaudeProbe,
   type ClaudeTextResult,
 } from '@agent-team/runners';
-import { DATA_LAYOUT, type ModelsConfig } from '@agent-team/schema';
+import { DATA_LAYOUT, MAX_SOCKET_PATH_BYTES, type ModelsConfig } from '@agent-team/schema';
 import { LEADER_OPTIONAL_FLAGS, LEADER_REQUIRED_FLAGS, leaderArgs } from './args.js';
 import { LEADER_SYSTEM_PROMPT } from './prompt/system-v2.js';
+import { leaderSandboxSettings, leaderSocketPath } from './sandbox.js';
 import type { LeaderRuntime } from './types.js';
 
 // Everything about the leader's `claude -p` processes: the working directory, the `team` shim
@@ -67,7 +68,13 @@ export function teamShim(dataDir: string, nodePath: string, teamEntry: string): 
     '    echo "error: team $cmd is not available to the leader" >&2',
     '    exit 2 ;;',
     'esac',
-    `AGENT_TEAM_HOME=${shQuote(dataDir)} AGENT_TEAM_LISTENER_FILE=${shQuote(join(dataDir, DATA_LAYOUT.leaderListener))} exec ${shQuote(nodePath)} ${shQuote(teamEntry)} "$@"`,
+    // the current turn's seed: `team task add` derives its Idempotency-Key from it, so a turn
+    // replayed after a crash cannot create the same task twice (docs/adr/0012)
+    "seed=''",
+    `if [ -r ${shQuote(join(dataDir, DATA_LAYOUT.leaderTurnKey))} ]; then IFS= read -r seed < ${shQuote(join(dataDir, DATA_LAYOUT.leaderTurnKey))} || true; fi`,
+    // deterministic transport: the CLI talks to the unix socket, never through a proxy
+    'unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy',
+    `AGENT_TEAM_IDEMPOTENCY_SEED="$seed" AGENT_TEAM_HOME=${shQuote(dataDir)} AGENT_TEAM_LISTENER_FILE=${shQuote(join(dataDir, DATA_LAYOUT.leaderListener))} exec ${shQuote(nodePath)} ${shQuote(teamEntry)} "$@"`,
     '',
   ].join('\n');
 }
@@ -112,11 +119,14 @@ export interface TurnInput {
   model: ModelChoice;
   timeoutMs: number;
   signal: AbortSignal;
+  /** Idempotency seed of this turn's input (written for the shim; removed when unset). */
+  turnKey?: string | undefined;
 }
 
 /** Spawns the leader's claude processes; one instance per leader. */
 export class LeaderProcess {
   private probed: ClaudeProbe | undefined;
+  private settings: Record<string, unknown> | undefined;
   readonly paths: LeaderPaths;
 
   constructor(
@@ -144,6 +154,19 @@ export class LeaderProcess {
         problem: `the team CLI is missing (${entry ?? 'no entry'}); run \`pnpm build\` first`,
       };
     }
+    // the sandboxed `team` reaches the service only through the leader socket (docs/adr/0012)
+    const socket = leaderSocketPath(this.dataDir);
+    if (Buffer.byteLength(socket) > MAX_SOCKET_PATH_BYTES) {
+      return {
+        problem: `the leader socket path is too long for a unix socket (${Buffer.byteLength(socket)} > ${MAX_SOCKET_PATH_BYTES} bytes): use a shorter AGENT_TEAM_HOME`,
+      };
+    }
+    this.settings = leaderSandboxSettings({
+      dataDir: this.dataDir,
+      teamEntry: entry,
+      nodePath: this.runtime.nodePath ?? process.execPath,
+      denyPaths: this.runtime.denyPaths ?? [],
+    });
     await mkdir(this.paths.cwd, { recursive: true, mode: 0o700 });
     await mkdir(this.paths.bin, { recursive: true, mode: 0o700 });
     const shim = join(this.paths.bin, 'team');
@@ -162,13 +185,15 @@ export class LeaderProcess {
       wanted: [...LEADER_REQUIRED_FLAGS, ...LEADER_OPTIONAL_FLAGS],
       required: LEADER_REQUIRED_FLAGS,
     });
-    if (!this.probed.available) return { problem: this.probed.problems.join('; ') };
+    if (!this.probed.available) {
+      return { problem: `the leader needs ${this.probed.problems.join('; ')}` };
+    }
     return this.probed.loggedIn === undefined ? {} : { loggedIn: this.probed.loggedIn };
   }
 
   async turn(input: TurnInput): Promise<ClaudeTextResult> {
     const probe = this.probed;
-    if (!probe?.available || probe.executable === undefined) {
+    if (!probe?.available || probe.executable === undefined || !this.settings) {
       return {
         started: false,
         commands: [],
@@ -185,8 +210,14 @@ export class LeaderProcess {
       resume: input.resume,
       systemPrompt: LEADER_SYSTEM_PROMPT,
       flags: probe.flags,
+      settings: this.settings,
     });
     await rm(this.paths.turnLog, { recursive: true, force: true });
+    const keyFile = join(this.dataDir, DATA_LAYOUT.leaderTurnKey);
+    await rm(keyFile, { force: true });
+    if (input.turnKey !== undefined) {
+      await writeFile(keyFile, `${input.turnKey}\n`, { mode: 0o600, flag: 'wx' });
+    }
     return runClaudeText({
       command: probe.executable,
       args: [...prefix.slice(1), ...args],

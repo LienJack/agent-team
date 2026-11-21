@@ -142,25 +142,54 @@ describe('runners: codex argv', () => {
     expect(readFileSync(join(spec.logDir, 'events.jsonl'), 'utf8')).toContain('"turn.completed"');
   });
 
-  it('does not pass isolation flags the CLI does not list, and says so', async () => {
+  it('is unavailable when the CLI lacks the isolation flags (they are required)', async () => {
     const s = await writeScenario(tmp.dir, {
       responses: probeWith(CODEX_EXEC_FLAGS),
       steps: fixtureLines(import.meta.url, 'success.jsonl').map((out) => ({ out })),
     });
     const runner = new CodexRunner({ command: s.command });
     const caps = await runner.probe();
-    expect(caps.available).toBe(true);
+    expect(caps.available).toBe(false);
     expect(caps.problems).toEqual([
-      "optional codex exec flag --ignore-user-config not supported; the user's config/rules apply",
-      "optional codex exec flag --ignore-rules not supported; the user's config/rules apply",
+      'required codex exec flag --ignore-user-config not supported',
+      'required codex exec flag --ignore-rules not supported',
     ]);
-    await runner.run(
+    const r = await runner.run(
       makeSpec(tmp.dir, { model: 'gpt-6.1-terra', dispatchId: 'd_fixture0003', writable: false }),
       new AbortController().signal,
     );
-    const argv = lastRecord(s.recordPath)!.argv;
-    expect(argv.slice(0, 3)).toEqual(['exec', '--config', 'default_permissions="agent-team"']);
-    for (const f of CODEX_ISOLATION_FLAGS) expect(argv).not.toContain(f);
+    expect(r.error?.kind).toBe('crash');
+    expect(r.error?.message).toMatch(/--ignore-user-config/);
+    // never started: the only recorded calls are the probe's
+    expect(lastRecord(s.recordPath)!.argv).toEqual(['login', 'status']);
+  });
+
+  it('the group wrapper refuses to start codex without the isolation/sandbox args (fail closed)', async () => {
+    const s = await writeScenario(tmp.dir, { responses: probe, steps: [] });
+    const { spawnSync } = await import('node:child_process');
+    const { siblingScript } = await import('../process/module-path.js');
+    const wrapper = siblingScript(import.meta.url, 'group-wrapper');
+    const env = (extra: Record<string, string>) => ({
+      PATH: process.env['PATH'] ?? '/usr/bin:/bin',
+      AGENT_TEAM_REAL_CMD: JSON.stringify(s.command),
+      ...extra,
+    });
+    for (const [argv, extra] of [
+      // the SDK's argv no longer starts with `exec`: the args would be dropped
+      [['--experimental-json'], { AGENT_TEAM_EXEC_ARGS: JSON.stringify(['--ignore-rules']) }],
+      // unparseable or malformed lists
+      [['exec', '--json'], { AGENT_TEAM_EXEC_ARGS: '[not json' }],
+      [['exec', '--json'], { AGENT_TEAM_EXEC_ARGS: JSON.stringify(['ok', 3]) }],
+      [['exec', '--json'], { AGENT_TEAM_EXEC_ARGS: '{}' }],
+    ] as const) {
+      const r = spawnSync(process.execPath, [wrapper, ...argv], {
+        env: env(extra),
+        encoding: 'utf8',
+      });
+      expect({ extra, status: r.status }).toEqual({ extra, status: 126 });
+      expect(r.stderr).toMatch(/refusing to start codex/);
+    }
+    expect(lastRecord(s.recordPath)).toBeUndefined();
   });
 
   it('writable runs get a profile that writes the worktree only and denies the deny list', async () => {

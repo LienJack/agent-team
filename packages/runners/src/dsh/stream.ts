@@ -20,6 +20,9 @@ export function dshUsage(u: unknown): Usage | undefined {
   });
 }
 
+/** `turn_end` reason kinds that mean the turn finished normally (dsh 0.2.1: `completed`). */
+const SUCCESS_TURN_KINDS = new Set(['completed']);
+
 interface TurnEnd {
   kind: string;
   code?: string;
@@ -94,6 +97,12 @@ export class DshStream implements StreamParser {
       return errorResult(kind, message, base);
     }
     if (te?.kind === 'aborted') return errorResult('crash', 'dsh turn aborted', base);
+    if (this.finalText !== undefined && !(te && SUCCESS_TURN_KINDS.has(te.kind))) {
+      // `final` counts only after a turn that ended successfully (dsh's own success signal)
+      return te
+        ? errorResult('bad_output', `dsh turn ended with ${te.kind}; final not accepted`, base)
+        : errorResult('crash', 'dsh sent final without a turn_end', base);
+    }
     if (this.finalText === undefined) {
       const detail = this.streamError ?? lastLine(stderrTail);
       const text = `${this.streamError ?? ''}\n${stderrTail.join('\n')}`;

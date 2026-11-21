@@ -11,11 +11,12 @@ import {
   type Workspace,
 } from '@agent-team/schema';
 import { errorMessage } from '../errors.js';
-import type { ReviewDiff } from '../ports/git.js';
+import { isWorktreeIntegrityError, type ReviewDiff } from '../ports/git.js';
 import { answersFor } from './answers.js';
 import type { EngineContext, Tx } from './context.js';
 import { checkBaseDrift } from './drift.js';
 import { enqueueEffect } from './effect-queue.js';
+import { blockForIntegrity, worktreeRef } from './integrity.js';
 import { retryLater } from './outcomes.js';
 import { buildPrompt, REVIEW_DIFF_MAX_CHARS } from './prompt.js';
 import { saveTask } from './records.js';
@@ -52,8 +53,11 @@ export async function dispatchPlanned(
           return { task_id: task.id, outcome: 'deferred', reason: 'base_drift_blocked' };
         }
         ws = drift;
+        // never send a worker into a worktree that is not what the records say (docs/adr/0018)
+        await ctx.deps.git.status(worktreeRef(project, ws));
       }
     } catch (err) {
+      if (isWorktreeIntegrityError(err)) return integrity(ctx, task, err);
       return reject(ctx, task, `workspace: ${errorMessage(err)}`);
     }
     // read-only reviewers cannot run git: the diff goes into the prompt (docs/adr/0008)
@@ -61,12 +65,13 @@ export async function dispatchPlanned(
     if (planned.kind === 'review' && ws.head_sha !== null) {
       try {
         reviewDiff = await ctx.deps.git.reviewDiff({
-          worktreePath: ws.path,
+          ...worktreeRef(project, ws),
           baseSha: ws.base_sha,
           headSha: ws.head_sha,
           maxChars: REVIEW_DIFF_MAX_CHARS,
         });
       } catch (err) {
+        if (isWorktreeIntegrityError(err)) return integrity(ctx, task, err);
         return reject(ctx, task, `review diff: ${errorMessage(err)}`);
       }
     }
@@ -208,6 +213,7 @@ function createRun(
     receipt: null,
     usage: null,
     cost_usd: null,
+    cost_estimated: false,
     log_dir: logDir,
     pid: null,
     pid_started_at: null,
@@ -242,6 +248,19 @@ function createRun(
   );
   enqueueEffect(tx, 'run.start', runId, { run_id: runId, spec });
   return runId;
+}
+
+/** The worktree failed its identity check (docs/adr/0018): blocked for a human, no attempt used. */
+function integrity(
+  ctx: EngineContext,
+  task: Task,
+  err: Parameters<typeof blockForIntegrity>[3],
+): DispatchReport {
+  ctx.transact((tx) => {
+    const current = tx.r.tasks.get(task.id);
+    if (current && current.version === task.version) blockForIntegrity(ctx, tx, task.id, err);
+  });
+  return { task_id: task.id, outcome: 'rejected', reason: `worktree_integrity: ${err.reason}` };
 }
 
 /** Dispatch failed before any run existed (worktree/git problem): consume an attempt. */

@@ -28,6 +28,8 @@ describe('review prompt carries the diff, the ticket and the acceptance text', (
     const ws = h.store.workspaces.findCurrentByTask(task.id)!;
     expect(h.git.calls.find((c) => c.method === 'reviewDiff')?.input).toEqual({
       worktreePath: ws.path,
+      repoPath: '/repos/demo',
+      branch: ws.branch,
       baseSha: ws.base_sha,
       headSha: ws.head_sha,
       maxChars: REVIEW_DIFF_MAX_CHARS,
@@ -58,7 +60,9 @@ describe('review prompt carries the diff, the ticket and the acceptance text', (
     expect(p).toContain(' src/feature/big.ts | 1 +');
     expect(p).toContain('diff --git a/src/feature/small.ts');
     expect(p).not.toContain('diff --git a/src/feature/big.ts');
-    expect(p).toMatch(/已截斷：下列 1 個檔案.*\n.*`src\/feature\/big\.ts`/);
+    expect(p).toMatch(
+      /已截斷：下列 1 個檔案.*\n.*\n\n<<<DATA omitted_files#d_\w+>>>\nsrc\/feature\/big\.ts\n<<<END/,
+    );
     expect(p.length).toBeLessThan(REVIEW_DIFF_MAX_CHARS + 20_000);
   });
 

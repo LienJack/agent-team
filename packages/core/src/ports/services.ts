@@ -18,6 +18,11 @@ export interface CheckOutcome {
   /** Last lines of combined output (the engine keeps at most 20 for the fix ticket). */
   tail: string;
   durationMs: number;
+  /**
+   * Set when the check was not run because it could not be sandboxed (docs/adr/0019): `passed`
+   * is false, and the engine blocks the task for a human instead of asking a worker to fix it.
+   */
+  refused?: string;
 }
 
 /**

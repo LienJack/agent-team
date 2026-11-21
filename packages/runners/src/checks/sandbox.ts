@@ -1,5 +1,5 @@
 import { existsSync, realpathSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { HOME_READ } from '../claude/sandbox.js';
 import { denyPathsFor, strip, type SandboxPolicy } from '../sandbox-policy.js';
@@ -10,7 +10,8 @@ import { denyPathsFor, strip, type SandboxPolicy } from '../sandbox-policy.js';
 // - no reads or writes of DATA (database, listener files with the tokens), the service `.env`,
 //   the repository/worktree `.env` and the credential directories under home;
 // - writes only to the worktree, the temp directories and package caches (no shell rc files,
-//   no `~/.claude` settings, no hooks in the primary repository's `.git`);
+//   no `~/.claude` settings, no hooks in the primary repository's `.git`, nothing outside home
+//   such as a user-owned `/opt/homebrew`), never to the worktree's `.git` pointer;
 // - no connections to the service's own ports (local and LAN listener, on any address). Other
 //   loopback ports stay usable (test suites start their own servers) and so does the network:
 //   check commands such as `pnpm install` are the project owner's configuration. The tokens and
@@ -24,7 +25,7 @@ export function checkSandboxAvailable(): boolean {
 }
 
 /** Seatbelt matches real paths (`/var` is `/private/var` on macOS). */
-function real(p: string): string {
+export function real(p: string): string {
   const abs = resolve(p);
   try {
     return realpathSync(abs);
@@ -34,7 +35,25 @@ function real(p: string): string {
   }
 }
 
-const q = (p: string) => `"${p.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+export const q = (p: string) => `"${p.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+
+/**
+ * Write confinement shared by the check and dsh profiles: no writes anywhere (not even outside
+ * home: a user-owned `/opt/homebrew` or `/usr/local` would let sandboxed code replace binaries the
+ * service itself runs) except device nodes, the temp directories and `writable`.
+ */
+export function confinedWrites(home: string, writable: readonly string[]): string[] {
+  const tmp = real(tmpdir());
+  const temps = [tmp, real(join(tmp, '..', 'C')), '/private/tmp', '/private/var/tmp'];
+  const sub = (paths: readonly string[]) => paths.map((p) => `(subpath ${q(p)})`).join(' ');
+  return [
+    '(deny file-write* (subpath "/"))',
+    `(allow file-write* (subpath "/dev") ${sub(temps)})`,
+    // home stays closed even when it lies inside a temp directory
+    `(deny file-write* (subpath ${q(home)}))`,
+    `(allow file-write* ${sub([...new Set(writable)])})`,
+  ];
+}
 
 /** The SBPL profile of one check run in `cwd` (the worktree). */
 export function checkSandboxProfile(
@@ -45,7 +64,7 @@ export function checkSandboxProfile(
   const cwd = real(input.cwd);
   const repoPath = input.repoPath ? real(input.repoPath) : undefined;
   const deny = denyPathsFor({ cwd, repoPath }, { ...policy, home }).map(real);
-  // temp directories outside home stay writable through `(allow default)`
+  // the worktree, package caches and (confinedWrites) the temp directories
   const writable = [cwd, ...HOME_READ.map((p) => real(join(home, p)))];
   const repoGit = input.repoPath ? real(join(input.repoPath, '.git')) : undefined;
   const ports = [...new Set(policy.servicePorts?.() ?? [])].filter(
@@ -54,8 +73,7 @@ export function checkSandboxProfile(
   return [
     '(version 1)',
     '(allow default)',
-    `(deny file-write* (subpath ${q(home)}))`,
-    `(allow file-write* ${writable.map((p) => `(subpath ${q(p)})`).join(' ')})`,
+    ...confinedWrites(home, writable),
     `(deny file-write* (literal ${q(join(cwd, '.git'))}))`,
     ...(repoGit
       ? [

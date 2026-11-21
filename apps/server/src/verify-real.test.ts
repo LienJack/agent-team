@@ -67,7 +67,12 @@ function setup(checkCmd: string) {
     store: new InMemoryStore(),
     runners: registry,
     git,
-    checks: createCheckExecutor({ killGraceMs: 200, sandbox: { denyPaths: [join(dir, 'data')] } }),
+    checks: createCheckExecutor({
+      killGraceMs: 200,
+      // Seatbelt on macOS; elsewhere (CI on Linux) explicitly unsandboxed (docs/adr/0019)
+      allowUnsandboxed: true,
+      sandbox: { denyPaths: [join(dir, 'data')] },
+    }),
     clock,
     ids: new SequentialIdGen(),
     config: testEngineConfig({ dataDir: join(dir, 'data'), worktreeRoot }),

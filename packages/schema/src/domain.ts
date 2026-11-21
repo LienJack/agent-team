@@ -167,6 +167,11 @@ export const RunSchema = z.object({
   receipt: ReceiptSchema.nullable(),
   usage: UsageSchema.nullable(),
   cost_usd: z.number().nonnegative().nullable(),
+  /**
+   * `cost_usd` is an estimate from token usage × the `price` of models.json (the runner reported
+   * no cost: codex, dsh), not a figure the provider reported.
+   */
+  cost_estimated: z.boolean(),
   log_dir: z.string().min(1),
   /** Process group leader of the worker (the runner's child; pgid == pid). */
   pid: PositiveIntSchema.nullable(),

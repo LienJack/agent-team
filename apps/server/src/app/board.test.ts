@@ -52,6 +52,7 @@ describe('board snapshot — card fields', () => {
     expect(fields.run_totals).toEqual({
       runs: 2,
       cost_usd: 0.1,
+      cost_estimated: false,
       usage: { input_tokens: 105, output_tokens: 20, cache_read_tokens: 7 },
       finished_ms: 60_000,
     });
@@ -59,7 +60,7 @@ describe('board snapshot — card fields', () => {
     expect(cardFields({ current_run_id: null }, [], undefined)).toEqual({
       latest_run: null,
       head_sha: null,
-      run_totals: { runs: 0, cost_usd: null, usage: {}, finished_ms: 0 },
+      run_totals: { runs: 0, cost_usd: null, cost_estimated: false, usage: {}, finished_ms: 0 },
     });
   });
 

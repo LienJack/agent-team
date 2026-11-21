@@ -52,13 +52,14 @@ export async function checkBaseDrift(
   const files = await git.diffFiles({ repoPath: project.repo_path, fromSha: known, toSha: tip });
   const relevant = files.filter((f) => isPathOwned(f, task.owned_paths, { ignoreCase }));
   if (relevant.length === 0) return ws;
-  const status = await git.status({ worktreePath: ws.path });
+  const ref = { worktreePath: ws.path, repoPath: project.repo_path, branch: ws.branch };
+  const status = await git.status(ref);
   // HEAD already at the tip = a crash after the reset but before `base_sha` was saved
   const atTip = status.headSha === tip;
   const pristine =
     status.clean && ws.head_sha === null && (status.headSha === ws.base_sha || atTip);
   if (pristine) {
-    if (!atTip) await git.resetWorktree({ worktreePath: ws.path, toSha: tip });
+    if (!atTip) await git.resetWorktree({ ...ref, toSha: tip });
     return ctx.transact((tx) => {
       const current = tx.r.workspaces.get(ws.id) ?? ws;
       const next = saveWorkspace(tx, current, { base_sha: tip, accepted_base_sha: null });

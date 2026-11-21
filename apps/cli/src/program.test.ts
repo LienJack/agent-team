@@ -99,6 +99,42 @@ describe('team — argument parsing', () => {
     expect(io.text()).toBe('t_000001 [queued] C impl_C 加一個功能\n');
   });
 
+  it('task add under AGENT_TEAM_IDEMPOTENCY_SEED sends a key derived from the seed and body', async () => {
+    const keys: Array<string | undefined> = [];
+    const client = fakeClient({
+      listProjects: async () => [project],
+      createTask: async (_b, options) => {
+        keys.push(options?.idempotencyKey);
+        return task;
+      },
+    });
+    const argv = (title: string) => [
+      'task',
+      'add',
+      '--project',
+      'demo',
+      '--title',
+      title,
+      '--tier',
+      'C',
+      '--paths',
+      'src/a',
+      '-',
+    ];
+    const seeded = {
+      env: { AGENT_TEAM_IDEMPOTENCY_SEED: 'leader:msg:m_1' },
+      readStdin: async () => 't',
+    };
+    for (const title of ['A', 'A', 'B']) {
+      expect(await runCli(argv(title), captureIo(client, seeded))).toBe(0);
+    }
+    expect(await runCli(argv('A'), captureIo(client, { readStdin: async () => 't' }))).toBe(0);
+    expect(keys[0]).toMatch(/^leader:msg:m_1:[0-9a-f]{32}$/);
+    expect(keys[1]).toBe(keys[0]); // the same create in a replayed turn: the same key
+    expect(keys[2]).not.toBe(keys[0]); // another task: another key
+    expect(keys[3]).toBeUndefined(); // no seed: the client's random key
+  });
+
   it('task add: "-" reads stdin; the ticket source must be exactly one', async () => {
     let ticket = '';
     const client = fakeClient({

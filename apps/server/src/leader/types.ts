@@ -66,6 +66,8 @@ export interface LeaderRuntime {
   nodePath?: string;
   /** Environment the child allow-list is taken from (default `process.env`). */
   sourceEnv?: NodeJS.ProcessEnv;
+  /** Service-wide deny list for the leader's sandbox (DATA, `.env` files; sandbox.ts). */
+  denyPaths?: readonly string[];
 }
 
 export interface LeaderDeps {

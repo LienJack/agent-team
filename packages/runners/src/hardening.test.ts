@@ -92,6 +92,19 @@ describe('H1 claude worker sandbox settings', () => {
     expect(s.sandbox.network.allowLocalBinding).toBe(false);
   });
 
+  it("denies writes to the worktree's .git pointer, never reads (docs/adr/0018)", () => {
+    const spec = makeSpec(tmp.dir, { sandbox: { allowNetwork: false, repoPath: '/r' } });
+    const s = claudeWorkerSettings(spec, POLICY) as Settings;
+    const pointer = `${spec.cwd.replace(/\/+$/, '')}/.git`;
+    expect(s.sandbox.filesystem.denyWrite).toContain(pointer);
+    expect(s.permissions.deny).toContain(`Edit(/${pointer})`);
+    // git must still read it: not in any read deny
+    expect(s.sandbox.filesystem.denyRead).not.toContain(pointer);
+    expect(s.permissions.deny).not.toContain(`Read(/${pointer})`);
+    // only rule shapes Claude Code 2.1.326 was verified with (docs/adr/0014)
+    for (const rule of s.permissions.deny) expect(rule).toMatch(/^(Read|Edit)\(\/\/.+\)$/);
+  });
+
   it('a spec without sandbox facts gets the strictest policy', () => {
     const s = claudeWorkerSettings(makeSpec(tmp.dir), POLICY) as Settings;
     expect(s.sandbox.network.allowedDomains).toEqual([]);
@@ -202,6 +215,7 @@ describe('L9d line length cap', () => {
 describe('H1 machine checks run with a scrubbed environment and stop on abort', () => {
   it('passes no keys, agent socket, listener or git overrides; disables git prompts', async () => {
     const checks = createCheckExecutor({
+      allowUnsandboxed: true,
       sourceEnv: {
         PATH: process.env.PATH ?? '/usr/bin:/bin',
         HOME: tmp.dir,
@@ -237,7 +251,7 @@ describe('H1 machine checks run with a scrubbed environment and stop on abort', 
   });
 
   it('an aborted check kills its group and rejects', async () => {
-    const checks = createCheckExecutor({ killGraceMs: 200 });
+    const checks = createCheckExecutor({ killGraceMs: 200, allowUnsandboxed: true });
     const ac = new AbortController();
     const pending = checks.run({
       cwd: join(tmp.dir, 'work'),

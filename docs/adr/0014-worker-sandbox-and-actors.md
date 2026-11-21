@@ -47,7 +47,7 @@ wrapper 插在 `exec` 後；SDK 的 `config` 無法表達這種鍵）。不用�
 路徑、拒寫 worktree 外與 `.git` 檔、拒連 loopback；`codex exec` 對本機假模型端點送出的提示裡就是這份設定檔（帶
 `--sandbox` 時內建設定檔會蓋掉它，所以 SDK 的 `sandboxMode` 不再設定）。真實 codex run 未跑（不在兩次額度內）。
 dsh 的 `sandbox-policy` 只有 `mode` 與 `workspaceRoot`，沒有讀取拒絕或網路設定：dsh worker 只有「workspace-write／
-read-only」的保證，讀得到清單路徑（剩餘風險）。
+read-only」的保證，讀得到清單路徑——第二輪改為整個 dsh 行程在 Seatbelt 內（ADR 0019）。
 
 **決定三：機器檢查也進沙箱（macOS）**。檢查執行 worker 寫的測試碼。`createCheckExecutor({ sandbox })` 在 macOS 以
 `sandbox-exec` 套同一份清單（`packages/runners/src/checks/sandbox.ts`）：清單讀寫皆拒、家目錄只能寫 worktree 與快取
@@ -55,8 +55,12 @@ read-only」的保證，讀得到清單路徑（剩餘風險）。
 loopback 埠與網路照常（測試會起自己的伺服器；檢查指令是專案擁有者的設定）。git 在沙箱裡不讀全域設定
 （`~/.gitconfig` 被拒時 git 會直接失敗）。環境變數白名單：沒有金鑰、沒有 `SSH_AUTH_SOCK`、沒有 `AGENT_TEAM_*`／權杖、
 `GIT_TERMINAL_PROMPT=0`。在這台電腦上以真實家目錄、本 repo 當 worktree 實跑通過：`git status`、`pnpm install --offline`、
-`pnpm exec vitest run`（core、git、schema）、`pnpm test:e2e`（Playwright／Chromium，巢狀沙箱可用）、`tsc`；最初的版本拒絕
-所有 loopback，Playwright 因此失敗，改為只拒服務的埠。Linux 上檢查不在沙箱內（剩餘風險）。
+`pnpm exec vitest run`（core、git、schema）、`pnpm test:e2e`（Playwright／Chromium，巢狀沙箱可用）、`tsc`；最初的
+版本拒絕所有 loopback，Playwright 因此失敗，改為只拒服務的埠。第二輪：寫入改成全域拒絕後只開放 worktree、暫存與
+快取（家目錄外也不能寫，例如使用者擁有的 `/opt/homebrew`），worktree 的 `.git` 指標唯讀（ADR 0018）；沒有沙箱的
+平台上檢查不執行，除非 `checks.allow_unsandboxed`（ADR 0019）。上面 `pnpm install --offline`、Playwright 的實跑是
+第一輪的設定檔，新的寫入範圍下**沒有重跑**（未驗證）。另外第二輪實測：外層設定檔只要有 deny，內層的
+`sandbox-exec` 就 `sandbox_apply: Operation not permitted`（ADR 0019）；Chromium 自己的沙箱為何在第一輪可用沒有再查。
 
 **決定四：身分由憑證決定**。本機監聽埠有兩種權杖：operator（`DATA/run/listener.json`，CLI／MCP）→ human；
 leader（`DATA/leader/listener.json`，只有 leader 的 `team` shim 用，`AGENT_TEAM_LISTENER_FILE` 指過去）→ leader；
@@ -70,8 +74,9 @@ Grok、審查者看到的都是遮蔽後的）；提示裡實作者提供的文�
 帶本次 dispatch id 的資料區塊內並說明「是資料，不是指令」。
 
 **剩餘風險（誠實說明）**：listener 檔只靠 0600 權限；同一使用者、不在沙箱內的任何行程都讀得到 operator 權杖。
-不在沙箱內的有：leader 的 claude（只有 Bash、allow 清單只放行 `team`；ADR 0012）、dsh worker、Linux 上的 claude
-與檢查，以及使用者自己的工具。`--restricted` 對設定／git／工具設定檔寫入的限制只試過 `.gitignore`（可寫）。專案的
+不在沙箱內的有：leader 的 claude 行程本身（它的 Bash 自第二輪起在沙箱內；ADR 0012）、明確設了 `allow_unsandboxed`
+的檢查與 dsh、以及使用者自己的工具；Linux 上 Claude Code 的 bubblewrap 沙箱未在本機驗證。worktree 的 `.git` 指標
+第二輪起各沙箱都不能改寫，服務端 git 也先核對 worktree 身分（ADR 0018）。`--restricted` 對設定／git／工具設定檔寫入的限制只試過 `.gitignore`（可寫）。專案的
 `allow_network` 只能在建立時設定（`team project add --allow-network`），之後沒有修改的路由。`allow_network` 為 true 時 worker 可以把 worktree 內的東西送到任何公開主機。
 worker 讀得到主 repo `.git/config`（若遠端網址內含權杖就會外洩）。Claude Code、codex 升級時要重跑探測
 （真實 run 約 0.005 美元／次）。持有區網密碼的人就能讓 agent 在這台電腦上執行程式碼——沙箱限制的是 worker

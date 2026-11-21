@@ -186,16 +186,18 @@ leader 由 `service.json` 的 `leader.enabled` 控制（預設開），與 worke
 
 2026-11-21 用真實 runner 跑的小型派工單（一兩個檔案、`node --test`；細節與全部數字見
 [`docs/validation-2026-11-21.md`](docs/validation-2026-11-21.md)）。claude 的費用是 CLI 回報的 API 等價金額（走訂閱）；
-codex（訂閱）與 dsh（OpenRouter 按量）不回報費用，看板顯示「–」，表中是依 `models.json` 牌價的估算
-（cache 讀取以輸入價的 10%–100% 計）。
+codex（訂閱）與 dsh（OpenRouter 按量）不回報費用：服務端依 token 用量 × `models.json` 牌價存一個**估算值**
+（未快取的輸入與 cache 寫入用輸入價、cache 讀取用輸入價的 10%、輸出用輸出價），run 上標 `cost_estimated`，看板顯示
+「≈$0.01 估算」、`team task show` 顯示「~$0.0005 (estimated)」。它不是帳單：dsh 的實際費用看 OpenRouter。下表
+2026-11-21 第一輪的估算是區間（cache 讀取以輸入價的 10%–100% 計）。
 
-| 組合                                      | 牆鐘         | 實作 run                                                   | 審查 run                                                   |
-| ----------------------------------------- | ------------ | ---------------------------------------------------------- | ---------------------------------------------------------- |
-| C 級：deepseek-flash 實作、gpt-terra 審查 | 20–45 s      | 8–18 s，約 10k 輸入／40–70k cache／1k 輸出，≈ $0.001–0.004 | 10–15 s，約 6–16k 輸入、100–400 輸出，≈ $0.01–0.02（訂閱） |
-| B 級：gpt-terra 實作、haiku 審查          | 35 s         | 26 s，16k／31k／0.6k，≈ $0.02–0.05（訂閱）                 | 8 s，$0.0016                                               |
-| A 級：sonnet 實作、gpt-terra 審查         | 21 s         | 9 s，$0.067                                                | 12 s，≈ $0.02（訂閱）                                      |
-| 一輪審查退回再修正（C 級）                | 再加 25–50 s | 修正 run 與實作 run 相近                                   |                                                            |
-| leader turn（haiku）                      | 3–10 s       | 每 turn $0.001–0.015；每完成／阻塞一張單一個 turn          |                                                            |
+| 組合                                      | 牆鐘         | 實作 run                                                       | 審查 run                                                   |
+| ----------------------------------------- | ------------ | -------------------------------------------------------------- | ---------------------------------------------------------- |
+| C 級：deepseek-flash 實作、gpt-terra 審查 | 20–45 s      | 8–18 s，約 10k 輸入／40–70k cache／1k 輸出，≈ $0.001–0.004     | 10–15 s，約 6–16k 輸入、100–400 輸出，≈ $0.01–0.02（訂閱） |
+| B 級：gpt-terra 實作、haiku 審查          | 35 s         | 26 s，16k／31k／0.6k，≈ $0.02–0.05（訂閱）                     | 8 s，$0.0016                                               |
+| A 級：sonnet 實作、gpt-terra 審查         | 21 s         | 9 s，$0.067                                                    | 12 s，≈ $0.02（訂閱）                                      |
+| 一輪審查退回再修正（C 級）                | 再加 25–50 s | 修正 run 與實作 run 相近                                       |                                                            |
+| leader turn（haiku）                      | 3–10 s       | 每 turn $0.001–0.015；15 秒內接連完成／阻塞的單合併成一個 turn |                                                            |
 
 最壞的一次：deepseek 在一個 8 函式的修正輪跑了 252 秒、讀了 6.3M cache token（≈ $0.05–0.33）。整個驗證（19 張單、
 60 個 run、24 個 leader turn）真正付費的 dsh 部分約 $0.09–0.50。
@@ -227,51 +229,63 @@ team leader reset
 
 ## 資料放在哪裡
 
-| 內容                        | 位置                                                                                                                 |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| 資料目錄 `DATA`             | `~/.agent-team/`（`AGENT_TEAM_HOME` 可改）                                                                           |
-| 資料庫                      | `DATA/team.db`（SQLite，WAL）                                                                                        |
-| 連線資訊（CLI／MCP 自動讀） | `DATA/run/listener.json`（0600，每次啟動換新權杖）                                                                   |
-| run 日誌                    | `DATA/runs/<run_id>/{events.jsonl, stderr.log, prompt.md}`（寫入前遮蔽像金鑰的字串）                                 |
-| leader                      | `DATA/leader/`（空的工作目錄、`team` shim、最近一個 turn 的日誌）                                                    |
-| 任務 worktree               | `~/RanoLabs/worktrees/<project>/<task_id>/`（`service.json` 的 `paths.worktree_root`）；完成 72 小時後移除，分支保留 |
-| 設定                        | `config/service.json`、`config/models.json`（`AGENT_TEAM_CONFIG_DIR` 可改）                                          |
-| 秘密                        | 專案根目錄 `.env`                                                                                                    |
+| 內容                        | 位置                                                                                                                              |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| 資料目錄 `DATA`             | `~/.agent-team/`（`AGENT_TEAM_HOME` 可改）                                                                                        |
+| 資料庫                      | `DATA/team.db`（SQLite，WAL）                                                                                                     |
+| 連線資訊（CLI／MCP 自動讀） | `DATA/run/listener.json`（0600，每次啟動換新權杖）；DATA 本身 0700                                                                |
+| run 日誌                    | `DATA/runs/<run_id>/{events.jsonl, stderr.log, prompt.md}`（寫入前遮蔽像金鑰的字串）                                              |
+| leader                      | `DATA/leader/`（空的工作目錄、`team` shim、leader 權杖的 listener 檔、`api.sock`、目前 turn 的 `turn-key`、最近一個 turn 的日誌） |
+| 任務 worktree               | `~/RanoLabs/worktrees/<project>/<task_id>/`（`service.json` 的 `paths.worktree_root`）；完成 72 小時後移除，分支保留              |
+| 設定                        | `config/service.json`、`config/models.json`（`AGENT_TEAM_CONFIG_DIR` 可改）                                                       |
+| 秘密                        | 專案根目錄 `.env`                                                                                                                 |
 
 ## 疑難排解
 
 先跑 `team doctor`：各 runner 是否可用、版本與支援的參數、憑證有沒有就緒（只顯示有無）、資料目錄與資料庫。
 
-| 症狀                                             | 處理                                                                            |
-| ------------------------------------------------ | ------------------------------------------------------------------------------- |
-| `agent-team is not running (no …/listener.json)` | 服務沒開：`team serve`；或 `AGENT_TEAM_HOME` 與服務不一致                       |
-| `127.0.0.1:4517 is already in use`               | 另一個 agent-team 還在跑，或改 `service.json` 的埠                              |
-| 看板 403 `origin … is not allowed`               | 用服務印出的網址開；反向代理或開發伺服器的來源加進 `lan.allowed_origins`        |
-| 看板登入 429                                     | 連續輸錯 5 次，鎖 15 分鐘                                                       |
-| leader 顯示離線 `auth`                           | `claude` 重新登入後 `team leader reset`                                         |
-| leader 顯示離線 `rate_limit`                     | 額度用完，會在顯示的時間自動重試；或換帳號後 `team leader reset`                |
-| leader 顯示離線 `not_installed`                  | 找不到 `claude` 或 `apps/cli/dist`：安裝／`pnpm build` 後 `team leader reset`   |
-| leader 顯示離線 `disabled`                       | `service.json` 的 `leader.enabled` 是 false                                     |
-| 任務 `blocked`，原因 `start_unknown`             | worker 是否已開始工作無法判定，不會自動重送；確認 worktree 後 `team task retry` |
-| worktree 標為 `kept`                             | 移除時發現未提交的變更，已保留並開一筆待決事項，請手動處理                      |
+| 症狀                                             | 處理                                                                                                                         |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `agent-team is not running (no …/listener.json)` | 服務沒開：`team serve`；或 `AGENT_TEAM_HOME` 與服務不一致                                                                    |
+| `127.0.0.1:4517 is already in use`               | 另一個 agent-team 還在跑，或改 `service.json` 的埠                                                                           |
+| 看板 403 `origin … is not allowed`               | 用服務印出的網址開；反向代理或開發伺服器的來源加進 `lan.allowed_origins`                                                     |
+| 看板登入 429                                     | 連續輸錯 5 次，鎖 15 分鐘                                                                                                    |
+| leader 顯示離線 `auth`                           | `claude` 重新登入後 `team leader reset`                                                                                      |
+| leader 顯示離線 `rate_limit`                     | 額度用完，會在顯示的時間自動重試；或換帳號後 `team leader reset`                                                             |
+| leader 顯示離線 `not_installed`                  | 找不到 `claude` 或 `apps/cli/dist`：安裝／`pnpm build` 後 `team leader reset`                                                |
+| leader 顯示離線 `disabled`                       | `service.json` 的 `leader.enabled` 是 false                                                                                  |
+| 任務 `blocked`，原因 `start_unknown`             | worker 是否已開始工作無法判定，不會自動重送；確認 worktree 後 `team task retry`                                              |
+| worktree 標為 `kept`                             | 移除時發現未提交的變更（或沒通過身分檢查），已保留並開一筆待決事項，請手動處理                                               |
+| 任務 `blocked`，原因 `worktree_integrity:`       | worktree 的 `.git` 被改寫（ADR 0018），服務端拒絕在其中執行 git、沒有提交；檢查後在主 repo `git worktree repair`，再由人重試 |
+| 任務 `blocked`，原因「機器檢查沒有執行」         | 這台電腦沒有 `sandbox-exec`（Linux）：檢查不在沙箱外執行；確定要跑就設 `checks.allow_unsandboxed: true`（ADR 0019）          |
+| `team doctor` 顯示 dsh 不可用（sandbox-exec）    | dsh 只在 Seatbelt 內執行；Linux 上要明確設 `runners.dsh.allow_unsandboxed: true`（ADR 0019）                                 |
+| leader 顯示離線 `not_installed`（socket path）   | `AGENT_TEAM_HOME` 太長，`DATA/leader/api.sock` 超過 unix socket 的 103 位元組：改用較短的路徑                                |
+| 卡片顯示「等待：…」                              | 排隊的任務為什麼還沒派出（路徑重疊、沒有槽位、runner 冷卻、退避、基底漂移）；事件 `task.waiting`                             |
 
 ## 已知限制
 
 - **持有區網密碼的人就能讓 agent 在這台電腦上執行程式碼**（派工、退回、回答待決事項都能從看板做）。區網密碼等同
   這台電腦上一個受限的 shell，只給信任的人。
-- 沙箱擋什麼、不擋什麼（ADR 0014）：claude worker 在 Claude Code 的沙箱內，讀寫只限 worktree（與暫存、套件快取），
-  讀不到 DATA（資料庫、含權杖的 listener 檔）、`.env`、`~/.ssh` 等憑證目錄，連不到本機的服務埠；codex worker 用權限
-  設定檔拒絕同一份清單；macOS 上機器檢查也以 `sandbox-exec` 套同一份清單（檢查可以起自己的本機測試伺服器，
-  但連不到服務的埠）。**不擋**：dsh worker 讀得到清單內的檔案
-  （dsh 沒有這種設定）、Linux 上的檢查不在沙箱內、`allow_network` 開啟時 worker 能把 worktree 內容送到公開網站、
-  worker 讀得到主 repo 的 `.git/config`。listener 檔只靠 0600 權限保護：同一個使用者、不在沙箱內的行程（leader 的
-  claude、你自己的工具）都讀得到 operator 權杖。
+- 沙箱擋什麼（ADR 0014、0018、0019）：三家 worker 讀寫只限 worktree（與暫存、套件快取），讀不到 DATA（資料庫、含權杖
+  的 listener 檔）、`.env`、`~/.ssh` 等憑證目錄，也不能改寫 worktree 的 `.git` 指標檔：claude worker 在 Claude Code 的
+  沙箱內（連不到任何本機埠）、codex 用權限設定檔、dsh 整個行程在 macOS Seatbelt（`sandbox-exec`）內（服務自己的埠在
+  任何位址都連不到）。服務端在 worktree 裡的每一個 git 指令之前都先核對 worktree 的身分，`.git` 被改寫就拒絕、不提交、
+  阻塞並開待決事項。macOS 上機器檢查也在 Seatbelt 內（可起自己的本機測試伺服器，連不到服務的埠）；沒有
+  `sandbox-exec` 的平台（Linux）上，檢查與 dsh **預設不執行**，要明確設 `checks.allow_unsandboxed`／
+  `runners.dsh.allow_unsandboxed` 才會不經沙箱執行。leader 的 Bash 也在 Claude Code 的沙箱內，只開放 `team` shim 需要
+  的檔案與一個 unix socket（ADR 0012）。
+- **不擋**：`allow_network` 開啟時 worker 能把 worktree 內容送到公開網站；dsh 的網路沒有網域白名單（Seatbelt 只能寫
+  `localhost` 或 `*`），只擋服務的埠；worker 讀得到主 repo 的 `.git/config`（遠端網址若含權杖會外洩）；dsh 在沙箱內
+  每次啟動都會改寫自己設定檔裡的空白根設定（`~/.dsh/profiles/headless/cordis.yml`，內容由 dsh 重設）。listener 檔只靠
+  0600 權限保護：同一個使用者、**不在任何沙箱內**的行程（你自己的工具，以及 leader 的 claude 行程本身——沙箱套在它執行
+  的 Bash 上）都讀得到 operator 權杖。Linux 上的 Claude Code 沙箱（bubblewrap）沒有在本機驗證過，且 Claude Code 在
+  Linux 上不支援以路徑限定 unix socket（leader 的 `team` 因此連不到服務）。
 - 只有人能驗收、退回、回答待決事項、改派與建專案；leader 用自己的權杖，伺服器依權杖判定身分（ADR 0014）。
 - 服務端代提交時不執行 repo 的 git hooks（ADR 0016）；要在提交前檢查的事請寫進專案的 `checks`。
 - 不自動合併分支回主幹；不做提交前的檔案租約、自動輪換帳號、Jev 判定關卡、TLS、多使用者（spec §16）。
 - 區網是未加密的 HTTP；需要 TLS 請自行加反向代理。
 - leader 的 shell 範圍用 allow／deny 清單收斂，但 Claude Code 沒有「只允許這些」的 Bash 規則，清單以外的唯讀指令仍
-  可能被它自動核准（只看得到空的工作目錄與不含秘密的環境；見 ADR 0012）。
+  可能被它自動核准；那些指令在沙箱內，讀不到 DATA 與憑證目錄，也沒有網路（見 ADR 0012）。
 - 一個 leader turn 最長 10 分鐘；`team ask`／MCP 會一直等，但呼叫端自己的逾時（例如某些 MCP 用戶端）仍可能先放棄，
   訊息不會遺失，回覆之後出現在看板聊天。
 - 強制結束（第二次 Ctrl-C、kill -9、當機）時 leader 當下的 `claude` 行程可能殘留；worker 的行程群組會在強制結束前
@@ -279,12 +293,11 @@ team leader reset
   等人處理，不會派第二個 worker 進同一個 worktree（ADR 0015）。實測（2026-11-21）：服務被 `kill -9` 後，真實的 dsh
   worker 1.5 秒內就自己結束了（推測是管線中斷），被中斷的 codex 審查在重啟前也已不在；復原兩次都走「行程已不在 →
   重新排入」，「終止殘留群組」那一支只有照劇本的假 claude 測過。
-- codex 與 dsh 的 run 沒有費用（runner 不回報）：看板與 `team task show` 顯示「–」，只有 token 用量；dsh 走
-  OpenRouter 是實際付費的，帳單請看 OpenRouter。claude 的費用是 API 等價金額。
-- leader 的事件摘要只合併 3 秒（`leader.event_window_ms`）內的事件：並行的任務相隔幾秒完成時，每張各觸發一個 leader turn。
-- 與進行中任務的 owned_paths 重疊而延後的任務沒有事件說明原因，在看板上只是停在「待派」。
-- `AGENT_TEAM_HOME` 不要放在 `~/.cache`、`~/Library/Caches` 等套件快取目錄底下：claude worker 的沙箱為了建置會開放讀取
-  這些目錄，DATA 的拒讀規則是否仍優先沒有用真實模型驗證過（預設的 `~/.agent-team` 不受影響）。
+- leader 的 turn 若在當機前已執行過指令，重啟後同一則輸入會再跑一次：提示會說明「可能已經做過」，`team task add`
+  完全相同的請求由伺服器去重（Idempotency-Key 由訊息 id 與內容推導）；內容稍有不同的重複建立仍要靠 leader 先查
+  `team task list`（ADR 0012）。
+- codex 與 dsh 的費用是**估算**（token 用量 × 牌價，cache 讀取以 10% 計），不是帳單。
+- `AGENT_TEAM_HOME` 不要太長：`DATA/leader/api.sock` 必須在 103 位元組內，否則 leader 不可用。
 - 看板與 Grok 主動通知是單一使用者設計；沒有帳號與權限分級。
 
 ## 開發

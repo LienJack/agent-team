@@ -89,6 +89,9 @@ describe('git author wiring', () => {
     writeFileSync(join(worktreePath, 'a.txt'), 'b\n');
     const commit = await git.commitFiles({
       worktreePath,
+      repoPath: repo,
+      branch: 'team/t_000001',
+      baseBranch: 'main',
       message: 'team(t_000001): x',
       files: ['a.txt'],
     });

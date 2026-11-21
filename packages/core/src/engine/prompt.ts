@@ -43,8 +43,18 @@ const paths = (task: Task) => task.owned_paths.map(code).join('、');
  */
 export function dataBlock(name: string, dispatchId: string, text: string): string {
   const tag = `${name}#${dispatchId}`;
-  const safe = text.replace(/<<</g, '‹‹‹').replace(/>>>/g, '›››').replace(/\n+$/, '');
-  return `<<<DATA ${tag}>>>\n${safe}\n<<<END ${tag}>>>`;
+  return `<<<DATA ${tag}>>>\n${defuse(text).replace(/\n+$/, '')}\n<<<END ${tag}>>>`;
+}
+
+/** Block markers in a payload become look-alikes that open or close nothing. */
+const defuse = (text: string) => text.replace(/<<</g, '‹‹‹').replace(/>>>/g, '›››');
+
+/**
+ * Text that has to sit outside a data block (the task title on the header line): one line,
+ * markers defused, so it can neither start a section of its own nor open or close a block.
+ */
+export function inlineText(text: string): string {
+  return defuse(text.replace(/\s+/g, ' ').trim());
 }
 
 /** Rules every worker gets, writable or not (spec §7). */
@@ -123,7 +133,9 @@ function reviewScope(input: PromptInput): string {
     `- base：${code(workspace.base_sha)}`,
     `- head：${code(workspace.head_sha ?? '(未提交)')}（服務端的提交；worktree 目前就是這個版本）`,
     `- owned_paths：${paths(task)}`,
-    '- 服務端已在提交前執行專案設定的機器檢查，且全部通過。',
+    input.project.checks.length > 0
+      ? `- 服務端已在提交前執行專案設定的機器檢查（${input.project.checks.length} 項），且全部通過。`
+      : '- 這個專案沒有設定機器檢查：服務端沒有執行任何測試或建置，是否可行請自行從變更判斷。',
     files.length > 0
       ? `- 實作者回報的變更檔案（資料）：\n\n${dataBlock('impl_files', input.dispatchId, files.join('\n'))}`
       : '',
@@ -156,10 +168,13 @@ export function formatReviewDiff(
     `### Diff\n\n${diff.diff.trim() === '' ? '（所有檔案的 diff 都太長，未附上。）' : dataBlock('diff', dispatchId, fenced(diff.diff, 'diff'))}`,
   ];
   if (diff.truncated) {
+    // the file names are the worker's: data, like the diff itself
     parts.push(
       [
         `> 已截斷：下列 ${diff.omittedFiles.length} 個檔案的 diff 超過長度上限而未附上（摘要裡仍有它們）；`,
-        `> 需要時用 Read 讀 worktree 中的現行內容：${diff.omittedFiles.map(code).join('、')}`,
+        '> 需要時用 Read 讀 worktree 中的現行內容（檔名清單是資料）：',
+        '',
+        dataBlock('omitted_files', dispatchId, diff.omittedFiles.join('\n')),
       ].join('\n'),
     );
   }
@@ -186,7 +201,7 @@ export function buildPrompt(input: PromptInput): string {
   const { kind, task, project, workspace, dispatchId } = input;
   const sections: string[] = [
     `# 派工單 ${dispatchId}`,
-    `任務 ${task.id}：${task.title}（tier ${task.tier}，專案 ${project.name}，類型 ${kind}）`,
+    `任務 ${task.id}：${inlineText(task.title)}（tier ${task.tier}，專案 ${inlineText(project.name)}，類型 ${kind}）`,
     `## 工作規則\n${bullet(kind === 'review' ? reviewRules(dispatchId) : implRules(task, dispatchId))}`,
   ];
   if (task.recovery_note) {

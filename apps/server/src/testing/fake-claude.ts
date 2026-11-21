@@ -35,6 +35,7 @@ export const FAKE_CLAUDE_HELP = [
   '  --strict-mcp-config         Only --mcp-config servers',
   '  --mcp-config <configs...>   MCP servers',
   '  --restricted                Restricted mode',
+  '  --settings <file-or-json>   Settings',
   '  --effort <level>            Effort',
   '  --dangerously-skip-permissions  Bypass all permission checks',
 ].join('\n');

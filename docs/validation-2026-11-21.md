@@ -20,7 +20,8 @@
 
 - 費用：claude 的 `cost_usd` 是 CLI 回報的 API 等價金額（走訂閱，不另外計費）；codex（訂閱）與 dsh（OpenRouter，按量）
   不回報費用，下表的「估算」依 `models.json` 牌價（gpt-terra 1／5、deepseek-flash 0.05／0.2 美元每百萬 token），
-  區間的下限把 cache 讀取算成輸入價的 10%，上限算全價。
+  區間的下限把 cache 讀取算成輸入價的 10%，上限算全價。第二輪起服務端自己存估算值（cache 讀取以 10% 計），標
+  `cost_estimated`，看板與 `team task show` 都標「估算」（見文末第二輪）。
 
 ## 各情境結果
 
@@ -167,7 +168,28 @@ MCP `status` 都有，**`team status` 沒有**（缺陷 D1，已修：`claude ok
 - 真實 worker 存活於服務當機之後的情況：dsh 與 codex 都隨服務結束，復原「終止殘留群組」那一支沒有被真實 worker 走到；
   真實 claude worker 在當機時的行為沒測。
 - `AGENT_TEAM_HOME` 放在 `~/.cache` 底下（本次就是）時，claude 沙箱的 `allowRead`（含 `~/.cache`）與 DATA 的 `denyRead`
-  誰優先：沒有用真實模型去讀 listener 檔驗證（刻意不做）。預設的 `~/.agent-team` 不受影響。
-- 多張 leader 派出的單在 3 秒內一起完成時合併成一則摘要：只看過單張；分散完成時是一張一則（設計如此）。
+  誰優先：沒有用真實模型去讀 listener 檔驗證（刻意不做）。第二輪讀了 Claude Code 2.1.326 執行檔裡的設定檔產生器：
+  落在 allow 內的 deny 會在 allow 之後重新套用（較深的規則優先），所以 DATA 仍拒讀——是讀程式碼，不是實測。
+- 多張單接連完成合併成一則摘要：第二輪把摘要改成「靜默視窗」（預設 15 秒內沒有新事件才送，最晚 60 秒、每批最多
+  30 則；`event-buffer.test.ts` 三張相隔 4 s、4.5 s 完成 → 一則）；真實多張單的情境沒有重跑。
 - 區網從其他裝置連線、Linux、Grok 橋接、`allow_network` 專案：都沒有在這次跑。
 - dsh 與 codex 的實際帳單：只有依牌價的估算。
+
+## 第二輪（同日，安全與正確性審查修正後）
+
+同樣的隔離方式（`~/.cache/ranolabs/sessions/2026-11-21-agent-team-round2/`，結束後已刪除；本機監聽埠 `127.0.0.1:0`、
+區網關閉、Grok 關閉；設定副本：leader haiku、impl_C deepseek-flash、review_C gpt-terra low）。
+
+| 項目                                | 結果                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| leader 沙箱（真實 haiku turn）      | 6.9 s，$0.0024（CLI 回報），輸入 6／cache 讀 23.2k／cache 寫 8.5k／輸出 877。`team status`、heredoc 的 `team task add`（草稿）成功，Claude Code 的對話紀錄把兩者記為 `sandboxed: true`、沒有違規；`/bin/cat DATA/run/listener.json` 被權限層拒絕；`team task add` 帶 `leader:msg:<id>:<hash>` 的 Idempotency-Key                                                                                                                                                                                                                               |
+| dsh 沙箱（真實 deepseek-flash run） | 15.9 s，輸入 16.8k／cache 讀 52.4k／輸出 1.2k（估算 ≈ $0.0014）。執行中的 dsh 行程以 `sandbox_check()` 查：listener 檔、`~/.ssh` 拒讀，worktree 的 `.git` 與 `/opt/homebrew/bin/node` 拒寫，worktree 可讀寫；同一份設定檔重放 `cat` listener 與 `~/.dsh/.credentials.yaml` → Operation not permitted，`curl` 服務埠連不上。**發現**：dsh 自己的 bash 沙箱無法巢狀，所有 bash 都失敗（只用檔案工具改好）→ 修正（ADR 0019）                                                                                                                      |
+| 端到端（修正後）                    | C 級單 `team task add --queue` 13:20:17 → done 13:20:44（27 s）：deepseek 實作 10 s（2.5k／41.1k／736，≈ $0.0005 估算），在沙箱內跑了 `ls`、`cat`、`node --test`（通過），執行中的行程 listener 檔、`team.db`、`~/.ssh`、`.credentials.yaml` 拒讀、`/opt/homebrew/bin/node` 拒寫；機器檢查 `[sandboxed]` 通過；服務端 commit `team(t_…): 修好 sum()` 只含 `src/sum.js`，作者 `agent-team-e2e`，`main` 不動；gpt-terra 審查 16 s（5.7k／10.0k／97，≈ $0.0071 估算）`pass`。`team task show` 顯示 `~$0.0005 (estimated)`、`~$0.0071 (estimated)` |
+| leader 摘要                         | 任務完成後 22 s（15 s 靜默視窗 + turn）一則摘要，haiku $0.0026，沒有執行指令                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 另一個 leader turn                  | 要它跑兩個 `team` 指令：模型用 `echo "---"` 串接 → 整個指令被 deny 清單拒絕（$0.0031）。之後再要一個 turn 時被本機的操作原則擋下，沒有再跑                                                                                                                                                                                                                                                                                                                                                                                                     |
+
+端到端 run 也發現 dsh 的子行程會丟掉名稱含 KEY 的變數，`GIT_CONFIG_KEY_0` 不見、`git status` 失敗；已改用
+`GIT_CONFIG_GLOBAL` + 空的 `XDG_CONFIG_HOME`，以離線測試（真實 git、同一份 Seatbelt 設定檔）驗證，沒有再用真實模型跑。
+
+本輪真實模型呼叫：3 個 haiku leader turn（$0.0081）、2 個 deepseek-flash run（估算 ≈ $0.0019）、1 個 gpt-terra 審查
+（訂閱，估算 ≈ $0.0071）。

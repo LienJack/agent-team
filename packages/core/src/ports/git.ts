@@ -3,6 +3,39 @@
  * absolute; file lists are repo-relative POSIX paths, sorted and unique. Every method is
  * idempotent where noted, because effects may be re-executed after a crash.
  */
+/**
+ * Which worktree a call is about, from the engine's own records: the primary checkout and the
+ * `team/<task_id>` branch. Before every git command it runs inside a worktree the port checks that
+ * the worktree really is that one (docs/adr/0018): `<worktree>/.git` is a plain gitdir file, git
+ * resolves it to `<repo>/.git/worktrees/<name>` whose `gitdir` points back at it, the top level is
+ * the worktree and HEAD is on `branch`. A worker that rewrote the pointer (e.g. to the primary
+ * `.git`, so a commit would land on the base branch) gets `WorktreeIntegrityError`, never a git
+ * command.
+ */
+export interface WorktreeRef {
+  worktreePath: string;
+  repoPath: string;
+  branch: string;
+}
+
+/** The worktree is not what the records say it is (tampered `.git`, wrong HEAD, …). */
+export class WorktreeIntegrityError extends Error {
+  constructor(
+    readonly worktreePath: string,
+    readonly reason: string,
+  ) {
+    super(`worktree ${worktreePath} failed the integrity check: ${reason}`);
+    this.name = 'WorktreeIntegrityError';
+  }
+}
+
+export function isWorktreeIntegrityError(err: unknown): err is WorktreeIntegrityError {
+  return (
+    err instanceof WorktreeIntegrityError ||
+    (err instanceof Error && err.name === 'WorktreeIntegrityError' && 'reason' in err)
+  );
+}
+
 export interface GitPort {
   /**
    * Ensure a worktree for `branch` exists at `worktreePath`. Creates the branch from the current
@@ -25,6 +58,8 @@ export interface GitPort {
   removeWorktree(input: {
     repoPath: string;
     worktreePath: string;
+    /** The worktree's branch when known (identity check before the dirty check). */
+    branch?: string;
     force?: boolean;
   }): Promise<RemoveWorktreeResult>;
 
@@ -32,16 +67,16 @@ export interface GitPort {
    * Move a pristine worktree (clean, HEAD == its base) to `toSha` (base drift rebuild).
    * Throws if the worktree has changes or commits of its own.
    */
-  resetWorktree(input: { worktreePath: string; toSha: string }): Promise<void>;
+  resetWorktree(input: WorktreeRef & { toSha: string }): Promise<void>;
 
   /** HEAD sha and whether there are no staged, unstaged or untracked (non-ignored) changes. */
-  status(input: { worktreePath: string }): Promise<{ headSha: string; clean: boolean }>;
+  status(input: WorktreeRef): Promise<{ headSha: string; clean: boolean }>;
 
   /**
    * Files that differ from `sinceSha`: commits after it plus staged, unstaged and untracked
    * (non-ignored) files. Renames list both old and new paths; deletions are included.
    */
-  changedFiles(input: { worktreePath: string; sinceSha: string }): Promise<string[]>;
+  changedFiles(input: WorktreeRef & { sinceSha: string }): Promise<string[]>;
 
   /**
    * Commit exactly `files` (repo-relative, the verified list) with `message` under the service's
@@ -49,12 +84,12 @@ export interface GitPort {
    * nothing else is ever committed, and the call throws if the index holds any other path.
    * Repository hooks never run (`core.hooksPath=/dev/null`, docs/adr/0016). When none of the
    * files has changes, returns the current HEAD with `created: false` (idempotent re-run).
+   * The worktree identity is checked again right before `git commit`, and the commit is refused
+   * when HEAD is on `baseBranch`.
    */
-  commitFiles(input: {
-    worktreePath: string;
-    message: string;
-    files: readonly string[];
-  }): Promise<{ sha: string; created: boolean }>;
+  commitFiles(
+    input: WorktreeRef & { baseBranch: string; message: string; files: readonly string[] },
+  ): Promise<{ sha: string; created: boolean }>;
 
   /**
    * Discard the worktree (uncommitted changes included) and recreate it on the current tip of
@@ -90,12 +125,9 @@ export interface GitPort {
    * while they fit in `maxChars`; sections that do not fit are left out and listed in
    * `omittedFiles`. `stat` is always complete. Read-only.
    */
-  reviewDiff(input: {
-    worktreePath: string;
-    baseSha: string;
-    headSha: string;
-    maxChars: number;
-  }): Promise<ReviewDiff>;
+  reviewDiff(
+    input: WorktreeRef & { baseSha: string; headSha: string; maxChars: number },
+  ): Promise<ReviewDiff>;
 
   /** Files changed between two commits of the repository (base drift check). */
   diffFiles(input: { repoPath: string; fromSha: string; toSha: string }): Promise<string[]>;
@@ -110,7 +142,9 @@ export interface GitPort {
 export type RemoveWorktreeResult =
   | { removed: true }
   /** Not forced and the worktree has `changes` uncommitted/untracked paths: nothing was removed. */
-  | { removed: false; reason: 'dirty'; changes: number };
+  | { removed: false; reason: 'dirty'; changes: number }
+  /** Not forced and the worktree failed the identity check (`WorktreeRef`): left for a human. */
+  | { removed: false; reason: 'tampered'; changes: 0; detail: string };
 
 export interface ReviewDiff {
   /** `git diff --stat` summary of the whole change (never truncated). */

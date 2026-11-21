@@ -88,6 +88,7 @@ export function finishRun(tx: Tx, run: Run, patch: Partial<Omit<Run, 'id'>>): Ru
       error: next.error,
       usage: next.usage,
       cost_usd: next.cost_usd,
+      cost_estimated: next.cost_estimated,
     },
     { task_id: run.task_id, run_id: run.id },
   );

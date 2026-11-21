@@ -16,6 +16,8 @@
     "summarize_threshold_chars": 600,
     "summary_max_chars": 500
   },
+  "checks": { "allow_unsandboxed": false },
+  "runners": { "dsh": { "allow_unsandboxed": false } },
   "git": { "author": { "name": "agent-team", "email": "agent-team@localhost" } },
   "paths": { "worktree_root": "~/RanoLabs/worktrees" },
   "engine": {
@@ -36,7 +38,9 @@
   "leader": {
     "enabled": true,
     "compact_threshold_tokens": 60000,
-    "event_window_ms": 3000,
+    "event_window_ms": 15000,
+    "event_max_wait_ms": 60000,
+    "digest_max_events": 30,
     "turn_timeout_ms": 600000,
     "reply_wait_ms": 240000
   },

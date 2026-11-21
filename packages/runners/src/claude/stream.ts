@@ -1,4 +1,4 @@
-import type { RunQuota, RunResult } from '@agent-team/schema';
+import type { RunErrorKind, RunQuota, RunResult } from '@agent-team/schema';
 import {
   clampUtilization,
   classifyText,
@@ -68,6 +68,57 @@ export function claudeUsage(u: unknown): RunResult['usage'] {
   });
 }
 
+/** `SDKAssistantMessageError` values (the `error` field of an assistant event). */
+const ASSISTANT_RATE_ERRORS = new Set(['rate_limit']);
+const ASSISTANT_AUTH_ERRORS = new Set(['authentication_failed', 'billing_error']);
+
+/**
+ * Where a failed claude run's error kind may come from: structured fields only — the `error`
+ * field of an assistant event (Claude Code writes a synthetic assistant message for an API
+ * failure), the result's `api_error_status`, an exhausted `rate_limit_event` — plus Claude
+ * Code's own text: stderr, and the result text/errors only while the model has not written a
+ * single message (then the text is the CLI's, e.g. "Not logged in"). Model-authored text never
+ * decides: a worker printing "usage limit reached" must not cool the runner down or get its
+ * attempt refunded.
+ */
+export class ClaudeErrorSignals {
+  /** A (non-synthetic) assistant message was seen: result text may be the model's. */
+  modelSpoke = false;
+  /** The last assistant `error` field. */
+  apiError: string | undefined;
+
+  observe(event: Record<string, unknown> | undefined): void {
+    if (event?.type !== 'assistant') return;
+    const error = str(event.error);
+    if (error !== undefined) this.apiError = error;
+    const model = isPlainObject(event.message) ? str(event.message.model) : undefined;
+    if (error === undefined && model !== '<synthetic>') this.modelSpoke = true;
+  }
+
+  /** The error kind of a failed run (`result` = the result event, if there was one). */
+  kind(
+    result: Record<string, unknown> | undefined,
+    ctx: { stderr: string; quotaExhausted?: boolean | undefined; fallback?: RunErrorKind },
+  ): RunErrorKind {
+    const status = typeof result?.api_error_status === 'number' ? result.api_error_status : null;
+    const api = this.apiError;
+    if ((api && ASSISTANT_RATE_ERRORS.has(api)) || status === 429 || ctx.quotaExhausted === true) {
+      return 'rate_limit';
+    }
+    if ((api && ASSISTANT_AUTH_ERRORS.has(api)) || status === 401 || status === 403) return 'auth';
+    return classifyText(`${this.cliText(result)}\n${ctx.stderr}`, ctx.fallback ?? 'crash');
+  }
+
+  /** Result text and errors when they can only be Claude Code's own ('' once the model spoke). */
+  cliText(result: Record<string, unknown> | undefined): string {
+    if (!result || this.modelSpoke) return '';
+    const errors = Array.isArray(result.errors)
+      ? result.errors.filter((e): e is string => typeof e === 'string')
+      : [];
+    return [str(result.result) ?? '', ...errors].join('\n');
+  }
+}
+
 /** The receipt candidate: `structured_output`, else the JSON object in the `result` text. */
 function finalOf(result: Record<string, unknown>): Record<string, unknown> | undefined {
   if (isPlainObject(result.structured_output)) return result.structured_output;
@@ -79,6 +130,7 @@ export class ClaudeStream implements StreamParser {
   sessionRef: string | undefined;
   quota: RunQuota | undefined;
   result: Record<string, unknown> | undefined;
+  readonly signals = new ClaudeErrorSignals();
 
   /** `system` (init) with the session id is the first agent event. */
   started(event: Record<string, unknown> | undefined): { sessionRef?: string } | undefined {
@@ -88,6 +140,7 @@ export class ClaudeStream implements StreamParser {
 
   line(event: Record<string, unknown> | undefined): boolean {
     if (!event) return false;
+    this.signals.observe(event);
     const type = str(event.type);
     if (type === 'system' && typeof event.session_id === 'string') {
       this.sessionRef ??= event.session_id;
@@ -116,15 +169,15 @@ export class ClaudeStream implements StreamParser {
   finish({ child, stderrTail }: { child: ChildResult; stderrTail: string[] }): RunResult {
     const base = this.partial();
     const r = this.result;
+    const stderr = stderrTail.join('\n');
     if (!r) {
       const tail = lastLine(stderrTail);
-      const text = stderrTail.join('\n');
-      const kind = classifyText(text);
+      const kind = this.signals.kind(undefined, { stderr, quotaExhausted: this.quota?.exhausted });
       const msg =
         child.exitCode === 0
           ? `claude exited without a result event${tail ? `: ${tail}` : ''}`
           : `claude exited with ${child.signal ?? `code ${child.exitCode}`}${tail ? `: ${tail}` : ''}`;
-      return this.withLimit(errorResult(kind, msg, base), text);
+      return this.withLimit(errorResult(kind, msg, base), stderr);
     }
     const subtype = str(r.subtype);
     const isError = r.is_error === true || (subtype !== undefined && subtype !== 'success');
@@ -133,8 +186,16 @@ export class ClaudeStream implements StreamParser {
       const message =
         str(r.result)?.trim() || errors.join('; ') || subtype || 'claude reported an error';
       const fallback = subtype === 'error_max_structured_output_retries' ? 'bad_output' : 'crash';
-      const kind = classifyText(`${message}\n${stderrTail.join('\n')}`, fallback);
-      return this.withLimit(errorResult(kind, `claude: ${message}`, base), message);
+      const kind = this.signals.kind(r, {
+        stderr,
+        quotaExhausted: this.quota?.exhausted,
+        fallback,
+      });
+      // the reset time is read from text only when that text is Claude Code's own
+      return this.withLimit(
+        errorResult(kind, `claude: ${message}`, base),
+        `${this.signals.cliText(r)}\n${stderr}`,
+      );
     }
     const final = finalOf(r);
     if (!final) {

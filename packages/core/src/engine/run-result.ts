@@ -13,6 +13,7 @@ import {
   type Task,
 } from '@agent-team/schema';
 import type { EngineContext, Tx } from './context.js';
+import { estimateCostUsd } from './cost.js';
 import { WORKER_REPORT_BLOCK } from './answers.js';
 import { openAttention } from './attention.js';
 import { enqueueEffect } from './effect-queue.js';
@@ -63,10 +64,16 @@ export function redactReceipt<T extends Receipt>(receipt: T): T {
   return out;
 }
 
-function resultFields(run: Run, result: RunResult) {
+/** Usage, cost (reported, else estimated from models.json prices) and session of a result. */
+function resultFields(ctx: EngineContext, run: Run, result: RunResult) {
+  const usage = result.usage ?? run.usage;
+  const reported = result.costUsd ?? (run.cost_estimated ? null : run.cost_usd);
+  const estimate =
+    reported === null ? estimateCostUsd(ctx.config.models, run.model_alias, usage) : undefined;
   return {
-    usage: result.usage ?? run.usage,
-    cost_usd: result.costUsd ?? run.cost_usd,
+    usage,
+    cost_usd: reported ?? estimate ?? null,
+    cost_estimated: reported === null && estimate !== undefined,
     session_ref: result.sessionRef ?? run.session_ref,
   };
 }
@@ -92,7 +99,7 @@ export function applyRunResult(ctx: EngineContext, tx: Tx, runId: string, result
     }
     const { state, outcome } = classifyError(kind);
     finishRun(tx, run, {
-      ...resultFields(run, result),
+      ...resultFields(ctx, run, result),
       state,
       outcome,
       error: `${kind}: ${message}`,
@@ -114,7 +121,7 @@ export function applyRunResult(ctx: EngineContext, tx: Tx, runId: string, result
   recordRunnerSuccess(tx, run.runner);
   if (!isCurrent || !task) {
     finishRun(tx, run, {
-      ...resultFields(run, result),
+      ...resultFields(ctx, run, result),
       state: 'succeeded',
       outcome: 'rejected',
       reject_reason: 'stale_dispatch: run is no longer the task’s current run',
@@ -132,7 +139,7 @@ export function applyRunResult(ctx: EngineContext, tx: Tx, runId: string, result
   if (problem !== null || !parsed.ok) {
     const reason = problem ?? 'invalid_receipt';
     finishRun(tx, run, {
-      ...resultFields(run, result),
+      ...resultFields(ctx, run, result),
       state: 'succeeded',
       outcome: 'rejected',
       reject_reason: reason,
@@ -166,7 +173,7 @@ function applyImplReceipt(
   receipt: ImplReceipt,
   result: RunResult,
 ): void {
-  const base = { ...resultFields(run, result), state: 'succeeded' as const, receipt };
+  const base = { ...resultFields(ctx, run, result), state: 'succeeded' as const, receipt };
   if (receipt.needs_leader.trim() !== '') {
     openAttention(ctx, tx, {
       task_id: task.id,
@@ -205,7 +212,12 @@ function applyReviewReceipt(
   receipt: ReviewReceipt,
   result: RunResult,
 ): void {
-  finishRun(tx, run, { ...resultFields(run, result), state: 'succeeded', outcome: 'ok', receipt });
+  finishRun(tx, run, {
+    ...resultFields(ctx, run, result),
+    state: 'succeeded',
+    outcome: 'ok',
+    receipt,
+  });
   const mustFix = receipt.findings.filter((f) => f.severity === 'must_fix').length;
   tx.emit(
     'review.completed',
