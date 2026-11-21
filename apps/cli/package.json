@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@agent-team/client": "workspace:*",
-    "@agent-team/schema": "workspace:*"
+    "@agent-team/schema": "workspace:*",
+    "commander": "15.1.0"
   }
 }

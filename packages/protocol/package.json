@@ -1,0 +1,23 @@
+{
+  "name": "@agent-team/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "files": [
+    "dist",
+    "src"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "@agent-team/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@agent-team/schema": "workspace:*",
+    "@hono/zod-openapi": "1.6.3",
+    "hono": "4.13.19",
+    "zod": "4.6.7"
+  }
+}

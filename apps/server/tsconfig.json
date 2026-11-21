@@ -4,9 +4,13 @@
     "rootDir": "src",
     "outDir": "dist",
     "tsBuildInfoFile": "dist/.tsbuildinfo",
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src"],
+  "include": [
+    "src"
+  ],
   "references": [
     {
       "path": "../../packages/schema"
@@ -22,6 +26,9 @@
     },
     {
       "path": "../../packages/git"
+    },
+    {
+      "path": "../../packages/protocol"
     }
   ]
 }

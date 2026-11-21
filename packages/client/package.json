@@ -15,6 +15,11 @@
     }
   },
   "dependencies": {
-    "@agent-team/schema": "workspace:*"
+    "@agent-team/protocol": "workspace:*",
+    "@agent-team/schema": "workspace:*",
+    "openapi-fetch": "0.17.0"
+  },
+  "devDependencies": {
+    "openapi-typescript": "7.13.0"
   }
 }

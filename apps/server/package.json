@@ -18,7 +18,12 @@
     "@agent-team/core": "workspace:*",
     "@agent-team/db": "workspace:*",
     "@agent-team/git": "workspace:*",
+    "@agent-team/protocol": "workspace:*",
     "@agent-team/runners": "workspace:*",
-    "@agent-team/schema": "workspace:*"
+    "@agent-team/schema": "workspace:*",
+    "@hono/node-server": "2.1.9",
+    "@hono/zod-openapi": "1.6.3",
+    "hono": "4.13.19",
+    "zod": "4.6.7"
   }
 }
