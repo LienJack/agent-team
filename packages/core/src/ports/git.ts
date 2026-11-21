@@ -16,8 +16,17 @@ export interface GitPort {
     baseBranch: string;
   }): Promise<{ baseSha: string; headSha: string; created: boolean }>;
 
-  /** Remove the worktree directory and its git metadata; never deletes the branch. Idempotent. */
-  removeWorktree(input: { repoPath: string; worktreePath: string }): Promise<void>;
+  /**
+   * Remove the worktree directory and its git metadata; never deletes the branch. Idempotent (an
+   * already removed worktree is `removed: true`). Without `force`, a worktree with uncommitted or
+   * untracked (non-ignored) changes is left in place and reported as `dirty`; with `force` it is
+   * removed anyway (orphans with no database record, docs/adr/0009).
+   */
+  removeWorktree(input: {
+    repoPath: string;
+    worktreePath: string;
+    force?: boolean;
+  }): Promise<RemoveWorktreeResult>;
 
   /**
    * Move a pristine worktree (clean, HEAD == its base) to `toSha` (base drift rebuild).
@@ -47,6 +56,19 @@ export interface GitPort {
   /** Resolve a ref (branch name, sha) in the primary checkout to a full sha. */
   resolveRef(input: { repoPath: string; ref: string }): Promise<string>;
 
+  /**
+   * The change under review (docs/adr/0008): `git diff --stat` and the unified diff of
+   * `baseSha..headSha`, run in the worktree. The diff holds whole per-file sections in diff order
+   * while they fit in `maxChars`; sections that do not fit are left out and listed in
+   * `omittedFiles`. `stat` is always complete. Read-only.
+   */
+  reviewDiff(input: {
+    worktreePath: string;
+    baseSha: string;
+    headSha: string;
+    maxChars: number;
+  }): Promise<ReviewDiff>;
+
   /** Files changed between two commits of the repository (base drift check). */
   diffFiles(input: { repoPath: string; fromSha: string; toSha: string }): Promise<string[]>;
 
@@ -55,4 +77,20 @@ export interface GitPort {
     repoPath: string;
     root: string;
   }): Promise<Array<{ worktreePath: string; branch: string }>>;
+}
+
+export type RemoveWorktreeResult =
+  | { removed: true }
+  /** Not forced and the worktree has `changes` uncommitted/untracked paths: nothing was removed. */
+  | { removed: false; reason: 'dirty'; changes: number };
+
+export interface ReviewDiff {
+  /** `git diff --stat` summary of the whole change (never truncated). */
+  stat: string;
+  /** Unified diff (`diff --git …` sections), possibly without the sections in `omittedFiles`. */
+  diff: string;
+  /** Whether any section was left out. */
+  truncated: boolean;
+  /** Repo-relative paths whose diff section was left out (diff order). */
+  omittedFiles: string[];
 }

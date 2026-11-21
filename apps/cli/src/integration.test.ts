@@ -143,9 +143,9 @@ describe('§14 cli — against the real server', () => {
     expect((await team('doctor')).code).toBe(0);
   });
 
-  it('ask stores the message but the leader is not implemented yet (exit 2)', async () => {
+  it('ask stores the message but the leader is not implemented yet (not_implemented, exit 1)', async () => {
     const ask = await team('ask', '你好');
-    expect(ask.code).toBe(2);
+    expect(ask.code).toBe(1);
     expect(ask.err).toMatch(/not_implemented/);
   });
 

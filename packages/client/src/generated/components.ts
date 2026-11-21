@@ -227,6 +227,7 @@ export interface components {
           | 'request_in_progress'
           | 'locked'
           | 'unavailable'
+          | 'not_implemented'
           | 'internal';
         message: string;
         hint?: string;

@@ -6,6 +6,8 @@
 // runs this script, which:
 //   1. starts the real command (`AGENT_TEAM_REAL_CMD`, a JSON argv prefix) with the SDK's
 //      arguments appended, in a NEW process group (detached), sharing our stdin/stdout/stderr;
+//      `AGENT_TEAM_EXEC_ARGS` (JSON list, e.g. `--ignore-user-config`) is inserted right after
+//      the SDK's leading `exec` subcommand, where codex accepts exec options;
 //   2. writes that group id to `AGENT_TEAM_PGID_FILE` so the runner can kill the group itself;
 //   3. on SIGTERM/SIGINT/SIGHUP (the SDK's abort) terminates the whole group: SIGTERM, then
 //      SIGKILL after the grace period;
@@ -29,12 +31,24 @@ function main(): void {
   }
   const argv = cmd as string[];
   const pgidFile = process.env.AGENT_TEAM_PGID_FILE;
+  let extra: unknown;
+  try {
+    extra = JSON.parse(process.env.AGENT_TEAM_EXEC_ARGS ?? '[]');
+  } catch {
+    extra = [];
+  }
+  const execArgs = Array.isArray(extra) ? extra.filter((a) => typeof a === 'string') : [];
+  const sdkArgs = process.argv.slice(2);
+  const args =
+    sdkArgs[0] === 'exec' && execArgs.length > 0
+      ? ['exec', ...execArgs, ...sdkArgs.slice(1)]
+      : sdkArgs;
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
     if (v !== undefined && !k.startsWith('AGENT_TEAM_')) env[k] = v;
   }
 
-  const child = spawn(argv[0]!, [...argv.slice(1), ...process.argv.slice(2)], {
+  const child = spawn(argv[0]!, [...argv.slice(1), ...args], {
     stdio: 'inherit',
     detached: true,
     env,

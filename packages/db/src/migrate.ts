@@ -55,16 +55,50 @@ export function readMigrations(dir: string = MIGRATIONS_DIR): Migration[] {
     });
 }
 
+/** `PRAGMA foreign_key_check` rows, summarised (`table → parent` × count). */
+function foreignKeyViolations(db: DatabaseSync): string[] {
+  const rows = db.prepare('PRAGMA foreign_key_check').all() as unknown as {
+    table: string;
+    parent: string;
+  }[];
+  const counts = new Map<string, number>();
+  for (const r of rows)
+    counts.set(`${r.table} → ${r.parent}`, (counts.get(`${r.table} → ${r.parent}`) ?? 0) + 1);
+  return [...counts].map(([edge, n]) => `${edge} ×${n}`);
+}
+
 /**
  * Apply every migration not yet recorded in `migration`, in one `BEGIN IMMEDIATE` transaction
  * (so two processes opening the same file cannot both apply it). Refuses to run when an applied
  * migration was edited afterwards or the database has migrations this build does not know.
  * Returns the tags applied now.
+ *
+ * Foreign-key enforcement is switched off for the transaction (it cannot change inside one, and
+ * drizzle-kit rebuilds tables to add constraints: the 12-step ALTER procedure of
+ * https://sqlite.org/lang_altertable.html), then `PRAGMA foreign_key_check` must come back empty
+ * before COMMIT — existing rows that violate a new key abort the whole upgrade.
  */
 export function applyMigrations(db: DatabaseSync, dir: string = MIGRATIONS_DIR): string[] {
   const migrations = readMigrations(dir);
   const known = new Set(migrations.map((m) => m.tag));
   const appliedNow: string[] = [];
+  const fkRow = db.prepare('PRAGMA foreign_keys').get() as { foreign_keys?: unknown };
+  const enforceFks = fkRow.foreign_keys === 1;
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    applyInTransaction(db, migrations, known, appliedNow);
+  } finally {
+    if (enforceFks) db.exec('PRAGMA foreign_keys = ON');
+  }
+  return appliedNow;
+}
+
+function applyInTransaction(
+  db: DatabaseSync,
+  migrations: Migration[],
+  known: Set<string>,
+  appliedNow: string[],
+): void {
   db.exec('BEGIN IMMEDIATE');
   try {
     db.exec(
@@ -102,12 +136,20 @@ export function applyMigrations(db: DatabaseSync, dir: string = MIGRATIONS_DIR):
       record.run(m.tag, m.hash, m.createdAt, new Date().toISOString());
       appliedNow.push(m.tag);
     }
+    if (appliedNow.length > 0) {
+      const violations = foreignKeyViolations(db);
+      if (violations.length > 0) {
+        throw new Error(
+          `migrating would leave rows that reference missing parents (${violations.join(', ')}); ` +
+            'nothing was changed',
+        );
+      }
+    }
     db.exec('COMMIT');
   } catch (err) {
     if (db.isTransaction) db.exec('ROLLBACK');
     throw err;
   }
-  return appliedNow;
 }
 
 /** Rows of the bookkeeping table, oldest first. */

@@ -225,6 +225,7 @@ export interface operations_part2 {
       403: components['responses']['Error'];
       409: components['responses']['Error'];
       500: components['responses']['Error'];
+      501: components['responses']['Error'];
       503: components['responses']['Error'];
     };
   };

@@ -11,12 +11,13 @@ import {
   type Workspace,
 } from '@agent-team/schema';
 import { errorMessage } from '../errors.js';
+import type { ReviewDiff } from '../ports/git.js';
 import { isPathOwned } from '../util/paths.js';
 import type { EngineContext, Tx } from './context.js';
 import { openAttention } from './attention.js';
 import { enqueueEffect } from './effect-queue.js';
 import { blockTask, retryLater } from './outcomes.js';
-import { buildPrompt } from './prompt.js';
+import { buildPrompt, REVIEW_DIFF_MAX_CHARS } from './prompt.js';
 import { saveTask, saveWorkspace } from './records.js';
 import { nextRunKind, type PlannedDispatch } from './scheduler.js';
 
@@ -53,7 +54,21 @@ export async function dispatchPlanned(
     } catch (err) {
       return reject(ctx, task, `workspace: ${errorMessage(err)}`);
     }
-    const runId = ctx.transact((tx) => createRun(ctx, tx, planned, project, ws));
+    // read-only reviewers cannot run git: the diff goes into the prompt (docs/adr/0008)
+    let reviewDiff: ReviewDiff | null = null;
+    if (planned.kind === 'review' && ws.head_sha !== null) {
+      try {
+        reviewDiff = await ctx.deps.git.reviewDiff({
+          worktreePath: ws.path,
+          baseSha: ws.base_sha,
+          headSha: ws.head_sha,
+          maxChars: REVIEW_DIFF_MAX_CHARS,
+        });
+      } catch (err) {
+        return reject(ctx, task, `review diff: ${errorMessage(err)}`);
+      }
+    }
+    const runId = ctx.transact((tx) => createRun(ctx, tx, planned, project, ws, reviewDiff));
     if (runId === undefined) {
       return { task_id: task.id, outcome: 'deferred', reason: 'task_changed' };
     }
@@ -171,6 +186,7 @@ function createRun(
   planned: PlannedDispatch,
   project: Project,
   ws: Workspace,
+  reviewDiff: ReviewDiff | null,
 ): string | undefined {
   const task = tx.r.tasks.get(planned.task.id);
   // the task may have changed while the worktree was prepared
@@ -190,6 +206,7 @@ function createRun(
     dispatchId,
     receiptSchema,
     implReceipt: kind === 'review' ? lastImplReceipt(tx, task.id) : null,
+    reviewDiff,
   });
   const spec: RunSpec = {
     dispatchId,

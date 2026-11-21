@@ -21,7 +21,7 @@ describe('task lifecycle (happy path)', () => {
     expect(ws).toMatchObject({
       path: `/worktrees/demo/${task.id}`,
       branch: `team/${task.id}`,
-      state: 'kept',
+      state: 'active',
     });
     expect(ws.head_sha).not.toBeNull();
     const commit = h.git.calls.find((c) => c.method === 'commitAll');

@@ -2,7 +2,7 @@ import type { NewEvent, NewMessage } from '@agent-team/schema';
 import { describe, expect, it } from 'vitest';
 import { UniqueViolationError } from '../../errors.js';
 import type { Store } from '../../ports/repositories.js';
-import { sampleAttention } from '../fixtures.js';
+import { sampleAttention, sampleProject, sampleTask } from '../fixtures.js';
 
 const T = (n: number) => `2026-11-21T00:00:${String(n).padStart(2, '0')}.000Z`;
 
@@ -37,6 +37,8 @@ export function logContract(store: () => Store): void {
   describe('attention', () => {
     it('insert, filter, update, unique id', () => {
       const s = store();
+      s.projects.insert(sampleProject());
+      s.tasks.insert(sampleTask({ id: 't_1' }));
       s.attention.insert(sampleAttention({ id: 'a_2', created_at: T(2), task_id: 't_1' }));
       s.attention.insert(sampleAttention({ id: 'a_1', created_at: T(1), status: 'answered' }));
       expect(s.attention.list().map((a) => a.id)).toEqual(['a_1', 'a_2']);

@@ -5,6 +5,7 @@ import {
   ERROR_HTTP_STATUS,
   errorEnvelope,
   ErrorEnvelopeSchema,
+  exitCodeFor,
 } from './api/errors.js';
 import { ENV_VARS, isSecretEnvVar } from './env.js';
 import { EVENT_TYPES, EventRecordSchema, parseEventData } from './events.js';
@@ -45,6 +46,8 @@ describe('events', () => {
 describe('api contracts', () => {
   it('error envelope has a status for every code', () => {
     for (const code of ERROR_CODES) expect(ERROR_HTTP_STATUS[code]).toBeGreaterThanOrEqual(400);
+    expect(ERROR_HTTP_STATUS.not_implemented).toBe(501);
+    expect(exitCodeFor('not_implemented')).toBe(1);
     const env = errorEnvelope('not_found', 'no such task', 'team task list');
     expect(ErrorEnvelopeSchema.parse(env)).toEqual(env);
     expect(errorEnvelope('internal', 'x')).toEqual({ error: { code: 'internal', message: 'x' } });
@@ -80,6 +83,21 @@ describe('env and paths', () => {
     );
     expect(isSecretEnvVar('OPENROUTER_API_KEY')).toBe(true);
     expect(isSecretEnvVar('AGENT_TEAM_HOME')).toBe(false);
+  });
+
+  it('list every process variable the apps read', () => {
+    const process = ENV_VARS.filter((v) => v.source === 'process').map((v) => v.name);
+    expect(process).toEqual(
+      expect.arrayContaining([
+        'AGENT_TEAM_HOME',
+        'AGENT_TEAM_ENV_FILE',
+        'AGENT_TEAM_CONFIG_DIR',
+        'AGENT_TEAM_FAKE_RUNNERS',
+        'AGENT_TEAM_ACTOR',
+        'AGENT_TEAM_SERVER_ENTRY',
+      ]),
+    );
+    for (const name of process) expect(isSecretEnvVar(name)).toBe(false);
   });
 
   it('build the spec layout', () => {

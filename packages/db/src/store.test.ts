@@ -129,6 +129,7 @@ describe('persistence', () => {
 describe('transactions', () => {
   it('a throw rolls back every write, also on disk', () => {
     const a = openStore();
+    a.projects.insert(sampleProject());
     a.tasks.insert(sampleTask());
     expect(() =>
       a.atomic((tx) => {
@@ -235,13 +236,16 @@ describe('unique constraints (enforced by the schema, not only by the repository
 
   it('run.dispatch_id', () => {
     const s = openStore();
+    s.projects.insert(sampleProject());
+    s.tasks.insert(sampleTask());
+    s.workspaces.insert(sampleWorkspace());
     s.runs.insert(sampleRun());
     expect(() =>
       raw(
         s,
         `INSERT INTO run (id, task_id, workspace_id, dispatch_id, kind, role, model_alias, runner,
-          model, state, log_dir, started_at) VALUES ('r_2','t','w','d_000001','impl','r','m','dsh',
-          'm','starting','/l','${T(0)}')`,
+          model, state, log_dir, started_at) VALUES ('r_2','t_000001','w_000001','d_000001',
+          'impl','r','m','dsh','m','starting','/l','${T(0)}')`,
       ),
     ).toThrow(constraint(UNIQUE));
     expect(() => s.runs.insert(sampleRun({ id: 'r_2' }))).toThrow(
@@ -306,5 +310,42 @@ describe('unique constraints (enforced by the schema, not only by the repository
       );
     insert(1);
     expect(() => insert(2)).toThrow(constraint(PRIMARY_KEY));
+  });
+});
+
+describe('foreign keys and the workspace index (enforced by the schema, docs/adr/0007)', () => {
+  const raw = (s: SqliteStore, sql: string) => s.connection.prepare(sql).run();
+  const constraint = (code: number) => expect.objectContaining({ errcode: code });
+  const FOREIGN_KEY = 787;
+  const UNIQUE = 2067;
+  const taskRow = (id: string, project: string, extra = '') =>
+    `INSERT INTO task (id, project_id, title, tier, ticket_md, owned_paths, priority, status,
+      impl_role, fix_rounds, attempts, version, created_at, updated_at${extra ? ', current_run_id' : ''})
+      VALUES ('${id}', '${project}', 't', 'C', 'x', '[]', 0, 'queued', 'impl_C', 0, 0, 1,
+      '${T(0)}', '${T(0)}'${extra ? `, '${extra}'` : ''})`;
+  const workspaceRow = (id: string, task: string, state: string) =>
+    `INSERT INTO workspace (id, task_id, path, branch, base_sha, state, created_at)
+      VALUES ('${id}', '${task}', '/w/${id}', 'team/x', 'aaaaaaa1', '${state}', '${T(0)}')`;
+
+  it('a raw insert with a missing parent fails with SQLITE_CONSTRAINT_FOREIGNKEY', () => {
+    const s = openStore();
+    expect(() => raw(s, taskRow('t_1', 'p_404'))).toThrow(constraint(FOREIGN_KEY));
+    s.projects.insert(sampleProject());
+    raw(s, taskRow('t_1', 'p_000001'));
+    expect(() => raw(s, taskRow('t_2', 'p_000001', 'r_404'))).toThrow(constraint(FOREIGN_KEY));
+    expect(() => raw(s, workspaceRow('w_1', 't_404', 'active'))).toThrow(constraint(FOREIGN_KEY));
+  });
+
+  it('a partial unique index allows one non-removed workspace per task', () => {
+    const s = openStore();
+    s.projects.insert(sampleProject());
+    raw(s, taskRow('t_1', 'p_000001'));
+    raw(s, workspaceRow('w_1', 't_1', 'removed'));
+    raw(s, workspaceRow('w_2', 't_1', 'removed'));
+    raw(s, workspaceRow('w_3', 't_1', 'active'));
+    expect(() => raw(s, workspaceRow('w_4', 't_1', 'kept'))).toThrow(constraint(UNIQUE));
+    expect(() => s.workspaces.insert(sampleWorkspace({ id: 'w_5', task_id: 't_1' }))).toThrow(
+      UniqueViolationError,
+    );
   });
 });

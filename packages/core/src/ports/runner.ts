@@ -10,9 +10,10 @@ import type {
 /** Callbacks a runner fires during `run`. */
 export interface RunHooks {
   /**
-   * Call exactly once, as soon as the agent process is known to be running (spawned and alive /
-   * thread created). The engine uses it to tell `accepted` from `rejected` dispatches: a run
-   * that resolves without calling it is treated as never started (unless it succeeded).
+   * Call exactly once, at the agent's first event (claude `system` init, codex `thread.started`,
+   * dsh `session`) — not merely at spawn. The engine uses it to tell `accepted` from `rejected`
+   * and `unknown` dispatches: a run that resolves without calling it is treated as never started
+   * (unless it succeeded), or as `start_unknown` when it says so (docs/adr/0010).
    */
   onStarted?(info: RunStartedInfo): void;
 }
@@ -23,8 +24,10 @@ export interface RunHooks {
  *
  * Contract:
  * - `run` resolves (never rejects) with a `RunResult`; failures go in `result.error`.
- * - Report `start_unknown` when the agent may or may not have started (e.g. spawn hung); the
- *   engine then never resends automatically. Any other error before `onStarted` = not started.
+ * - Report `start_unknown` when the child was spawned but ended before its first agent event
+ *   without proof that nothing ran (killed, silent exit, broken stream, no event until the
+ *   timeout); the engine then never resends automatically. Any other error before `onStarted`
+ *   (spawn failure, auth, rate limit, usage error, an explicit error event) = not started.
  * - When `signal` aborts, terminate the whole process group and resolve with `cancelled`.
  * - Enforce `spec.timeoutMs` yourself and resolve with `timeout`.
  * - Arguments as arrays (no shell); stdin closed; logs to `spec.logDir` with secrets masked.

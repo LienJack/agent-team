@@ -30,6 +30,7 @@ export function atomicContract(store: () => Store): void {
 
     it('rolls back every repository when the callback throws', () => {
       const s = store();
+      s.projects.insert(sampleProject());
       s.tasks.insert(sampleTask());
       s.events.append(event);
       const boom = new Error('boom');
@@ -37,7 +38,7 @@ export function atomicContract(store: () => Store): void {
         s.atomic((tx) => {
           const t = tx.tasks.get('t_000001')!;
           tx.tasks.update({ ...t, status: 'running' }, t.version);
-          tx.projects.insert(sampleProject());
+          tx.projects.insert(sampleProject({ id: 'p_2', name: 'other' }));
           tx.events.append(event);
           tx.effects.upsert({ kind: 'run.start', key: 'r_1', payload: null, due: event.ts });
           tx.outbox.insert({
@@ -69,7 +70,7 @@ export function atomicContract(store: () => Store): void {
         }),
       ).toThrow(boom);
       expect(s.tasks.get('t_000001')).toMatchObject({ status: 'queued', version: 1 });
-      expect(s.projects.list()).toEqual([]);
+      expect(s.projects.list().map((p) => p.id)).toEqual(['p_000001']);
       expect(s.events.lastSeq()).toBe(1);
       expect(s.effects.list()).toEqual([]);
       expect(s.outbox.list()).toEqual([]);
@@ -109,6 +110,7 @@ export function atomicContract(store: () => Store): void {
 
     it('a failed optimistic update inside a transaction leaves the row untouched', () => {
       const s = store();
+      s.projects.insert(sampleProject());
       s.tasks.insert(sampleTask());
       const result = s.atomic((tx) => tx.tasks.update(sampleTask({ status: 'done' }), 7));
       expect(result).toBeUndefined();

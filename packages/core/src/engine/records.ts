@@ -104,12 +104,6 @@ export function saveWorkspace(tx: Tx, ws: Workspace, patch: Partial<Omit<Workspa
   return next;
 }
 
-/** Workspace of a finished task is kept until the cleanup sweep removes it. */
-export function keepWorkspace(tx: Tx, taskId: string): void {
-  const ws = tx.r.workspaces.findCurrentByTask(taskId);
-  if (ws && ws.state === 'active') saveWorkspace(tx, ws, { state: 'kept' });
-}
-
 /** The most recent run of a task (by started_at). */
 export function lastRun(tx: Tx, taskId: string): Run | undefined {
   const runs = tx.r.runs.list({ task_id: taskId });

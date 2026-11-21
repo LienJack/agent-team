@@ -15,6 +15,8 @@ export const ERROR_CODES = [
   'request_in_progress',
   'locked',
   'unavailable',
+  /** The endpoint exists but its feature is not built yet (e.g. the phase 2 leader stub). */
+  'not_implemented',
   'internal',
 ] as const;
 export const ErrorCodeSchema = z.enum(ERROR_CODES);
@@ -35,6 +37,7 @@ export const ERROR_HTTP_STATUS: Readonly<Record<ErrorCode, number>> = {
   request_in_progress: 409,
   locked: 429,
   unavailable: 503,
+  not_implemented: 501,
   internal: 500,
 };
 

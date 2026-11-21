@@ -5,6 +5,15 @@ import { sampleProject, sampleRun, sampleTask, sampleWorkspace } from '../fixtur
 
 const at = (n: number) => `2026-11-21T00:00:0${n}.000Z`;
 
+/** Parent rows the foreign keys require: project p_000001, task t_000001, workspace w_000001. */
+export function seedParents(s: Store, depth: 'project' | 'task' | 'workspace' = 'workspace'): void {
+  s.projects.insert(sampleProject());
+  if (depth === 'project') return;
+  s.tasks.insert(sampleTask());
+  if (depth === 'task') return;
+  s.workspaces.insert(sampleWorkspace());
+}
+
 /** projects, tasks (optimistic lock), workspaces, runs. */
 export function entityContract(store: () => Store): void {
   describe('projects', () => {
@@ -42,6 +51,8 @@ export function entityContract(store: () => Store): void {
   describe('tasks', () => {
     it('insert, get and list with filters in created_at order', () => {
       const s = store();
+      seedParents(s, 'project');
+      s.projects.insert(sampleProject({ id: 'p_2', name: 'other' }));
       s.tasks.insert(sampleTask({ id: 't_3', created_at: at(3), status: 'done' }));
       s.tasks.insert(sampleTask({ id: 't_1', created_at: at(1) }));
       s.tasks.insert(
@@ -60,6 +71,7 @@ export function entityContract(store: () => Store): void {
 
     it('round-trips every field, including arrays and nulls', () => {
       const s = store();
+      seedParents(s, 'project');
       const task = sampleTask({
         owned_paths: ['a/', 'b/**/*.ts'],
         blocked_reason: '原因',
@@ -72,6 +84,7 @@ export function entityContract(store: () => Store): void {
 
     it('update is compare-and-set on version (optimistic lock)', () => {
       const s = store();
+      seedParents(s, 'project');
       s.tasks.insert(sampleTask({ version: 1 }));
       const t = s.tasks.get('t_000001')!;
       const stored = s.tasks.update({ ...t, status: 'running', version: 99 }, 1);
@@ -90,6 +103,7 @@ export function entityContract(store: () => Store): void {
   describe('workspaces', () => {
     it('findCurrentByTask ignores removed workspaces', () => {
       const s = store();
+      seedParents(s, 'task');
       s.workspaces.insert(sampleWorkspace({ id: 'w_1', state: 'removed', created_at: at(1) }));
       expect(s.workspaces.findCurrentByTask('t_000001')).toBeUndefined();
       s.workspaces.insert(sampleWorkspace({ id: 'w_2', state: 'kept', created_at: at(2) }));
@@ -109,6 +123,7 @@ export function entityContract(store: () => Store): void {
   describe('runs', () => {
     it('dispatch_id is unique and looked up', () => {
       const s = store();
+      seedParents(s);
       s.runs.insert(sampleRun());
       expect(s.runs.getByDispatchId('d_000001')?.id).toBe('r_000001');
       expect(() => s.runs.insert(sampleRun({ id: 'r_2' }))).toThrow(UniqueViolationError);
@@ -118,6 +133,8 @@ export function entityContract(store: () => Store): void {
 
     it('lists by task and state in started_at order; round-trips receipt and usage', () => {
       const s = store();
+      seedParents(s);
+      s.tasks.insert(sampleTask({ id: 't_2' }));
       s.runs.insert(
         sampleRun({ id: 'r_2', dispatch_id: 'd_2', started_at: at(2), state: 'running' }),
       );

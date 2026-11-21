@@ -1,6 +1,6 @@
 import type { RunHooks } from '@agent-team/core';
 import type { RunResult, RunSpec } from '@agent-team/schema';
-import { errorResult } from './classify.js';
+import { errorResult, startTimeoutResult, unstartedResult } from './classify.js';
 import { parseJsonLine } from './process/lines.js';
 import { RunLog } from './process/run-log.js';
 import { runChild, type ChildResult } from './process/spawn.js';
@@ -8,6 +8,14 @@ import { makeRedactor, type Redactor } from './redact.js';
 
 /** What a spawn-based runner (claude, dsh) knows how to do with its event stream. */
 export interface StreamParser {
+  /**
+   * Whether `event` is the agent's first event proving it runs (claude `system` init, dsh
+   * `session`); returns what it tells (session id). The driver calls `onStarted` then, not at
+   * spawn: a process that dies before it may or may not have started (docs/adr/0010).
+   */
+  started(event: Record<string, unknown> | undefined): { sessionRef?: string } | undefined;
+  /** The CLI emitted an explicit error event before starting (it refused; nothing ran). */
+  refused?(): boolean;
   /** One stdout line; return true when it is the agent's end signal (e.g. claude `result`). */
   line(event: Record<string, unknown> | undefined, raw: string): boolean;
   /** Fields known so far (usage, sessionRef, quota) — kept on timeout/cancel. */
@@ -56,6 +64,16 @@ export async function runCli(input: CliRunInput): Promise<RunResult> {
   }
 
   const stderrTail: string[] = [];
+  let pid: number | undefined;
+  let started = false;
+  const markStarted = (info: { sessionRef?: string }) => {
+    started = true;
+    try {
+      input.hooks?.onStarted?.({ ...(pid === undefined ? {} : { pid }), ...info });
+    } catch {
+      // runs inside the stdout handler: never let it escape
+    }
+  };
   if (input.signal.aborted) {
     // aborted while the log dir was being prepared: never spawn
     await log.close();
@@ -72,16 +90,17 @@ export async function runCli(input: CliRunInput): Promise<RunResult> {
       signal: input.signal,
       ...(input.killGraceMs === undefined ? {} : { killGraceMs: input.killGraceMs }),
       ...(input.endGraceMs === undefined ? {} : { endGraceMs: input.endGraceMs }),
-      onSpawn: (pid) => {
-        try {
-          input.hooks?.onStarted?.({ pid });
-        } catch {
-          // runs inside the child's 'spawn' listener: never let it escape
-        }
+      onSpawn: (childPid) => {
+        pid = childPid;
       },
       onStdoutLine: (raw) => {
         log?.event(raw);
-        return parser.line(parseJsonLine(raw), raw) ? 'end' : undefined;
+        const event = parseJsonLine(raw);
+        if (!started) {
+          const info = parser.started(event);
+          if (info) markStarted(info);
+        }
+        return parser.line(event, raw) ? 'end' : undefined;
       },
       onStderrLine: (line) => {
         log?.stderrLine(line);
@@ -89,6 +108,11 @@ export async function runCli(input: CliRunInput): Promise<RunResult> {
         if (stderrTail.length > STDERR_TAIL) stderrTail.shift();
       },
     });
+    const evidence = {
+      label,
+      text: stderrTail.join('\n'),
+      refused: parser.refused?.() === true,
+    };
     switch (child.reason) {
       case 'spawn_error':
         return safe(
@@ -98,16 +122,20 @@ export async function runCli(input: CliRunInput): Promise<RunResult> {
           ),
         );
       case 'timeout':
+        if (!started) return safe(startTimeoutResult(label, spec.timeoutMs));
         return safe(
           errorResult('timeout', `${label} timed out after ${spec.timeoutMs} ms`, parser.partial()),
         );
       case 'aborted':
         return safe(errorResult('cancelled', `${label} run cancelled`, parser.partial()));
-      default:
-        return safe(parser.finish({ child, stderrTail }));
+      default: {
+        const result = parser.finish({ child, stderrTail });
+        return safe(started ? result : unstartedResult(result, evidence));
+      }
     }
   } catch (err) {
-    return safe(errorResult('crash', `${label}: ${(err as Error).message}`, parser.partial()));
+    const result = errorResult('crash', `${label}: ${(err as Error).message}`, parser.partial());
+    return safe(started ? result : unstartedResult(result, { label, text: '' }));
   } finally {
     await log.close();
   }

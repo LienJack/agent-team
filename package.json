@@ -13,6 +13,7 @@
     "test": "vitest run",
     "build": "tsc -b --force",
     "check:boundaries": "node tools/check-boundaries.mjs",
+    "check:generated": "pnpm --filter @agent-team/protocol check:generated && pnpm --filter @agent-team/client check:generated",
     "clean": "tsc -b --clean",
     "hooks:install": "husky"
   },

@@ -80,6 +80,12 @@ export class ClaudeStream implements StreamParser {
   quota: RunQuota | undefined;
   result: Record<string, unknown> | undefined;
 
+  /** `system` (init) with the session id is the first agent event. */
+  started(event: Record<string, unknown> | undefined): { sessionRef?: string } | undefined {
+    if (event?.type !== 'system' || typeof event.session_id !== 'string') return undefined;
+    return { sessionRef: event.session_id };
+  }
+
   line(event: Record<string, unknown> | undefined): boolean {
     if (!event) return false;
     const type = str(event.type);

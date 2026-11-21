@@ -5,8 +5,7 @@ import type { Leader, LeaderDeps } from './types.js';
 /**
  * Phase 2 leader: no conversation yet. Messages are still stored (the route records them before
  * calling `handleMessage`), `resumeBrief()` is the real model-free summary, and the reply is a
- * clear `unavailable` error whose message starts with `not_implemented` (the error code list in
- * `packages/schema` has no `not_implemented`).
+ * `not_implemented` error (HTTP 501).
  */
 export function createLeader(deps: LeaderDeps): Leader {
   return {
@@ -16,7 +15,7 @@ export function createLeader(deps: LeaderDeps): Leader {
     },
     handleMessage: async () => {
       throw new TeamError(
-        'unavailable',
+        'not_implemented',
         'not_implemented: the leader conversation is not available yet; the message was stored',
         'use `team task …` / `team attention …` meanwhile',
       );

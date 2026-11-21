@@ -6,12 +6,10 @@ import {
 } from '@agent-team/schema';
 import { errorMessage } from '../errors.js';
 import type { EngineContext, Tx } from './context.js';
-import { openAttention } from './attention.js';
 import { effectPayload, type EffectFinalizer } from './effect-queue.js';
-import { blockTask } from './outcomes.js';
-import { finishRun, saveRun } from './records.js';
+import { saveRun } from './records.js';
 import { applyRunResult } from './run-result.js';
-import { recordRunnerFailure } from './runner-health.js';
+import { applyStartUnknown } from './start-unknown.js';
 
 type StartSignal = { started: true; info: RunStartedInfo } | { started: false; result: RunResult };
 
@@ -117,19 +115,5 @@ function applyUnstarted(ctx: EngineContext, tx: Tx, runId: string, result: RunRe
   }
 
   tx.emit('run.dispatched', { outcome: 'unknown', reason: result.error.message }, refs);
-  finishRun(tx, run, {
-    state: 'start_unknown',
-    outcome: 'error',
-    error: `start_unknown: ${result.error.message}`,
-  });
-  recordRunnerFailure(ctx, tx, run.runner);
-  const task = tx.r.tasks.get(run.task_id);
-  if (!task || task.current_run_id !== run.id) return;
-  blockTask(ctx, tx, task, `無法確認 run ${run.id} 是否已啟動（${result.error.message}）`);
-  openAttention(ctx, tx, {
-    task_id: task.id,
-    kind: 'decision',
-    question: `run ${run.id}（${task.title}）是否已啟動無法確認；確認沒有殘留的 worker 後再決定。`,
-    options: ['重試', '取消'],
-  });
+  applyStartUnknown(ctx, tx, run, result.error.message);
 }

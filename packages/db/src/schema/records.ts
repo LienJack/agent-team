@@ -14,6 +14,7 @@ import {
   text,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
+import { task } from './entities.js';
 
 // Drizzle tables for the spec §5 logs and records, plus two internal tables (`counter`; the
 // `migration` bookkeeping table is created by ../migrate.ts, not by drizzle-kit).
@@ -76,7 +77,7 @@ export const outbox = sqliteTable(
     body: text().notNull(),
     signature: text().notNull().unique(),
     status: text().$type<OutboxItem['status']>().notNull(),
-    task_id: text(),
+    task_id: text().references(() => task.id),
     attempts: integer().notNull(),
     error: text(),
     created_at: text().notNull(),

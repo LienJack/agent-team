@@ -1,14 +1,24 @@
 import type { Attention, Project, Run, Task, Workspace } from '@agent-team/schema';
-import { index, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { sql } from 'drizzle-orm';
+import {
+  index,
+  integer,
+  real,
+  sqliteTable,
+  text,
+  uniqueIndex,
+  type AnySQLiteColumn,
+} from 'drizzle-orm/sqlite-core';
 
 // Drizzle tables for the spec §5 entities (+ docs/adr/0004 fields). Column names equal the Zod
 // field names in packages/schema, so a selected row is the domain object as-is (checked by the
 // type assertions in ../repos/rows.ts). Only type imports from @agent-team/schema, so drizzle-kit
 // can load this file without a built schema package.
 //
-// No FOREIGN KEY constraints: the repository contract (core/testing) stores rows whose parents do
-// not exist (tasks without projects, runs without workspaces, …), like the in-memory reference
-// store. `PRAGMA foreign_keys = ON` is still set on every connection (see ../open.ts).
+// Foreign keys (docs/adr/0007): task → project, parent task, current run; workspace, run,
+// attention, outbox → task; run → workspace. No ON DELETE actions (these rows are never deleted).
+// `PRAGMA foreign_keys = ON` is set on every connection (see ../open.ts); the in-memory store
+// enforces the same keys, so the repository contract is identical for both.
 
 export const project = sqliteTable('project', {
   id: text().primaryKey(),
@@ -23,8 +33,10 @@ export const task = sqliteTable(
   'task',
   {
     id: text().primaryKey(),
-    project_id: text().notNull(),
-    parent_id: text(),
+    project_id: text()
+      .notNull()
+      .references(() => project.id),
+    parent_id: text().references((): AnySQLiteColumn => task.id),
     title: text().notNull(),
     tier: text().$type<Task['tier']>().notNull(),
     ticket_md: text().notNull(),
@@ -36,7 +48,8 @@ export const task = sqliteTable(
     attempts: integer().notNull(),
     blocked_reason: text(),
     version: integer().notNull(),
-    current_run_id: text(),
+    // task ↔ run is a cycle: the run is inserted first, then the task points at it
+    current_run_id: text().references((): AnySQLiteColumn => run.id),
     retry_at: text(),
     fix_notes: text(),
     recovery_note: text(),
@@ -54,7 +67,9 @@ export const workspace = sqliteTable(
   'workspace',
   {
     id: text().primaryKey(),
-    task_id: text().notNull(),
+    task_id: text()
+      .notNull()
+      .references(() => task.id),
     path: text().notNull(),
     branch: text().notNull(),
     base_sha: text().notNull(),
@@ -63,15 +78,26 @@ export const workspace = sqliteTable(
     created_at: text().notNull(),
     removed_at: text(),
   },
-  (t) => [index('workspace_task_idx').on(t.task_id), index('workspace_state_idx').on(t.state)],
+  (t) => [
+    index('workspace_task_idx').on(t.task_id),
+    index('workspace_state_idx').on(t.state),
+    // at most one non-removed workspace per task (WorkspaceSchema)
+    uniqueIndex('workspace_current_task_unique')
+      .on(t.task_id)
+      .where(sql`state <> 'removed'`),
+  ],
 );
 
 export const run = sqliteTable(
   'run',
   {
     id: text().primaryKey(),
-    task_id: text().notNull(),
-    workspace_id: text().notNull(),
+    task_id: text()
+      .notNull()
+      .references(() => task.id),
+    workspace_id: text()
+      .notNull()
+      .references(() => workspace.id),
     dispatch_id: text().notNull().unique(),
     kind: text().$type<Run['kind']>().notNull(),
     role: text().notNull(),
@@ -98,7 +124,7 @@ export const attention = sqliteTable(
   'attention',
   {
     id: text().primaryKey(),
-    task_id: text(),
+    task_id: text().references(() => task.id),
     kind: text().$type<Attention['kind']>().notNull(),
     question: text().notNull(),
     options: text({ mode: 'json' }).$type<Attention['options']>().notNull(),

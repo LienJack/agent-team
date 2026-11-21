@@ -19,7 +19,8 @@ export interface RecoveryReport {
  *    stay in `review` (review runs — the committed work is intact) with a recovery note for the
  *    next prompt;
  * 2. pending idempotency records are dropped (nothing can still be processing them);
- * 3. worktrees under the worktree root with no workspace record get a `workspace.remove` effect;
+ * 3. worktrees under the worktree root with no workspace record get a `workspace.remove` effect
+ *    (forced: nothing references them; docs/adr/0009);
  * 4. unfinished effects simply run again (start effects of abandoned runs become no-ops).
  */
 export async function recover(ctx: EngineContext): Promise<RecoveryReport> {
@@ -114,7 +115,8 @@ export function sweepWorkspaces(ctx: EngineContext): number {
   for (const task of ctx.store.tasks.list({ statuses: ['done', 'cancelled'] })) {
     if (task.updated_at > cutoff) continue;
     const ws = ctx.store.workspaces.findCurrentByTask(task.id);
-    if (!ws || ctx.store.effects.get('workspace.remove', ws.id)) continue;
+    // `kept` = a removal found uncommitted changes; a human decides, never swept again
+    if (!ws || ws.state !== 'active' || ctx.store.effects.get('workspace.remove', ws.id)) continue;
     const project = ctx.store.projects.get(task.project_id);
     if (!project) continue;
     ctx.transact((tx) =>

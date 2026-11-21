@@ -50,7 +50,8 @@ pnpm typecheck          # tsc -b（project references，輸出到各套件 dist/
 pnpm test               # vitest，直接跑原始碼，不需先 build
 pnpm build              # tsc -b --force
 pnpm check:boundaries   # 分層、IO 純度、500 行上限
+pnpm check:generated    # openapi.json 與 client 產生型別沒有漂移
 ```
 
-只跑一個套件：`pnpm exec vitest run --project core`。提交前五項（lint、typecheck、test、build、
-check:boundaries）都要過；pre-commit hook 會對暫存檔跑 oxlint 與 oxfmt。
+只跑一個套件：`pnpm exec vitest run --project core`。提交前六項（lint、typecheck、test、build、
+check:boundaries、check:generated）都要過；pre-commit hook 會對暫存檔跑 oxlint 與 oxfmt。

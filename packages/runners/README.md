@@ -10,7 +10,9 @@ Runner 實作（spec §7）：`claude`（`claude -p` stream-json）、`codex`（
 `createCheckExecutor()`、`@agent-team/runners/testing`（照劇本的假 CLI `fakeCliCommand`／`writeScenario`／`lastRecord`）。
 
 - 子行程環境一律白名單（不繼承 `GIT_*`、`CLAUDECODE`、`ANTHROPIC_*`、任何金鑰）；dsh 只多拿 `OPENROUTER_API_KEY`。
-- codex 經 `codexPathOverride` 走 `src/codex/group-wrapper.ts`，讓 codex 自成行程群組，取消時能整群終止。
+- codex 經 `codexPathOverride` 走 `src/codex/group-wrapper.ts`，讓 codex 自成行程群組，取消時能整群終止；
+  wrapper 也在 `exec` 後插入 `--ignore-user-config --ignore-rules`（probe 找到才傳），並關掉技能清單（ADR 0011）。
+- `hooks.onStarted` 在第一個 agent 事件時呼叫；在那之前結束且無法證明沒開始工作 → `start_unknown`（ADR 0010）。
 - dsh 的模型、`approval: never` 與沙箱模式（唯讀 run 為 `read-only`）寫在 run 日誌目錄的 `dsh.patch.yml`，以 `--patch` 套用。
 - 檢查指令能拆成參數陣列就不經 shell；含 `&&`、`|`、`$`、萬用字元等才用 `/bin/sh -c`（理由見 `src/checks/argv.ts`）。
 - 冒煙測試：`TEAM_SMOKE=1 pnpm --filter @agent-team/runners test:smoke`（會花真實額度；`SMOKE_ONLY=claude|codex|dsh`）。

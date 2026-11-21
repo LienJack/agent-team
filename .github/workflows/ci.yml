@@ -50,6 +50,10 @@ jobs:
       - name: boundary check
         run: pnpm check:boundaries
 
-      # later phases: fail when generated files (openapi.json, migrations) drift
-      - name: generated files unchanged
+      # openapi.json from the route contracts, then the client types from openapi.json
+      - name: generated files up to date
+        run: pnpm check:generated
+
+      # anything else the steps above rewrote (formatting, generated files) must be committed
+      - name: working tree unchanged
         run: git diff --exit-code

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-const port = z.number().int().min(1).max(65535);
+/** 0 = let the OS pick a free port (tests, ephemeral instances). */
+const port = z.number().int().min(0).max(65535);
 const ms = z.number().int().positive();
 
 /**
@@ -32,6 +33,23 @@ export const ServiceConfigSchema = z.strictObject({
   grok: z
     .strictObject({
       enabled: z.boolean().default(false),
+    })
+    .prefault({}),
+  /** Service-side commits (spec §6 step 5). */
+  git: z
+    .strictObject({
+      author: z
+        .strictObject({
+          name: z
+            .string()
+            .regex(/^[^<>\n]+$/, 'a plain name (no <, > or newlines)')
+            .default('agent-team'),
+          email: z
+            .string()
+            .regex(/^[^\s<>@]+@[^\s<>@]+$/, 'an address like name@host')
+            .default('agent-team@localhost'),
+        })
+        .prefault({}),
     })
     .prefault({}),
   paths: z

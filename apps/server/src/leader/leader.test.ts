@@ -53,7 +53,7 @@ describe('resumeBrief (spec §9 GET /resume, no model)', () => {
     await expect(
       h.service.leader.handleMessage(message, { duplicate: false }),
     ).rejects.toMatchObject({
-      code: 'unavailable',
+      code: 'not_implemented',
       message: expect.stringMatching(/^not_implemented/),
     });
     expect(() => h.service.leader.notify([])).not.toThrow();

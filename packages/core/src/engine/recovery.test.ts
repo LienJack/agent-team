@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { InMemoryStore } from '../memory/store.js';
+import type { FakeGit } from '../testing/fake-git.js';
 import { sampleRun, sampleWorkspace } from '../testing/fixtures.js';
 import { createTestEngine, editing } from '../testing/harness.js';
 
 /** Simulate a crash: a new engine on the same store (in-memory runs/controllers are lost). */
-function restart(store: InMemoryStore) {
-  return createTestEngine({ store, idOffset: 1000 });
+function restart(store: InMemoryStore, git?: FakeGit) {
+  return createTestEngine({ store, idOffset: 1000, ...(git ? { git } : {}) });
 }
 
 describe('§14 啟動復原 — startup recovery', () => {
@@ -75,7 +76,7 @@ describe('§14 啟動復原 — startup recovery', () => {
     expect(store.tasks.get(task.id)?.status).toBe('review');
 
     const reviewRun = store.runs.list({ task_id: task.id })[1]!;
-    const after = restart(store);
+    const after = restart(store, before.git);
     const report = await after.engine.recover();
     expect(report.requeuedTasks).toEqual([task.id]);
     const t = store.tasks.get(task.id)!;
@@ -208,14 +209,52 @@ describe('cleanup sweep', () => {
     const task = h.task();
     await h.engine.runUntilIdle();
     const ws = h.store.workspaces.findCurrentByTask(task.id)!;
-    expect(ws.state).toBe('kept');
+    expect(ws.state).toBe('active');
     h.clock.advance(71 * 3600_000);
     await h.engine.runUntilIdle();
-    expect(h.store.workspaces.get(ws.id)?.state).toBe('kept');
+    expect(h.store.workspaces.get(ws.id)?.state).toBe('active');
     h.clock.advance(2 * 3600_000);
     await h.engine.runUntilIdle();
     expect(h.store.workspaces.get(ws.id)).toMatchObject({ state: 'removed' });
     expect(h.git.worktrees.has(ws.path)).toBe(false);
     expect(h.git.calls.filter((c) => c.method === 'removeWorktree')).toHaveLength(1);
+  });
+
+  it('a dirty worktree is never forced: kept, one attention item, no retry loop', async () => {
+    const h = createTestEngine({ config: { notifications: false } });
+    h.runners.dsh.script(editing(h.git, ['src/feature/a.ts']));
+    const task = h.task();
+    await h.engine.runUntilIdle();
+    const ws = h.store.workspaces.findCurrentByTask(task.id)!;
+    h.git.touch(ws.path, ['src/feature/later.ts']); // someone edited after the task finished
+    h.clock.advance(73 * 3600_000);
+    await h.engine.runUntilIdle();
+    h.clock.advance(24 * 3600_000);
+    await h.engine.runUntilIdle();
+
+    expect(h.store.workspaces.get(ws.id)?.state).toBe('kept');
+    expect(h.git.worktrees.has(ws.path)).toBe(true);
+    const removals = h.git.calls.filter((c) => c.method === 'removeWorktree');
+    expect(removals.map((c) => c.input)).toEqual([
+      { repoPath: '/repos/demo', worktreePath: ws.path, force: false },
+    ]);
+    expect(h.store.effects.list()).toEqual([]);
+    const open = h.store.attention.list({ task_id: task.id, statuses: ['open'] });
+    expect(open).toHaveLength(1);
+    expect(open[0]!.question).toContain('1 個未提交的變更');
+    expect(h.eventTypes(task.id).filter((t) => t === 'workspace.kept')).toHaveLength(1);
+  });
+
+  it('recovery force-removes orphans (no workspace record) even when dirty', async () => {
+    const h = createTestEngine();
+    h.project();
+    h.git.addStrayWorktree('/repos/demo', '/worktrees/demo/t_stray', 'team/t_stray');
+    h.git.touch('/worktrees/demo/t_stray', ['junk.txt']);
+    await h.engine.recover();
+    await h.engine.runUntilIdle();
+    expect(h.git.worktrees.has('/worktrees/demo/t_stray')).toBe(false);
+    expect(h.git.calls.find((c) => c.method === 'removeWorktree')?.input).toMatchObject({
+      force: true,
+    });
   });
 });

@@ -1,4 +1,4 @@
-import { UniqueViolationError } from '@agent-team/core';
+import { ForeignKeyViolationError, UniqueViolationError } from '@agent-team/core';
 import { and, sql, type SQL } from 'drizzle-orm';
 import type { NodeSqliteDatabase } from '../driver/node-sqlite.js';
 import { counter } from '../schema/index.js';
@@ -14,6 +14,7 @@ export interface RepoDeps {
 }
 
 // Extended result codes (https://sqlite.org/rescode.html).
+const SQLITE_CONSTRAINT_FOREIGNKEY = 787;
 const SQLITE_CONSTRAINT_PRIMARYKEY = 1555;
 const SQLITE_CONSTRAINT_UNIQUE = 2067;
 const MAX_CAUSE_DEPTH = 8;
@@ -38,6 +39,10 @@ export function isUniqueViolation(err: unknown): boolean {
   return code === SQLITE_CONSTRAINT_UNIQUE || code === SQLITE_CONSTRAINT_PRIMARYKEY;
 }
 
+export function isForeignKeyViolation(err: unknown): boolean {
+  return sqliteError(err)?.errcode === SQLITE_CONSTRAINT_FOREIGNKEY;
+}
+
 /** Columns named by SQLite's "UNIQUE constraint failed: t.a, t.b" message. */
 function failedColumns(err: unknown): string[] {
   const message = sqliteError(err)?.message ?? '';
@@ -47,13 +52,16 @@ function failedColumns(err: unknown): string[] {
 }
 
 /**
- * Run a write and turn a unique/primary-key conflict into `UniqueViolationError` (the statement
- * is undone by SQLite; an enclosing transaction stays usable).
+ * Run a write and turn constraint failures into the contract's errors: a unique/primary-key
+ * conflict (including the partial "one non-removed workspace per task" index) into
+ * `UniqueViolationError`, a foreign key into `ForeignKeyViolationError` (SQLite does not say
+ * which one). The statement is undone by SQLite; an enclosing transaction stays usable.
  */
 export function guardUnique<T>(entity: string, row: object, write: () => T): T {
   try {
     return write();
   } catch (err) {
+    if (isForeignKeyViolation(err)) throw new ForeignKeyViolationError(entity, 'parent row');
     if (!isUniqueViolation(err)) throw err;
     const values = row as Record<string, unknown>;
     const columns = failedColumns(err);

@@ -17,7 +17,7 @@ import type { EngineContext, Tx } from './context.js';
 import { answerAttention, openAttention } from './attention.js';
 import { enqueueEffect } from './effect-queue.js';
 import { completeTask, requestFix } from './outcomes.js';
-import { finishRun, keepWorkspace, lastRun, requireTask, saveTask } from './records.js';
+import { finishRun, lastRun, requireTask, saveTask } from './records.js';
 
 // Human/leader commands (spec §11 task actions). Each runs in one transaction. A `human` actor
 // marks the task so the scheduler may use the reserved slot for it (spec §8).
@@ -140,9 +140,8 @@ export function cancelTask(ctx: EngineContext, id: string, reason = 'cancelled')
     }
     // a pending verification is fenced off by current_run_id and becomes a no-op
     stopCurrentRun(tx, task, reason);
-    const next = saveTask(tx, task, { status: 'cancelled', current_run_id: null }, reason);
-    keepWorkspace(tx, id);
-    return next;
+    // the worktree stays `active` until the cleanup sweep (docs/adr/0009)
+    return saveTask(tx, task, { status: 'cancelled', current_run_id: null }, reason);
   });
 }
 

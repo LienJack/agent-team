@@ -29,7 +29,14 @@ export {
   type PlannedDispatch,
   type PlanResult,
 } from './engine/scheduler.js';
-export { buildPrompt, recoveryNoteFor, type PromptInput } from './engine/prompt.js';
+export {
+  acceptanceSection,
+  buildPrompt,
+  formatReviewDiff,
+  recoveryNoteFor,
+  REVIEW_DIFF_MAX_CHARS,
+  type PromptInput,
+} from './engine/prompt.js';
 export { formatFindings } from './engine/run-result.js';
 export { CHECK_TAIL_LINES } from './engine/verify.js';
 export { EFFECT_HANDLERS, EffectExecutor } from './engine/effects.js';

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe } from 'vitest';
 import type { Store } from '../../ports/repositories.js';
 import { atomicContract } from './atomic.js';
 import { entityContract } from './entities.js';
+import { integrityContract } from './integrity.js';
 import { logContract } from './logs.js';
 import { recordContract } from './records.js';
 
@@ -44,5 +45,6 @@ export function runRepositoryContract(
     logContract(get);
     recordContract(get);
     atomicContract(get);
+    integrityContract(get);
   });
 }

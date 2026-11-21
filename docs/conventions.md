@@ -43,9 +43,10 @@
 
 - **repositories 是同步的**；`Store.atomic(fn)` 的 `fn` 必須同步，丟例外就全部回滾。回傳的物件是複本。
   `tasks.update(next, expectedVersion)` 是比較後設定（樂觀鎖），版本不符回 `undefined`。
-  唯一鍵衝突丟 `UniqueViolationError`。`events.append`、`messages.insert` 由 repository 配 `seq`。
+  唯一鍵衝突丟 `UniqueViolationError`，參照不存在的父列丟 `ForeignKeyViolationError`（ADR 0007）。
+  `events.append`、`messages.insert` 由 repository 配 `seq`。
 - 實作 `Store` 的套件必須跑 `runRepositoryContract(name, factory, { teardown })`。
-- `Runner.run` 一定 resolve；確認 agent 已啟動時呼叫一次 `hooks.onStarted`；無法判斷是否啟動回
+- `Runner.run` 一定 resolve；收到 agent 的第一個事件時呼叫一次 `hooks.onStarted`；無法判斷是否啟動回
   `start_unknown`；收到 abort 終止整個行程群組並回 `cancelled`；自己執行 `timeoutMs`。
 - `RunSpec` 不放秘密（會存進 effect 表）；runner 自己取得它需要的那一個憑證。
 - `GitPort` 的方法要能重複執行（effect 可能在重啟後重跑）；檔案清單為 repo 相對 POSIX 路徑，排序去重。

@@ -1,4 +1,4 @@
-import type { GitPort } from '../ports/git.js';
+import type { GitPort, RemoveWorktreeResult, ReviewDiff } from '../ports/git.js';
 
 interface Commit {
   sha: string;
@@ -137,9 +137,18 @@ export class FakeGit implements GitPort {
     return { baseSha, headSha: baseSha, created: true };
   }
 
-  async removeWorktree(input: { repoPath: string; worktreePath: string }): Promise<void> {
+  async removeWorktree(input: {
+    repoPath: string;
+    worktreePath: string;
+    force?: boolean;
+  }): Promise<RemoveWorktreeResult> {
     this.record('removeWorktree', input);
+    const wt = this.worktrees.get(input.worktreePath);
+    if (wt && wt.dirty.size > 0 && input.force !== true) {
+      return { removed: false, reason: 'dirty', changes: wt.dirty.size };
+    }
     this.worktrees.delete(input.worktreePath);
+    return { removed: true };
   }
 
   async resetWorktree(input: { worktreePath: string; toSha: string }): Promise<void> {
@@ -174,6 +183,42 @@ export class FakeGit implements GitPort {
     wt.dirty.clear();
     return { sha: commit.sha, created: true };
   }
+
+  /**
+   * One fake section per file committed in `baseSha..headSha` (`diff --git a/f b/f` + one added
+   * line), filled whole while it fits in `maxChars`, like the real port.
+   */
+  async reviewDiff(input: {
+    worktreePath: string;
+    baseSha: string;
+    headSha: string;
+    maxChars: number;
+  }): Promise<ReviewDiff> {
+    this.record('reviewDiff', input);
+    const wt = this.wt(input.worktreePath);
+    const from =
+      input.baseSha === wt.baseSha ? 0 : wt.commits.findIndex((c) => c.sha === input.baseSha) + 1;
+    const to = wt.commits.findIndex((c) => c.sha === input.headSha);
+    const files = [...new Set(wt.commits.slice(from, to + 1).flatMap((c) => c.files))].sort();
+    const sections = files.map(
+      (f) =>
+        `diff --git a/${f} b/${f}\n--- a/${f}\n+++ b/${f}\n@@ -0,0 +1 @@\n+${this.diffLine(f)}\n`,
+    );
+    let diff = '';
+    const omittedFiles: string[] = [];
+    sections.forEach((section, i) => {
+      if (diff.length + section.length <= input.maxChars) diff += section;
+      else omittedFiles.push(files[i]!);
+    });
+    const stat = [
+      ...files.map((f) => ` ${f} | 1 +`),
+      ` ${files.length} file${files.length === 1 ? '' : 's'} changed, ${files.length} insertion${files.length === 1 ? '' : 's'}(+)`,
+    ].join('\n');
+    return { stat, diff, truncated: omittedFiles.length > 0, omittedFiles };
+  }
+
+  /** Added line of a file's fake diff section (tests may override, e.g. to make it large). */
+  diffLine: (file: string) => string = (file) => `changed ${file}`;
 
   async resolveRef(input: { repoPath: string; ref: string }): Promise<string> {
     this.record('resolveRef', input);

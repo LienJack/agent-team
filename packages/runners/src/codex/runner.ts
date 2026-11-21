@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { Codex, type ThreadOptions } from '@openai/codex-sdk';
 import type { Logger, Resumable, Runner, RunHooks } from '@agent-team/core';
 import type { RunnerCapabilities, RunResult, RunSpec } from '@agent-team/schema';
-import { errorResult } from '../classify.js';
+import { errorResult, startTimeoutResult, unstartedResult } from '../classify.js';
 import { capture, parseHelpFlags } from '../process/capture.js';
 import { childEnv } from '../process/env.js';
 import { siblingScript } from '../process/module-path.js';
@@ -42,6 +42,15 @@ export const CODEX_EXEC_FLAGS = [
   '--config',
 ] as const;
 const CODEX_JSON_FLAGS = ['--experimental-json', '--json'] as const;
+/**
+ * Isolation from the user's own Codex setup (docs/adr/0011): `--ignore-user-config` skips
+ * `$CODEX_HOME/config.toml` (MCP servers, plugins, apps; the ChatGPT login in `CODEX_HOME` still
+ * works) and `--ignore-rules` skips execpolicy `.rules`. Passed after `exec` by the group wrapper,
+ * only when the probe finds them in `codex exec --help`.
+ */
+export const CODEX_ISOLATION_FLAGS = ['--ignore-user-config', '--ignore-rules'] as const;
+/** `--config` overrides for every run: no skill catalogue in the prompt (docs/adr/0011). */
+export const CODEX_CONFIG_OVERRIDES = { skills: { include_instructions: false } } as const;
 
 export const CODEX_SHIM_FILE = 'codex-exec.mjs';
 export const CODEX_PGID_FILE = 'codex.pgid';
@@ -71,6 +80,7 @@ export class CodexRunner implements Runner, Resumable {
   readonly name = 'codex' as const;
   readonly resumable = true as const;
   private last: RunnerCapabilities | undefined;
+  private isolation: string[] = [];
 
   constructor(private readonly opts: CodexRunnerOptions = {}) {}
 
@@ -125,6 +135,12 @@ export class CodexRunner implements Runner, Resumable {
     const json = CODEX_JSON_FLAGS.filter((f) => found.has(f));
     if (json.length === 0) missing.push('--json');
     for (const f of missing) problems.push(`codex exec flag ${f} not supported`);
+    this.isolation = CODEX_ISOLATION_FLAGS.filter((flag) => found.has(flag));
+    for (const flag of CODEX_ISOLATION_FLAGS.filter((x) => !found.has(x))) {
+      problems.push(
+        `optional codex exec flag ${flag} not supported; the user's config/rules apply`,
+      );
+    }
     if (credentials === 'missing') problems.push('codex is not logged in (run `codex login`)');
     this.last = {
       runner: 'codex',
@@ -133,7 +149,7 @@ export class CodexRunner implements Runner, Resumable {
       executable: exe,
       credentials,
       supports: { jsonSchema: true, resume: true, quota: false, effort: true, readOnly: true },
-      flags: [...json, ...CODEX_EXEC_FLAGS.filter((f) => found.has(f))].sort(),
+      flags: [...json, ...CODEX_EXEC_FLAGS.filter((f) => found.has(f)), ...this.isolation].sort(),
       problems,
     };
     return this.last;
@@ -166,6 +182,7 @@ export class CodexRunner implements Runner, Resumable {
     const env = this.env(bin.pathDirs, {
       ...spec.env,
       AGENT_TEAM_REAL_CMD: JSON.stringify(bin.cmd),
+      AGENT_TEAM_EXEC_ARGS: JSON.stringify(this.isolation),
       AGENT_TEAM_PGID_FILE: pgidFile,
       AGENT_TEAM_KILL_GRACE_MS: String(this.opts.killGraceMs ?? 5000),
     });
@@ -184,7 +201,7 @@ export class CodexRunner implements Runner, Resumable {
     let started = false;
     let result: RunResult;
     try {
-      const codex = new Codex({ codexPathOverride: shim, env });
+      const codex = new Codex({ codexPathOverride: shim, env, config: CODEX_CONFIG_OVERRIDES });
       const options: ThreadOptions = {
         workingDirectory: spec.cwd,
         sandboxMode: spec.writable ? 'workspace-write' : 'read-only',
@@ -214,19 +231,32 @@ export class CodexRunner implements Runner, Resumable {
         }
       }
       result = stream.finish();
+      // no `thread.started`: did codex do anything? (docs/adr/0010)
+      if (!started) {
+        result = unstartedResult(result, {
+          label: 'codex',
+          text: '',
+          refused: stream.failure !== undefined,
+        });
+      }
     } catch (err) {
       const message = (err as Error).message ?? String(err);
       if (timedOut) {
-        result = errorResult(
-          'timeout',
-          `codex timed out after ${spec.timeoutMs} ms`,
-          stream.partial(),
-        );
+        result = started
+          ? errorResult('timeout', `codex timed out after ${spec.timeoutMs} ms`, stream.partial())
+          : startTimeoutResult('codex', spec.timeoutMs);
       } else if (signal.aborted) {
         result = errorResult('cancelled', 'codex run cancelled', stream.partial());
       } else {
         for (const line of message.split('\n')) log.stderrLine(line);
         result = stream.failure ? stream.failed(stream.failure) : stream.failed(message);
+        if (!started) {
+          result = unstartedResult(result, {
+            label: 'codex',
+            text: redact(message),
+            refused: stream.failure !== undefined,
+          });
+        }
       }
     } finally {
       clearTimeout(timer);

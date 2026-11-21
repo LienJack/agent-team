@@ -98,6 +98,19 @@ describe('config/service.json', () => {
     expect(cfg.leader.compact_threshold_tokens).toBe(60000);
     expect(cfg.sse.heartbeat_ms).toBe(15000);
     expect(cfg.paths.worktree_root).toBe('~/RanoLabs/worktrees');
+    expect(cfg.git.author).toEqual({ name: 'agent-team', email: 'agent-team@localhost' });
+  });
+
+  it('allows port 0 (OS-assigned) and a custom commit author', () => {
+    const cfg = parseServiceConfig({
+      local: { port: 0 },
+      lan: { port: 0 },
+      git: { author: { name: 'Team Bot', email: 'bot@example.invalid' } },
+    });
+    expect([cfg.local.port, cfg.lan.port]).toEqual([0, 0]);
+    expect(cfg.git.author.name).toBe('Team Bot');
+    expect(ServiceConfigSchema.safeParse({ local: { port: -1 } }).success).toBe(false);
+    expect(ServiceConfigSchema.safeParse({ git: { author: { email: 'x' } } }).success).toBe(false);
   });
 
   it('accepts partial files and rejects unknown keys', () => {

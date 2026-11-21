@@ -43,6 +43,19 @@ export class UniqueViolationError extends TeamError {
   }
 }
 
+/**
+ * A repository write referenced a row that does not exist (a foreign key: task → project,
+ * parent task, current run; workspace/run/attention/outbox → task; run → workspace).
+ */
+export class ForeignKeyViolationError extends TeamError {
+  constructor(
+    readonly entity: string,
+    readonly reference: string,
+  ) {
+    super('conflict', `${entity} references a missing ${reference}`);
+  }
+}
+
 /** Optimistic lock failed: the stored row changed since it was read. */
 export class VersionConflictError extends TeamError {
   constructor(entity: string, id: string, expected: number) {

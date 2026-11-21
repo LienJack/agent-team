@@ -68,6 +68,13 @@ export const EVENT_DATA_SCHEMAS = {
     path: z.string(),
     reason: z.enum(['cleanup', 'orphan']),
   }),
+  /** Removal found uncommitted changes: nothing was removed (docs/adr/0009). */
+  'workspace.kept': z.object({
+    workspace_id: WorkspaceIdSchema.nullable(),
+    path: z.string(),
+    reason: z.enum(['dirty']),
+    changes: NonNegativeIntSchema,
+  }),
 
   'run.created': z.object({
     kind: RunKindSchema,

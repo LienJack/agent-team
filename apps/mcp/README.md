@@ -1,5 +1,68 @@
 # @agent-team/mcp
 
-stdio MCP 伺服器：`ask_leader`、`status`、`list_attention`、`answer_attention`、`task_action`。（後續 phase）
+stdio MCP 伺服器，讓 Claude／Codex 桌面版對執行中的 agent-team 服務說話。API 的薄包裝：每個工具只呼叫
+`@agent-team/client` 一到兩次，沒有業務邏輯。
 
-API 的薄包裝。
+連線方式與 CLI 相同：`connectLocal()` 讀 `DATA/run/listener.json`（`DATA` 為 `AGENT_TEAM_HOME`，預設
+`~/.agent-team`）。服務沒開時，工具回一行錯誤，請使用者執行 `team serve`。stdout 只有協定訊框，記錄走 stderr；
+stdin 關閉或收到 SIGTERM 就結束。
+
+## 工具
+
+| 工具               | 輸入                             | 說明                                                                                            |
+| ------------------ | -------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `ask_leader`       | `text`                           | 對 leader 說話（`source: "mcp"`），只回傳 leader 的回覆文字                                     |
+| `status`           | —                                | 看板摘要：各欄任務數、執行中任務與執行者、未決事項數、runner 與額度、leader 狀態                |
+| `list_attention`   | —                                | 列出未決事項（id、問題、選項）                                                                  |
+| `answer_attention` | `id`, `answer`                   | 回答一筆未決事項（`via: "mcp"`）                                                                |
+| `task_action`      | `id`, `action`, `role?`, `note?` | `queue｜cancel｜retry｜approve｜reject｜reassign`；`reassign` 需要 `role`，`reject` 需要 `note` |
+
+刻意不提供：執行日誌、對話紀錄、建立專案、任何會回傳大量內容的操作——呼叫端的模型不需要讀 worker 的逐字稿。
+
+## 建置與執行
+
+```sh
+pnpm --filter @agent-team/mcp build      # 或 pnpm build
+node apps/mcp/dist/bin.js                # 正式
+pnpm exec tsx --conditions=@agent-team/source apps/mcp/src/bin.ts   # 開發
+```
+
+以下用 `/ABS/PATH/agent-team` 代表本 repo 的絕對路徑；若資料目錄不在預設位置，加上
+`AGENT_TEAM_HOME`。
+
+## Claude Code
+
+指令形式：
+
+```sh
+claude mcp add agent-team -- node /ABS/PATH/agent-team/apps/mcp/dist/bin.js
+# 自訂資料目錄：
+claude mcp add agent-team -e AGENT_TEAM_HOME=/path/to/data -- node /ABS/PATH/agent-team/apps/mcp/dist/bin.js
+```
+
+`.mcp.json` 形式（專案根目錄）：
+
+```json
+{
+  "mcpServers": {
+    "agent-team": {
+      "command": "node",
+      "args": ["/ABS/PATH/agent-team/apps/mcp/dist/bin.js"],
+      "env": { "AGENT_TEAM_HOME": "/path/to/data" }
+    }
+  }
+}
+```
+
+## Codex
+
+`~/.codex/config.toml`：
+
+```toml
+[mcp_servers.agent-team]
+command = "node"
+args = ["/ABS/PATH/agent-team/apps/mcp/dist/bin.js"]
+env = { AGENT_TEAM_HOME = "/path/to/data" }
+```
+
+（沒有自訂資料目錄就省略 `env`。）

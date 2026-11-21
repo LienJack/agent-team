@@ -11,17 +11,16 @@ import {
   type WorktreeEntry,
 } from './parse.js';
 import { assertAbsolute, isInside, samePath, stripSlash, toCallerForm } from './paths.js';
+import { fillReviewDiff } from './review-diff.js';
 
 export interface GitPortOptions {
   /** Every worktree this port creates or removes must be under this directory. */
   worktreeRoot: string;
-  /** Identity of service-side commits (default `agent-team <agent-team@localhost>`). */
-  author?: { name: string; email: string };
   /**
-   * `removeWorktree` on a worktree with uncommitted or untracked changes: `refuse` (default,
-   * throws so the work is preserved) or `force`. `removeWorktree({ force: true })` overrides.
+   * Identity of service-side commits (`service.json` → `git.author`; default
+   * `agent-team <agent-team@localhost>`).
    */
-  dirtyRemoval?: 'refuse' | 'force';
+  author?: { name: string; email: string };
   /** Extra environment for git children (tests isolate the global config with it). */
   extraEnv?: Record<string, string>;
   /** Environment the allow-list is taken from (default `process.env`). */
@@ -32,7 +31,6 @@ export interface GitPortOptions {
 
 /** The port plus helpers the server/doctor may use. */
 export interface CliGitPort extends GitPort {
-  removeWorktree(input: { repoPath: string; worktreePath: string; force?: boolean }): Promise<void>;
   /** Directories `<root>/<project>/<task>` that git does not know as worktrees of `repoPath`. */
   findStrayDirectories(input: {
     repoPath: string;
@@ -41,7 +39,7 @@ export interface CliGitPort extends GitPort {
   }): Promise<string[]>;
 }
 
-const DEFAULT_AUTHOR = { name: 'agent-team', email: 'agent-team@localhost' };
+export const DEFAULT_AUTHOR = { name: 'agent-team', email: 'agent-team@localhost' } as const;
 const ADD_CHUNK = 200;
 
 export function createGitPort(opts: GitPortOptions): CliGitPort {
@@ -152,21 +150,17 @@ export function createGitPort(opts: GitPortOptions): CliGitPort {
               `${worktreePath} exists but is not a worktree of ${repoPath}; not removed`,
             );
         }
-        return;
+        return { removed: true };
       }
-      const forced = force ?? opts.dirtyRemoval === 'force';
-      if (existsSync(worktreePath) && !forced) {
+      if (existsSync(worktreePath) && force !== true) {
         const dirty = await statusEntries(worktreePath);
-        if (dirty.length > 0) {
-          throw new Error(
-            `${worktreePath} has ${dirty.length} uncommitted/untracked change(s); refusing to remove`,
-          );
-        }
+        if (dirty.length > 0) return { removed: false, reason: 'dirty', changes: dirty.length };
       }
       await withLockRetry(() =>
-        run(repoPath, ['worktree', 'remove', ...(forced ? ['--force'] : []), worktreePath]),
+        run(repoPath, ['worktree', 'remove', ...(force === true ? ['--force'] : []), worktreePath]),
       );
       await prune(repoPath);
+      return { removed: true };
     },
 
     async resetWorktree({ worktreePath, toSha }) {
@@ -238,6 +232,26 @@ export function createGitPort(opts: GitPortOptions): CliGitPort {
         ),
       );
       return { sha: await revParse(worktreePath, 'HEAD'), created: true };
+    },
+
+    async reviewDiff({ worktreePath, baseSha, headSha, maxChars }) {
+      const base = await revParse(worktreePath, baseSha);
+      const head = await revParse(worktreePath, headSha);
+      const diffOpts = ['--no-color', '--no-ext-diff', '--no-textconv', '--find-renames'];
+      const range = ['--end-of-options', base, head];
+      const stat = await text(worktreePath, ['diff', '--stat=200', ...diffOpts, ...range], readEnv);
+      const names = await run(
+        worktreePath,
+        ['diff', '--name-only', '-z', ...diffOpts, ...range],
+        readEnv,
+      );
+      const patch = await run(worktreePath, ['diff', '--patch', ...diffOpts, ...range], readEnv);
+      return fillReviewDiff(
+        stat,
+        patch.stdout.toString('utf8'),
+        parseNameOnlyZ(names.stdout),
+        maxChars,
+      );
     },
 
     async resolveRef({ repoPath, ref }) {

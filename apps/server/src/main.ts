@@ -4,20 +4,26 @@
 //   AGENT_TEAM_ENV_FILE     .env location (default <project root>/.env)
 //   AGENT_TEAM_CONFIG_DIR   directory with service.json / models.json (default <root>/config)
 //   AGENT_TEAM_FAKE_RUNNERS=1  in-process fake runners instead of claude/codex/dsh
+// (all listed in ENV_VARS, packages/schema/src/env.ts)
 import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { errorMessage, randomIdGen, type Clock } from '@agent-team/core';
 import { createSqliteStore } from '@agent-team/db';
-import { createGitPort } from '@agent-team/git';
+import { createGitPort, type CliGitPort } from '@agent-team/git';
 import { createCheckExecutor, createRunnerRegistry } from '@agent-team/runners';
 import { DATA_LAYOUT } from '@agent-team/schema';
-import { ConfigError, loadConfig } from './config.js';
+import { ConfigError, loadConfig, type LoadedConfig } from './config.js';
 import { createEnvReader, envFilePath, isKnownEnvVar } from './env.js';
 import { createLogger } from './logger.js';
 import { createService, type Service } from './service.js';
 
 const systemClock: Clock = { now: () => new Date() };
+
+/** The git adapter: worktrees under `paths.worktree_root`, commits as `git.author`. */
+export function createGit(config: LoadedConfig): CliGitPort {
+  return createGitPort({ worktreeRoot: config.worktreeRoot, author: config.service.git.author });
+}
 
 export async function main(processEnv: NodeJS.ProcessEnv = process.env): Promise<Service> {
   const logger = createLogger({ write: (line) => void process.stderr.write(line) });
@@ -41,7 +47,7 @@ export async function main(processEnv: NodeJS.ProcessEnv = process.env): Promise
   const service = createService({
     store,
     runners,
-    git: createGitPort({ worktreeRoot: config.worktreeRoot }),
+    git: createGit(config),
     checks: createCheckExecutor(),
     clock: systemClock,
     ids: randomIdGen,

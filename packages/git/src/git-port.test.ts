@@ -1,90 +1,9 @@
-import { execFileSync } from 'node:child_process';
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { gitEnv } from './exec.js';
-import { createGitPort, type CliGitPort } from './git-port.js';
-
-interface Fixture {
-  dir: string;
-  repo: string;
-  root: string;
-  env: Record<string, string>;
-  port: CliGitPort;
-  sh: (cwd: string, ...args: string[]) => string;
-}
+import { cleanup, newWorktree, setup, type Fixture } from './test-fixture.js';
 
 let fx: Fixture;
-
-function setup(rootName = 'worktrees'): Fixture {
-  // os.tmpdir() on macOS is a symlinked /var path: exactly the case path identity must survive
-  const dir = mkdtempSync(join(tmpdir(), 'agent-team-git-'));
-  const globalConfig = join(dir, 'gitconfig');
-  writeFileSync(globalConfig, '');
-  const extraEnv = { GIT_CONFIG_GLOBAL: globalConfig, GIT_CONFIG_NOSYSTEM: '1' };
-  const env = gitEnv({
-    ...extraEnv,
-    GIT_AUTHOR_NAME: 'test',
-    GIT_AUTHOR_EMAIL: 'test@example.invalid',
-    GIT_COMMITTER_NAME: 'test',
-    GIT_COMMITTER_EMAIL: 'test@example.invalid',
-  });
-  const sh = (cwd: string, ...args: string[]) =>
-    execFileSync('git', args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
-      .toString('utf8')
-      .trim();
-  const repo = join(dir, 'repo');
-  mkdirSync(repo);
-  sh(repo, 'init', '-q', '-b', 'main');
-  writeFileSync(join(repo, 'a.txt'), 'a\n');
-  writeFileSync(join(repo, 'b.txt'), 'b\n');
-  writeFileSync(join(repo, '.gitignore'), 'ignored/\n');
-  sh(repo, 'add', '-A');
-  sh(repo, 'commit', '-q', '-m', 'init');
-  const root = join(dir, rootName);
-  const port = createGitPort({
-    worktreeRoot: root,
-    author: { name: 'agent-team', email: 'agent-team@localhost' },
-    extraEnv,
-    // a hostile inherited environment must not redirect git
-    sourceEnv: { ...process.env, GIT_DIR: join(dir, 'nope'), GIT_WORK_TREE: join(dir, 'nope') },
-  });
-  return { dir, repo, root, env, port, sh };
-}
-
-function cleanup(f: Fixture): void {
-  try {
-    f.sh(f.repo, 'worktree', 'prune');
-    for (const b of f
-      .sh(f.repo, 'branch', '--list', 'team/*', '--format=%(refname:short)')
-      .split('\n')) {
-      if (b) f.sh(f.repo, 'branch', '-D', b);
-    }
-  } catch {
-    // the repo may already be gone
-  }
-  rmSync(f.dir, { recursive: true, force: true });
-}
-
-async function newWorktree(f: Fixture, task = 't_000001') {
-  const worktreePath = join(f.root, 'proj', task);
-  const res = await f.port.ensureWorktree({
-    repoPath: f.repo,
-    worktreePath,
-    branch: `team/${task}`,
-    baseBranch: 'main',
-  });
-  return { worktreePath, ...res };
-}
 
 describe('git worktree lifecycle', () => {
   beforeEach(() => {
@@ -152,15 +71,23 @@ describe('git worktree lifecycle', () => {
     expect(existsSync(wt.worktreePath)).toBe(false);
   });
 
-  it('refuses to remove a dirty worktree unless forced', async () => {
+  it('keeps a dirty worktree (reported, not thrown) unless forced', async () => {
     const wt = await newWorktree(fx);
     writeFileSync(join(wt.worktreePath, 'new.txt'), 'x\n');
-    await expect(
-      fx.port.removeWorktree({ repoPath: fx.repo, worktreePath: wt.worktreePath }),
-    ).rejects.toThrow(/refusing to remove/);
+    writeFileSync(join(wt.worktreePath, 'a.txt'), 'edited\n');
+    expect(
+      await fx.port.removeWorktree({ repoPath: fx.repo, worktreePath: wt.worktreePath }),
+    ).toEqual({ removed: false, reason: 'dirty', changes: 2 });
     expect(existsSync(join(wt.worktreePath, 'new.txt'))).toBe(true);
-    await fx.port.removeWorktree({ repoPath: fx.repo, worktreePath: wt.worktreePath, force: true });
+    expect(
+      await fx.port.removeWorktree({
+        repoPath: fx.repo,
+        worktreePath: wt.worktreePath,
+        force: true,
+      }),
+    ).toEqual({ removed: true });
     expect(existsSync(wt.worktreePath)).toBe(false);
+    expect(fx.sh(fx.repo, 'branch', '--list', 'team/t_000001')).toContain('team/t_000001');
   });
 
   it('finds directories under the project dir that git does not know', async () => {

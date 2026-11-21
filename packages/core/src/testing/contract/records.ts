@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { UniqueViolationError } from '../../errors.js';
 import type { Store } from '../../ports/repositories.js';
-import { sampleOutbox } from '../fixtures.js';
+import { sampleOutbox, sampleProject, sampleTask } from '../fixtures.js';
 
 const T = (n: number) => `2026-11-21T00:00:0${n}.000Z`;
 const HASH = 'a'.repeat(64);
@@ -11,6 +11,8 @@ export function recordContract(store: () => Store): void {
   describe('outbox', () => {
     it('signature is unique; list filters by status and task', () => {
       const s = store();
+      s.projects.insert(sampleProject());
+      s.tasks.insert(sampleTask({ id: 't_1' }));
       s.outbox.insert(
         sampleOutbox({ id: 'o_2', signature: 's2', created_at: T(2), task_id: 't_1' }),
       );

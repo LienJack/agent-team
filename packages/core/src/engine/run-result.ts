@@ -21,6 +21,7 @@ import {
   recordRunnerSuccess,
   startCooldown,
 } from './runner-health.js';
+import { applyStartUnknown } from './start-unknown.js';
 
 // Applying a runner's result (spec §6 step 1–2, §8 errors). Synchronous, inside one transaction.
 
@@ -62,6 +63,11 @@ export function applyRunResult(ctx: EngineContext, tx: Tx, runId: string, result
 
   if (result.error) {
     const { kind, message } = result.error;
+    // runners report it only before onStarted; whenever it arrives, it is never resent
+    if (kind === 'start_unknown') {
+      applyStartUnknown(ctx, tx, run, message);
+      return;
+    }
     const { state, outcome } = classifyError(kind);
     finishRun(tx, run, {
       ...resultFields(run, result),

@@ -48,6 +48,8 @@ export interface TestEngineOptions {
   defaultStep?: FakeStep;
   /** Offset for sequential ids (a "restarted" engine on the same store needs fresh ids). */
   idOffset?: number;
+  /** Share the worktrees of another engine's FakeGit (a restart keeps the filesystem). */
+  git?: FakeGit;
 }
 
 /**
@@ -58,7 +60,7 @@ export interface TestEngineOptions {
 export function createTestEngine(options: TestEngineOptions = {}): TestEngine {
   const store = options.store ?? new InMemoryStore();
   const clock = new ManualClock();
-  const git = new FakeGit();
+  const git = options.git ?? new FakeGit();
   const checks = new FakeCheckExecutor();
   const notifier = new FakeNotifier();
   const leader = new RecordingLeaderNotifier();

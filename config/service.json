@@ -10,6 +10,7 @@
     "session_hours": 168
   },
   "grok": { "enabled": false },
+  "git": { "author": { "name": "agent-team", "email": "agent-team@localhost" } },
   "paths": { "worktree_root": "~/RanoLabs/worktrees" },
   "engine": {
     "tick_ms": 5000,

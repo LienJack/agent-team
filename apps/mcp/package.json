@@ -2,6 +2,9 @@
   "name": "@agent-team/mcp",
   "version": "0.0.0",
   "private": true,
+  "bin": {
+    "agent-team-mcp": "./dist/bin.js"
+  },
   "files": [
     "dist",
     "src"
@@ -16,6 +19,8 @@
   },
   "dependencies": {
     "@agent-team/client": "workspace:*",
-    "@agent-team/schema": "workspace:*"
+    "@agent-team/schema": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "zod": "4.6.7"
   }
 }

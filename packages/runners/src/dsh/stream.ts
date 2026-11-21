@@ -33,6 +33,17 @@ export class DshStream implements StreamParser {
   finalText: string | undefined;
   streamError: string | undefined;
 
+  /** `session` is the first agent event. */
+  started(event: Record<string, unknown> | undefined): { sessionRef?: string } | undefined {
+    if (event?.type !== 'session') return undefined;
+    return typeof event.sessionId === 'string' ? { sessionRef: event.sessionId } : {};
+  }
+
+  /** An `error` event before any session: dsh refused the invocation (e.g. unknown session). */
+  refused(): boolean {
+    return this.streamError !== undefined && this.sessionRef === undefined;
+  }
+
   line(event: Record<string, unknown> | undefined): boolean {
     if (!event) return false;
     switch (event.type) {

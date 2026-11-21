@@ -54,6 +54,27 @@ describe('§14 四種派工結果 — four dispatch outcomes', () => {
     expect(h.eventTypes(task.id)).toContain('task.dispatch_failed');
   });
 
+  it('start_unknown reported after onStarted is not resent either (failed, blocked, attention)', async () => {
+    const h = createTestEngine();
+    h.runners.dsh.script({
+      start: 'accepted',
+      result: { error: { kind: 'start_unknown', message: 'stream broke' } },
+    });
+    const task = h.task();
+    await h.engine.runUntilIdle();
+    const [run] = h.store.runs.list({ task_id: task.id });
+    expect(run).toMatchObject({
+      state: 'failed',
+      outcome: 'error',
+      error: 'start_unknown: stream broke',
+    });
+    expect(h.get(task.id)).toMatchObject({ status: 'blocked', attempts: 0 });
+    expect(h.store.attention.list({ task_id: task.id, statuses: ['open'] })).toHaveLength(1);
+    h.clock.advance(60 * 60 * 1000);
+    await h.engine.runUntilIdle();
+    expect(h.runners.dsh.calls).toHaveLength(1);
+  });
+
   it('unknown: start_unknown → run start_unknown, task blocked, attention, never resent', async () => {
     const h = createTestEngine();
     h.runners.dsh.script({ start: 'unknown' });

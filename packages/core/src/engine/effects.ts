@@ -2,6 +2,7 @@ import type { EffectKind, EffectRecord } from '@agent-team/schema';
 import { errorMessage } from '../errors.js';
 import { addMs, backoffMs } from '../util/time.js';
 import type { EngineContext } from './context.js';
+import { openAttention } from './attention.js';
 import { effectLane, effectPayload, type EffectHandler } from './effect-queue.js';
 import { saveWorkspace } from './records.js';
 import { runStartHandler } from './run-start.js';
@@ -16,10 +17,37 @@ const runStop: EffectHandler = {
   },
 };
 
+/**
+ * `workspace.remove` (docs/adr/0009): an orphan (no workspace record) is removed with `force`;
+ * a recorded workspace with uncommitted changes is never forced — it becomes `kept`, one attention
+ * item asks a human, and the effect completes (no retry loop). Git errors throw and retry.
+ */
 const workspaceRemove: EffectHandler = {
   async run(ctx, effect) {
     const p = effectPayload(effect, 'workspace.remove');
-    await ctx.deps.git.removeWorktree({ repoPath: p.repo_path, worktreePath: p.path });
+    const res = await ctx.deps.git.removeWorktree({
+      repoPath: p.repo_path,
+      worktreePath: p.path,
+      force: p.reason === 'orphan' && p.workspace_id === null,
+    });
+    if (!res.removed) {
+      return (tx) => {
+        const ws = p.workspace_id ? tx.r.workspaces.get(p.workspace_id) : undefined;
+        tx.emit(
+          'workspace.kept',
+          { workspace_id: p.workspace_id, path: p.path, reason: res.reason, changes: res.changes },
+          { task_id: ws?.task_id ?? null },
+        );
+        if (!ws || ws.state !== 'active') return;
+        saveWorkspace(tx, ws, { state: 'kept' });
+        openAttention(ctx, tx, {
+          task_id: ws.task_id,
+          kind: 'decision',
+          question: `任務 ${ws.task_id} 的 worktree ${p.path} 有 ${res.changes} 個未提交的變更，已保留不刪除；請檢查後手動處理（保留或捨棄）。`,
+          options: ['保留', '已手動處理'],
+        });
+      };
+    }
     return (tx) => {
       const ws = p.workspace_id ? tx.r.workspaces.get(p.workspace_id) : undefined;
       if (ws && ws.state !== 'removed') {

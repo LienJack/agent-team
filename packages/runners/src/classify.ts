@@ -116,3 +116,51 @@ export function nonNegNumber(value: unknown): number | undefined {
 export function str(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
+
+// ------------------------------------------------- start_unknown (docs/adr/0010)
+
+/** CLI argument/usage errors: the CLI refused the invocation before doing anything. */
+const USAGE_RE =
+  /\busage:|unexpected argument|unknown (option|argument|flag|command)|unrecognized (option|argument|subcommand)|invalid value for|error: option|requires an argument|cannot start /i;
+
+export interface UnstartedEvidence {
+  /** Runner label for the message (claude, codex, dsh). */
+  label: string;
+  /** stderr / error text the CLI printed (already redacted). */
+  text: string;
+  /** The CLI emitted an explicit error event saying why it stopped (e.g. dsh `error`). */
+  refused?: boolean;
+}
+
+/**
+ * The result of a run that ended before its first agent event (no `onStarted`). It stays as it
+ * is when it proves the agent never started — success, cancellation, a classified refusal (auth,
+ * rate limit), a usage error, or an explicit error event; anything else (silent exit, killed by a
+ * signal, broken stream) becomes `start_unknown`: work may or may not have begun, so the engine
+ * must not resend it automatically.
+ */
+export function unstartedResult(result: RunResult, evidence: UnstartedEvidence): RunResult {
+  const err = result.error;
+  if (!err) return result;
+  if (err.kind === 'auth' || err.kind === 'rate_limit' || err.kind === 'cancelled') return result;
+  if (evidence.refused === true || USAGE_RE.test(evidence.text)) return result;
+  const partial: Omit<RunResult, 'error' | 'final'> = {
+    ...(result.usage ? { usage: result.usage } : {}),
+    ...(result.costUsd === undefined ? {} : { costUsd: result.costUsd }),
+    ...(result.sessionRef ? { sessionRef: result.sessionRef } : {}),
+    ...(result.quota ? { quota: result.quota } : {}),
+  };
+  return errorResult(
+    'start_unknown',
+    `${evidence.label} ended before its first agent event; cannot tell whether work started (${err.message})`,
+    partial,
+  );
+}
+
+/** A run that never produced its first agent event within the timeout (spawn hung). */
+export function startTimeoutResult(label: string, timeoutMs: number): RunResult {
+  return errorResult(
+    'start_unknown',
+    `${label} produced no agent event within ${timeoutMs} ms; cannot tell whether work started`,
+  );
+}

@@ -28,7 +28,13 @@
   套用後被改過的遷移與較新版本寫入的資料庫。
 - 序號：`event.seq` 是 AUTOINCREMENT；`message.seq`、`effect.seq` 取自內部 `counter` 表（隨交易回滾，
   刪除後不重用，與記憶體版相同）。
-- 不宣告外鍵：契約測試會存入父列不存在的資料（沒有 project 的 task 等），與記憶體版一致。
+- 外鍵（phase 2 收尾，遷移 `foreign_keys`）：task → project、parent task、current run；workspace、run、
+  attention、outbox → task；run → workspace（task ↔ run 互相參照：先寫 run 再讓 task 指向它）。另有部分唯一索引
+  「每個 task 最多一個非 removed 的 workspace」。記憶體版以同樣規則丟 `ForeignKeyViolationError`／
+  `UniqueViolationError`，契約測試（`integrity`）兩邊完全相同；event、message、effect、idempotency、kv 不設外鍵
+  （紀錄與佇列，鍵是多型的）。
+- 遷移期間關閉外鍵檢查（交易內無法切換，而 drizzle-kit 加外鍵會重建資料表），套用後 `PRAGMA foreign_key_check`
+  必須為空才 COMMIT；舊資料若違反新的鍵，整個升級回滾並說明是哪條關係。
 
 **後果**：
 

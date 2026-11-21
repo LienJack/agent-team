@@ -11,7 +11,8 @@ const tags = ['leader'];
 
 /**
  * Send a message to the leader conversation. The message is stored first (deduplicated by
- * `client_msg_id`), then handed to the leader; 503 `unavailable` while no leader is running.
+ * `client_msg_id`), then handed to the leader; 503 `unavailable` while no leader is running,
+ * 501 `not_implemented` while the leader is still the phase 2 stub.
  */
 export const postLeaderMessage = createRoute({
   operationId: 'postLeaderMessage',
@@ -20,7 +21,10 @@ export const postLeaderMessage = createRoute({
   path: '/api/leader/messages',
   summary: 'Talk to the leader',
   request: { headers: MutationHeadersSchema, body: body(LeaderMessageRequestSchema) },
-  responses: { 200: json(LeaderMessageResponseSchema, 'The leader’s reply'), ...errors(409, 503) },
+  responses: {
+    200: json(LeaderMessageResponseSchema, 'The leader’s reply'),
+    ...errors(409, 501, 503),
+  },
 });
 
 export const listLeaderMessages = createRoute({

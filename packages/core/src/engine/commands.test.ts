@@ -63,7 +63,7 @@ describe('task commands', () => {
     expect(h.store.runs.get(run.id)).toMatchObject({ state: 'stopped', outcome: 'cancelled' });
     await h.engine.runUntilIdle();
     expect(h.get(task.id).status).toBe('cancelled');
-    expect(h.store.workspaces.findCurrentByTask(task.id)?.state).toBe('kept');
+    expect(h.store.workspaces.findCurrentByTask(task.id)?.state).toBe('active');
     expect(() => h.engine.cancelTask(task.id)).toThrow(ConflictError);
   });
 

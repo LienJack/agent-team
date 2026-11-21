@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { eventually, fixtureLines, makeSpec, tempDir } from '../test-support.js';
 import { lastRecord, processAlive, writeScenario, type FakeCliResponse } from '../testing/index.js';
 import { resolveBundledCodex } from './binary.js';
-import { CODEX_EXEC_FLAGS, CodexRunner } from './runner.js';
+import { CODEX_EXEC_FLAGS, CODEX_ISOLATION_FLAGS, CodexRunner } from './runner.js';
 import { CodexStream } from './stream.js';
 
 function parse(name: string) {
@@ -52,14 +52,15 @@ describe('runners: codex bundled binary', () => {
 
 // ------------------------------------------- through the real SDK, the group wrapper and the fake CLI
 
-const probe: FakeCliResponse[] = [
+const probeWith = (flags: readonly string[]): FakeCliResponse[] => [
   { argv: ['--version'], stdout: 'codex-cli 0.171.0' },
   {
     argv: ['exec', '--help'],
-    stdout: [...CODEX_EXEC_FLAGS, '--json'].map((f) => `  ${f} <x>`).join('\n'),
+    stdout: [...flags, '--json'].map((f) => `  ${f} <x>`).join('\n'),
   },
   { argv: ['login', 'status'], stdout: 'Logged in using ChatGPT' },
 ];
+const probe = probeWith([...CODEX_EXEC_FLAGS, ...CODEX_ISOLATION_FLAGS]);
 
 let tmp: ReturnType<typeof tempDir>;
 beforeEach(() => {
@@ -99,7 +100,12 @@ describe('runners: codex argv', () => {
     expect(schemaAt).toBeGreaterThan(0);
     const expected = [
       'exec',
+      // inserted by the group wrapper: no user config.toml / execpolicy rules (docs/adr/0011)
+      '--ignore-user-config',
+      '--ignore-rules',
       '--experimental-json',
+      '--config',
+      'skills.include_instructions=false',
       '--model',
       'gpt-6.1-terra',
       '--sandbox',
@@ -126,6 +132,27 @@ describe('runners: codex argv', () => {
       expect(rec.envNames).not.toContain(name);
     }
     expect(readFileSync(join(spec.logDir, 'events.jsonl'), 'utf8')).toContain('"turn.completed"');
+  });
+
+  it('does not pass isolation flags the CLI does not list, and says so', async () => {
+    const s = await writeScenario(tmp.dir, {
+      responses: probeWith(CODEX_EXEC_FLAGS),
+      steps: fixtureLines(import.meta.url, 'success.jsonl').map((out) => ({ out })),
+    });
+    const runner = new CodexRunner({ command: s.command });
+    const caps = await runner.probe();
+    expect(caps.available).toBe(true);
+    expect(caps.problems).toEqual([
+      "optional codex exec flag --ignore-user-config not supported; the user's config/rules apply",
+      "optional codex exec flag --ignore-rules not supported; the user's config/rules apply",
+    ]);
+    await runner.run(
+      makeSpec(tmp.dir, { model: 'gpt-6.1-terra', dispatchId: 'd_fixture0003', writable: false }),
+      new AbortController().signal,
+    );
+    const argv = lastRecord(s.recordPath)!.argv;
+    expect(argv.slice(0, 2)).toEqual(['exec', '--experimental-json']);
+    for (const f of CODEX_ISOLATION_FLAGS) expect(argv).not.toContain(f);
   });
 
   it('uses workspace-write for writable runs', async () => {
