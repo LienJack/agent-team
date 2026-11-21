@@ -1,0 +1,3 @@
+.tsbuild/
+test-results/
+playwright-report/

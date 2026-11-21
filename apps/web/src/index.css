@@ -1,0 +1,86 @@
+@import 'tailwindcss';
+
+/* Theme: `data-theme` on <html> (set by public/theme-init.js and the theme store). */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* Semantic colour tokens; components only use these (bg-surface, text-fg, border-line, …). */
+:root {
+  --c-bg: #f6f7f9;
+  --c-surface: #ffffff;
+  --c-raised: #eef0f3;
+  --c-line: #d9dde3;
+  --c-fg: #1c2128;
+  --c-muted: #5b6470;
+  --c-accent: #2557c7;
+  --c-accent-fg: #ffffff;
+  --c-ok: #1f7a3a;
+  --c-warn: #8a5a00;
+  --c-bad: #b42318;
+  --c-info: #2557c7;
+  --c-ok-soft: #e3f3e8;
+  --c-warn-soft: #fbf0d9;
+  --c-bad-soft: #fbe5e2;
+  --c-info-soft: #e4ebfa;
+  --c-focus: #2557c7;
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --c-bg: #0f1216;
+  --c-surface: #171b21;
+  --c-raised: #20262e;
+  --c-line: #2f3640;
+  --c-fg: #e3e7ec;
+  --c-muted: #9aa4b1;
+  --c-accent: #7ea6ff;
+  --c-accent-fg: #0f1216;
+  --c-ok: #6fd08f;
+  --c-warn: #f0c060;
+  --c-bad: #ff8a7d;
+  --c-info: #7ea6ff;
+  --c-ok-soft: #173323;
+  --c-warn-soft: #3a2e12;
+  --c-bad-soft: #3d1c19;
+  --c-info-soft: #1b2a4a;
+  --c-focus: #9dbcff;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--c-bg);
+  --color-surface: var(--c-surface);
+  --color-raised: var(--c-raised);
+  --color-line: var(--c-line);
+  --color-fg: var(--c-fg);
+  --color-muted: var(--c-muted);
+  --color-accent: var(--c-accent);
+  --color-accent-fg: var(--c-accent-fg);
+  --color-ok: var(--c-ok);
+  --color-warn: var(--c-warn);
+  --color-bad: var(--c-bad);
+  --color-info: var(--c-info);
+  --color-ok-soft: var(--c-ok-soft);
+  --color-warn-soft: var(--c-warn-soft);
+  --color-bad-soft: var(--c-bad-soft);
+  --color-info-soft: var(--c-info-soft);
+  --color-focus: var(--c-focus);
+  --font-sans:
+    system-ui, -apple-system, 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-bg text-fg font-sans text-sm antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--c-focus);
+    outline-offset: 2px;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+}

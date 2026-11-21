@@ -1,0 +1,55 @@
+import type { Task, TeamClient } from '@agent-team/client';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ACTION_LABELS, type TaskActionKind } from '../lib/actions.js';
+import { STATUS_LABELS } from '../lib/format.js';
+import { useUi } from '../store/ui.js';
+import { useClient } from './context.js';
+import { errorLine } from './errors.js';
+import { keys } from './keys.js';
+
+export type TaskActionRequest =
+  | { id: string; action: 'queue' | 'retry' | 'approve' }
+  | { id: string; action: 'cancel'; reason?: string }
+  | { id: string; action: 'reject'; note: string }
+  | { id: string; action: 'reassign'; role: string };
+
+/** One task command through the client (which adds the Idempotency-Key). */
+export function runTaskAction(client: TeamClient, req: TaskActionRequest): Promise<Task> {
+  switch (req.action) {
+    case 'reject':
+      return client.rejectTask(req.id, req.note);
+    case 'reassign':
+      return client.reassignTask(req.id, req.role);
+    case 'cancel':
+      return client.taskAction(req.id, 'cancel', req.reason);
+    default:
+      return client.taskAction(req.id, req.action);
+  }
+}
+
+/**
+ * Task actions for buttons and drops. Nothing is changed locally: success toasts the status the
+ * server answered, failure toasts the server's reason, and both refetch the board and the task.
+ */
+export function useTaskAction() {
+  const client = useClient();
+  const qc = useQueryClient();
+  const toast = useUi((s) => s.toast);
+  return useMutation({
+    mutationFn: (req: TaskActionRequest) => runTaskAction(client, req),
+    onSuccess: (task, req) => {
+      toast(
+        'ok',
+        `${ACTION_LABELS[req.action as TaskActionKind]}：任務現在是「${STATUS_LABELS[task.status]}」`,
+      );
+    },
+    onError: (err, req) => {
+      toast('bad', `${ACTION_LABELS[req.action as TaskActionKind]}失敗 — ${errorLine(err)}`);
+    },
+    onSettled: (_task, _err, req) =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: keys.state() }),
+        qc.invalidateQueries({ queryKey: keys.task(req.id) }),
+      ]),
+  });
+}

@@ -2,9 +2,14 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist",
-    "tsBuildInfoFile": "dist/.tsbuildinfo",
-    "types": []
+    "outDir": ".tsbuild",
+    "tsBuildInfoFile": ".tsbuild/.tsbuildinfo",
+    "emitDeclarationOnly": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "lib": ["es2024", "dom", "dom.iterable"],
+    "types": ["vite/client"]
   },
   "include": ["src"],
   "references": [
