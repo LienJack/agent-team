@@ -1,0 +1,274 @@
+import type {
+  AnswerVia,
+  Attention,
+  AttentionCreateRequest,
+  Message,
+  MessageStatus,
+  Project,
+  ProjectCreateRequest,
+  RunnerStatus,
+  Task,
+  TaskCreateRequest,
+} from '@agent-team/schema';
+import { errorMessage } from '../errors.js';
+import {
+  answer,
+  approveTask,
+  cancelTask,
+  createAttention,
+  createProject,
+  createTask,
+  queueTask,
+  reassignTask,
+  rejectTask,
+  retryTask,
+  type Actor,
+} from './commands.js';
+import { EngineContext, type EngineDeps } from './context.js';
+import { dispatchPlanned, type DispatchReport } from './dispatch.js';
+import { EffectExecutor } from './effects.js';
+import { recordMessage, setMessageStatus, type RecordMessageInput } from './messages.js';
+import { blockTask } from './outcomes.js';
+import { recover, sweepWorkspaces, type RecoveryReport } from './recovery.js';
+import { resolveRole, type QuotaState } from './resolve-role.js';
+import { runnerStatuses } from './runner-health.js';
+import { planDispatch, PATH_HOLDING_STATUSES, type DeferReason } from './scheduler.js';
+
+export interface TickReport {
+  dispatched: DispatchReport[];
+  deferred: Array<{ task_id: string; reason: DeferReason; retry_at: string | null }>;
+  blocked: Array<{ task_id: string; reason: string }>;
+  effectsStarted: number;
+  cleanupQueued: number;
+}
+
+const HUMAN: Actor = { kind: 'human' };
+
+/**
+ * The single writer of task state (spec §8). Driven by `tick()` — called by the server after
+ * commands and on a patrol interval (`engine.tick_ms`) — and by run completions. Core has no
+ * timers: everything time-based compares `Clock.now()` with stored timestamps.
+ */
+export class Engine {
+  readonly ctx: EngineContext;
+  private readonly effects: EffectExecutor;
+  private ticking: Promise<TickReport> | undefined;
+  private wakeRequested = false;
+  private suspended = false;
+
+  constructor(deps: EngineDeps) {
+    this.ctx = new EngineContext(deps);
+    this.effects = new EffectExecutor(this.ctx);
+    this.ctx.onCommit = () => this.wake();
+  }
+
+  /**
+   * Startup recovery; call once before the first tick. Automatic wake-ups are suspended while it
+   * runs so no dispatch can race the orphan-worktree scan.
+   */
+  async recover(): Promise<RecoveryReport> {
+    this.suspended = true;
+    try {
+      return await recover(this.ctx);
+    } finally {
+      this.suspended = false;
+      this.wake();
+    }
+  }
+
+  /** Current per-runner health/availability (the `/quota` view). */
+  runnerStatuses(): RunnerStatus[] {
+    return runnerStatuses(this.ctx.store.kv, this.ctx.deps.runners, this.ctx.now());
+  }
+
+  quotaState(): QuotaState {
+    return Object.fromEntries(this.runnerStatuses().map((s) => [s.runner, s]));
+  }
+
+  /**
+   * One scheduling pass: cleanup sweep, dispatch what fits, start due effects. Concurrent calls
+   * share the pass in progress.
+   */
+  tick(): Promise<TickReport> {
+    if (this.ctx.stopping) {
+      return Promise.resolve({
+        dispatched: [],
+        deferred: [],
+        blocked: [],
+        effectsStarted: 0,
+        cleanupQueued: 0,
+      });
+    }
+    this.ticking ??= this.doTick().finally(() => {
+      this.ticking = undefined;
+    });
+    return this.ticking;
+  }
+
+  /** Request a tick soon without awaiting it (coalesced). */
+  wake(): void {
+    if (this.wakeRequested || this.suspended || this.ctx.stopping) return;
+    this.wakeRequested = true;
+    void Promise.resolve().then(() => {
+      this.wakeRequested = false;
+      this.ctx.track(this.tick());
+    });
+  }
+
+  private async doTick(): Promise<TickReport> {
+    const { ctx } = this;
+    const cleanupQueued = sweepWorkspaces(ctx);
+    const now = ctx.now();
+    const quota = this.quotaState();
+    const tasks = ctx.store.tasks.list({ statuses: ['queued', ...PATH_HOLDING_STATUSES] });
+    const plan = planDispatch({
+      tasks,
+      liveRuns: ctx.store.runs.list({ states: ['starting', 'running'] }),
+      dispatching: ctx.dispatching,
+      dispatchingPaths: [...ctx.dispatching.keys()].map(
+        (id) => ctx.store.tasks.get(id)?.owned_paths ?? [],
+      ),
+      humanPriority: ctx.humanPriority,
+      models: ctx.config.models,
+      engine: ctx.config.engine,
+      now,
+      resolve: (role, excludeAliases) =>
+        resolveRole(role, quota, { models: ctx.config.models, now, excludeAliases }),
+      implAliasOf: (taskId) =>
+        ctx.store.runs.list({ task_id: taskId }).findLast((r) => r.kind !== 'review')?.model_alias,
+    });
+
+    const blocked: TickReport['blocked'] = [];
+    for (const { task, reason } of plan.invalid) {
+      ctx.transact((tx) => {
+        const current = tx.r.tasks.get(task.id);
+        if (current && current.version === task.version) {
+          blockTask(ctx, tx, current, `無法派工：${reason}`);
+          blocked.push({ task_id: task.id, reason });
+        }
+      });
+    }
+
+    const dispatched: DispatchReport[] = [];
+    for (const planned of plan.dispatch) {
+      let report: DispatchReport;
+      try {
+        report = await dispatchPlanned(ctx, planned);
+      } catch (err) {
+        // an unexpected error must not stop the rest of the pass; the task stays waiting
+        ctx.logger.error('dispatch failed', { task_id: planned.task.id, error: errorMessage(err) });
+        report = {
+          task_id: planned.task.id,
+          outcome: 'deferred',
+          reason: `error: ${errorMessage(err)}`,
+        };
+      }
+      dispatched.push(report);
+      if (report.outcome === 'deferred' && report.reason === 'base_drift_blocked') {
+        blocked.push({ task_id: planned.task.id, reason: 'base_drift' });
+      }
+    }
+    const effectsStarted = this.effects.runDue();
+    return { dispatched, deferred: plan.deferred, blocked, effectsStarted, cleanupQueued };
+  }
+
+  /** Await effect executions and dispatches in flight (not run completions). */
+  async drain(maxRounds = 50): Promise<void> {
+    for (let i = 0; i < maxRounds; i++) {
+      if (this.ctx.work.size === 0) {
+        const report = await this.tick();
+        if (
+          report.effectsStarted === 0 &&
+          report.dispatched.length === 0 &&
+          this.ctx.work.size === 0
+        ) {
+          return;
+        }
+      }
+      await Promise.allSettled(this.ctx.work);
+    }
+    throw new Error(`engine did not settle within ${maxRounds} rounds`);
+  }
+
+  /** `drain` plus waiting for in-flight runs to finish, until nothing is left (tests). */
+  async runUntilIdle(maxRounds = 50): Promise<void> {
+    for (let i = 0; i < maxRounds; i++) {
+      await this.drain(maxRounds);
+      if (this.ctx.runWork.size === 0 && this.ctx.work.size === 0) {
+        const report = await this.tick();
+        if (
+          report.effectsStarted === 0 &&
+          report.dispatched.length === 0 &&
+          this.ctx.work.size === 0
+        ) {
+          return;
+        }
+        continue;
+      }
+      await Promise.allSettled([...this.ctx.runWork, ...this.ctx.work]);
+    }
+    throw new Error(`engine did not become idle within ${maxRounds} rounds`);
+  }
+
+  /**
+   * Stop for good: no more ticks or wake-ups, abort runs started by this process and wait for
+   * in-flight work. Aborted runs are not finalized; the next startup's `recover()` marks them
+   * abandoned and requeues their tasks with a recovery note (attempts unchanged).
+   */
+  async shutdown(): Promise<void> {
+    this.ctx.stopping = true;
+    for (const controller of this.ctx.inflight.values()) controller.abort('service shutdown');
+    await Promise.allSettled([...this.ctx.work, ...this.ctx.runWork]);
+  }
+
+  // ------------------------------------------------------------ commands
+  // Each command is one transaction; committing wakes the engine (no explicit tick needed).
+
+  createProject(input: ProjectCreateRequest): Project {
+    return createProject(this.ctx, input);
+  }
+
+  createTask(input: TaskCreateRequest, actor: Actor = HUMAN): Task {
+    return createTask(this.ctx, input, actor);
+  }
+
+  queueTask(id: string, actor: Actor = HUMAN): Task {
+    return queueTask(this.ctx, id, actor);
+  }
+
+  cancelTask(id: string, reason?: string): Task {
+    return cancelTask(this.ctx, id, reason);
+  }
+
+  retryTask(id: string, actor: Actor = HUMAN): Task {
+    return retryTask(this.ctx, id, actor);
+  }
+
+  approveTask(id: string, reason?: string): Task {
+    return approveTask(this.ctx, id, reason);
+  }
+
+  rejectTask(id: string, note: string, actor: Actor = HUMAN): Task {
+    return rejectTask(this.ctx, id, note, actor);
+  }
+
+  reassignTask(id: string, role: string, actor: Actor = HUMAN): Task {
+    return reassignTask(this.ctx, id, role, actor);
+  }
+
+  openAttention(input: AttentionCreateRequest): Attention {
+    return createAttention(this.ctx, input);
+  }
+
+  answerAttention(id: string, text: string, via: AnswerVia): Attention {
+    return answer(this.ctx, id, text, via);
+  }
+
+  recordMessage(input: RecordMessageInput): { message: Message; duplicate: boolean } {
+    return recordMessage(this.ctx, input);
+  }
+
+  setMessageStatus(id: string, status: MessageStatus): Message {
+    return setMessageStatus(this.ctx, id, status);
+  }
+}

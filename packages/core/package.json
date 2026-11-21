@@ -1,0 +1,36 @@
+{
+  "name": "@agent-team/core",
+  "version": "0.0.0",
+  "private": true,
+  "files": [
+    "dist",
+    "src"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "@agent-team/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "@agent-team/source": "./src/testing/index.ts",
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    }
+  },
+  "dependencies": {
+    "@agent-team/schema": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "5.1.1"
+  },
+  "peerDependencies": {
+    "vitest": "5.1.1"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
+  }
+}

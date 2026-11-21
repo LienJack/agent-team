@@ -1,0 +1,24 @@
+{
+  "name": "@agent-team/server",
+  "version": "0.0.0",
+  "private": true,
+  "files": [
+    "dist",
+    "src"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "@agent-team/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@agent-team/core": "workspace:*",
+    "@agent-team/db": "workspace:*",
+    "@agent-team/git": "workspace:*",
+    "@agent-team/runners": "workspace:*",
+    "@agent-team/schema": "workspace:*"
+  }
+}

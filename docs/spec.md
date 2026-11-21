@@ -25,14 +25,14 @@
 | 語言 | TypeScript strict（`noUncheckedIndexedAccess`、`exactOptionalPropertyTypes`、`verbatimModuleSyntax`），專案參照 |
 | 結構與驗證 | Zod（領域物件、回執、事件、API 請求與回應、設定檔） |
 | 服務框架 | Hono + `@hono/node-server` + `@hono/zod-openapi`；產出 `openapi.json` 並提交，CI 檢查是否漂移 |
-| 型別安全的客戶端 | Hono RPC（`hc<AppType>`）包在 `packages/client`，CLI／MCP／網頁都用它 |
+| 型別安全的客戶端 | 路由合約（`createRoute`，不含處理函式）放 `packages/protocol`；由它產生 `openapi.json`；`packages/client` 用 `openapi-typescript` 產生的型別 + `openapi-fetch`。產生檔提交進版控，CI 檢查漂移 |
 | 資料庫 | SQLite + Drizzle ORM；`drizzle-kit` 產生帶時間戳的 SQL 遷移，啟動時套用；WAL、`busy_timeout=5000` |
 | 前端 | React + Vite + Tailwind + TanStack Query + zustand；拖放用 `@hello-pangea/dnd` |
 | MCP | `@modelcontextprotocol/sdk`（stdio） |
 | CLI | commander |
 | Codex | `@openai/codex-sdk`，鎖定確切版本，使用它自帶的執行檔 |
 | 測試 | vitest（單元、整合）；Playwright 一條看板冒煙 |
-| 品質 | oxlint；格式化用 oxfmt，若在本機不可用則 prettier；`tsc -b`；husky + lint-staged |
+| 品質 | oxlint、oxfmt、`tsc -b`。git hook 不自動安裝（husky 會改寫各 worktree 共用的 git 設定）；需要時手動 `pnpm hooks:install` |
 | CI | GitHub Actions：安裝 → lint → typecheck → test → build → 檢查產生檔漂移 |
 
 SQLite 驅動：優先 Drizzle 的 `node:sqlite` 驅動（免原生編譯）；不可用則 `better-sqlite3`。實作者在本機驗證後定案並寫 ADR。
@@ -42,6 +42,7 @@ SQLite 驅動：優先 Drizzle 的 `node:sqlite` 驅動（免原生編譯）；�
 
 ```
 packages/schema     Zod：領域物件、狀態與轉換表、回執、事件、API DTO、設定檔。無其他依賴
+packages/protocol   API 路由合約（@hono/zod-openapi 的 createRoute）與 openapi.json 產生腳本。只依賴 schema
 packages/core       領域邏輯：ports、engine（排程、核對、升級、復原）、記憶體版 repositories。只依賴 schema
 packages/db         Drizzle schema、遷移、SQLite 版 repositories（實作 core 的 ports）
 packages/runners    Runner 實作：claude、codex、dsh、fake；共用的子行程工具；錄製的 fixture

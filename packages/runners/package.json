@@ -1,0 +1,21 @@
+{
+  "name": "@agent-team/runners",
+  "version": "0.0.0",
+  "private": true,
+  "files": [
+    "dist",
+    "src"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "@agent-team/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@agent-team/core": "workspace:*",
+    "@agent-team/schema": "workspace:*"
+  }
+}

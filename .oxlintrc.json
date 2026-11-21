@@ -1,0 +1,77 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import", "vitest", "promise", "node"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "env": {
+    "es2024": true,
+    "node": true
+  },
+  "ignorePatterns": ["**/dist/**", "**/node_modules/**", "coverage/**", "tools/fixtures/**"],
+  "rules": {
+    "eslint/max-lines": [
+      "error",
+      {
+        "max": 500,
+        "skipBlankLines": false,
+        "skipComments": false
+      }
+    ],
+    "eslint/no-console": "warn",
+    "eslint/eqeqeq": [
+      "error",
+      "always",
+      {
+        "null": "ignore"
+      }
+    ],
+    "eslint/no-var": "error",
+    "eslint/prefer-const": "error",
+    "typescript/no-explicit-any": "error",
+    "typescript/consistent-type-imports": "error",
+    "typescript/no-non-null-assertion": "off",
+    "import/no-cycle": "error",
+    "import/no-self-import": "error",
+    "unicorn/no-array-sort": "off",
+    "unicorn/no-array-reverse": "off",
+    "eslint/no-await-in-loop": "off",
+    "unicorn/require-module-specifiers": "off",
+    "promise/always-return": "off",
+    "oxc/no-map-spread": "off",
+    "unicorn/consistent-function-scoping": "off"
+  },
+  "overrides": [
+    {
+      "files": ["packages/schema/src/**", "packages/core/src/**"],
+      "rules": {
+        "eslint/no-console": "error",
+        "eslint/no-restricted-globals": [
+          "error",
+          {
+            "name": "process",
+            "message": "schema/core 不碰 IO：經由 ports 取得。"
+          },
+          {
+            "name": "setTimeout",
+            "message": "core 不用計時器：由 Clock 與巡檢驅動。"
+          },
+          {
+            "name": "setInterval",
+            "message": "core 不用計時器：由 Clock 與巡檢驅動。"
+          },
+          {
+            "name": "Buffer",
+            "message": "schema/core 不碰 IO。"
+          },
+          {
+            "name": "require",
+            "message": "使用 ESM import。"
+          }
+        ]
+      }
+    }
+  ]
+}

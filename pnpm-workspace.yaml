@@ -1,0 +1,6 @@
+packages:
+  - packages/*
+  - apps/*
+
+# 依賴一律鎖定確切版本（spec §2）。
+savePrefix: ''

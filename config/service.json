@@ -1,0 +1,31 @@
+{
+  "local": { "host": "127.0.0.1", "port": 4517 },
+  "lan": {
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 4518,
+    "allowed_origins": [],
+    "lockout_failures": 5,
+    "lockout_minutes": 15,
+    "session_hours": 168
+  },
+  "grok": { "enabled": false },
+  "paths": { "worktree_root": "~/RanoLabs/worktrees" },
+  "engine": {
+    "tick_ms": 5000,
+    "max_concurrent_runs": 6,
+    "reserved_human_slots": 1,
+    "max_attempts": 3,
+    "retry_initial_ms": 5000,
+    "retry_max_ms": 300000,
+    "rate_limit_cooldown_ms": 900000,
+    "circuit_failure_threshold": 3,
+    "circuit_open_ms": 600000,
+    "run_timeout_ms": 3600000,
+    "check_timeout_ms": 900000,
+    "effect_max_attempts": 10,
+    "worktree_retention_hours": 72
+  },
+  "leader": { "compact_threshold_tokens": 60000 },
+  "sse": { "heartbeat_ms": 15000, "max_queue": 1000 }
+}

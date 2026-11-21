@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # never install git hooks on CI
+      HUSKY: '0'
+    steps:
+      - uses: actions/checkout@v4
+
+      # version comes from "packageManager" in package.json
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: pnpm
+
+      - name: install
+        run: pnpm install --frozen-lockfile
+
+      - name: lint
+        run: |
+          pnpm lint
+          pnpm format:check
+
+      - name: typecheck
+        run: pnpm typecheck
+
+      - name: test
+        run: pnpm test
+
+      - name: build
+        run: pnpm build
+
+      - name: boundary check
+        run: pnpm check:boundaries
+
+      # later phases: fail when generated files (openapi.json, migrations) drift
+      - name: generated files unchanged
+        run: git diff --exit-code
