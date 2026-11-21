@@ -1,5 +1,16 @@
 # @agent-team/runners
 
-Runner 實作（claude、codex、dsh、fake CLI）、共用子行程工具、`CheckExecutor`、錄製的 fixture。（phase 2）
+Runner 實作（spec §7）：`claude`（`claude -p` stream-json）、`codex`（`@openai/codex-sdk` 0.171.0 與它自帶的執行檔）、
+`dsh`（`dsh --profile headless --json -`）、行程內假 runner；共用子行程工具（`src/process/`：參數陣列、標準輸入關閉、
+自成行程群組、逾時／取消時整群 SIGTERM→SIGKILL、結束訊號與行程結束先到者為準、逐行遮蔽金鑰後寫 `events.jsonl`／
+`stderr.log`／`prompt.md`）；`CheckExecutor`。
 
-對外介面：實作 core 的 `Runner`、`RunnerRegistry`、`CheckExecutor` ports。
+對外介面：`createRunnerRegistry({ env, logger?, fake?, commands? })`（`probeAll()` 後 `capabilities()` 才有值；
+`fake: true` 在 claude/codex/dsh/fake 四個名稱下各放一個可排劇本的 `InProcessFakeRunner`，用 `fake(name).script(...)`）、
+`createCheckExecutor()`、`@agent-team/runners/testing`（照劇本的假 CLI `fakeCliCommand`／`writeScenario`／`lastRecord`）。
+
+- 子行程環境一律白名單（不繼承 `GIT_*`、`CLAUDECODE`、`ANTHROPIC_*`、任何金鑰）；dsh 只多拿 `OPENROUTER_API_KEY`。
+- codex 經 `codexPathOverride` 走 `src/codex/group-wrapper.ts`，讓 codex 自成行程群組，取消時能整群終止。
+- dsh 的模型、`approval: never` 與沙箱模式（唯讀 run 為 `read-only`）寫在 run 日誌目錄的 `dsh.patch.yml`，以 `--patch` 套用。
+- 檢查指令能拆成參數陣列就不經 shell；含 `&&`、`|`、`$`、萬用字元等才用 `/bin/sh -c`（理由見 `src/checks/argv.ts`）。
+- 冒煙測試：`TEAM_SMOKE=1 pnpm --filter @agent-team/runners test:smoke`（會花真實額度；`SMOKE_ONLY=claude|codex|dsh`）。

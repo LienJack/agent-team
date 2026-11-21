@@ -12,7 +12,16 @@
       "@agent-team/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./node": {
+      "@agent-team/source": "./src/node.ts",
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
     }
+  },
+  "scripts": {
+    "generate": "tsx --conditions=@agent-team/source src/scripts/generate-types.ts",
+    "check:generated": "tsx --conditions=@agent-team/source src/scripts/generate-types.ts --check"
   },
   "dependencies": {
     "@agent-team/protocol": "workspace:*",
@@ -20,6 +29,7 @@
     "openapi-fetch": "0.17.0"
   },
   "devDependencies": {
-    "openapi-typescript": "7.13.0"
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3"
   }
 }

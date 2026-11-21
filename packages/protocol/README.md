@@ -1,4 +1,8 @@
 # @agent-team/protocol
 
-API 路由合約（`@hono/zod-openapi` 的 `createRoute`，不含處理函式）與 `openapi.json` 產生腳本。
-只依賴 `@agent-team/schema`。服務端實作這些路由；客戶端的型別由產生的 `openapi.json` 而來。
+API 路由合約（spec §11）：`@hono/zod-openapi` 的 `createRoute`（不含處理函式），依資源分在 `src/routes/`，
+DTO 來自 `@agent-team/schema`。`buildOpenApiDocument()` 產生 OpenAPI 3.1 文件，提交為 `openapi.json`。
+
+- `pnpm --filter @agent-team/protocol generate`：重寫 `openapi.json`（以 oxfmt 格式化）。
+- `pnpm --filter @agent-team/protocol check:generated`：提交的檔案與產生結果不同就失敗（`src/openapi.test.ts` 也檢查）。
+- `@agent-team/protocol/constants`：不含執行期依賴的常數（cookie 名稱、`X-Team-Actor`），給瀏覽器端使用。

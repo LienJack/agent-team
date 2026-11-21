@@ -4,7 +4,8 @@
   "private": true,
   "files": [
     "dist",
-    "src"
+    "src",
+    "openapi.json"
   ],
   "type": "module",
   "exports": {
@@ -12,7 +13,17 @@
       "@agent-team/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./constants": {
+      "@agent-team/source": "./src/constants.ts",
+      "types": "./dist/constants.d.ts",
+      "default": "./dist/constants.js"
+    },
+    "./openapi.json": "./openapi.json"
+  },
+  "scripts": {
+    "generate": "tsx --conditions=@agent-team/source src/scripts/generate-openapi.ts",
+    "check:generated": "tsx --conditions=@agent-team/source src/scripts/generate-openapi.ts --check"
   },
   "dependencies": {
     "@agent-team/schema": "workspace:*",

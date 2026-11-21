@@ -1,0 +1,63 @@
+import type { Command } from 'commander';
+import { attentionLine } from '../format.js';
+import { UsageError } from '../io.js';
+import type { CommandContext } from '../program.js';
+
+const collect = (value: string, previous: string[]) => [...previous, value];
+const STATUSES = ['open', 'answered', 'superseded'] as const;
+
+/** `team ask "<text>"`, `team attention list | open … | answer <id> "<answer>"` */
+export function registerTalkCommands(program: Command, ctx: CommandContext): void {
+  program
+    .command('ask <text>')
+    .description('send a message to the leader and print the reply')
+    .action(async (text: string) => {
+      const id = ctx.io.newMessageId?.() ?? globalThis.crypto.randomUUID();
+      const reply = await (
+        await ctx.client()
+      ).sendLeaderMessage({ text, source: 'cli', client_msg_id: id });
+      ctx.print(reply, reply.reply);
+    });
+
+  const attention = program.command('attention').description('decisions waiting for a human');
+  attention
+    .command('list')
+    .description('attention items (open by default)')
+    .option('--status <status>', 'open, answered or superseded', 'open')
+    .action(async (options: { status: string }) => {
+      if (!(STATUSES as readonly string[]).includes(options.status)) {
+        throw new UsageError(`--status must be one of ${STATUSES.join(', ')}`);
+      }
+      const items = await (
+        await ctx.client()
+      ).listAttention({ status: options.status as (typeof STATUSES)[number] });
+      ctx.print(items, () =>
+        items.length === 0 ? `no ${options.status} items` : items.map(attentionLine).join('\n'),
+      );
+    });
+
+  attention
+    .command('open')
+    .description('ask a human (question and options are passed verbatim)')
+    .requiredOption('--question <q>', 'the question')
+    .option('--option <a>', 'an answer option, repeatable', collect, [] as string[])
+    .option('--task <id>', 'related task')
+    .action(async (options: { question: string; option: string[]; task?: string }) => {
+      const item = await (
+        await ctx.client()
+      ).openAttention({
+        question: options.question,
+        options: options.option,
+        ...(options.task === undefined ? {} : { task_id: options.task }),
+      });
+      ctx.print(item, () => attentionLine(item));
+    });
+
+  attention
+    .command('answer <id> <answer>')
+    .description('answer an open item')
+    .action(async (id: string, answer: string) => {
+      const item = await (await ctx.client()).answerAttention(id, { answer, via: 'cli' });
+      ctx.print(item, () => attentionLine(item));
+    });
+}

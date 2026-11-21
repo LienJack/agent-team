@@ -1,0 +1,106 @@
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { ListenerFileSchema } from '@agent-team/schema';
+import { afterEach, describe, expect, it } from 'vitest';
+import { createTestService, TEST_PASSWORD, type TestService } from './testing/harness.js';
+
+let h: TestService | undefined;
+
+afterEach(async () => {
+  await h?.cleanup();
+  h = undefined;
+});
+
+describe('§14 server — listeners and listener.json', () => {
+  it('writes DATA/run/listener.json (0600, fresh token, bound port) and removes it on stop', async () => {
+    h = createTestService();
+    const running = await h.service.start();
+    const path = join(h.dataDir, 'run', 'listener.json');
+    expect(running.listenerFile).toBe(path);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expect(statSync(join(h.dataDir, 'run')).mode & 0o777).toBe(0o700);
+    const listener = ListenerFileSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
+    expect(listener.addr).toBe(running.localUrl);
+    expect(listener.addr).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+    expect(listener.token.length).toBeGreaterThanOrEqual(32);
+
+    // real HTTP: bearer works, nothing else does
+    const ok = await fetch(`${listener.addr}/api/state`, {
+      headers: { authorization: `Bearer ${listener.token}` },
+    });
+    expect(ok.status).toBe(200);
+    expect((await fetch(`${listener.addr}/api/state`)).status).toBe(401);
+    // the LAN listener is separate and answers with the board page
+    expect(running.lanUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+    const board = await fetch(`${running.lanUrl}/`);
+    expect(board.status).toBe(200);
+
+    await h.service.stop();
+    expect(existsSync(path)).toBe(false);
+    await expect(fetch(`${listener.addr}/api/state`)).rejects.toThrow(/fetch failed/);
+    await h.service.stop(); // idempotent
+  });
+
+  it('a new start gets a new token', async () => {
+    h = createTestService();
+    const a = await h.service.start();
+    const tokenA = JSON.parse(readFileSync(a.listenerFile, 'utf8')).token as string;
+    await h.service.stop();
+    const again = createTestService();
+    try {
+      const b = await again.service.start();
+      const tokenB = JSON.parse(readFileSync(b.listenerFile, 'utf8')).token as string;
+      expect(tokenB).not.toBe(tokenA);
+    } finally {
+      await again.cleanup();
+    }
+  });
+
+  it('uses TEAM_LAN_PASSWORD from the env file and prints nothing secret', async () => {
+    h = createTestService();
+    const running = await h.service.start();
+    expect(h.printed.join('')).not.toContain(TEST_PASSWORD);
+    const login = await fetch(`${running.lanUrl}/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password: TEST_PASSWORD }),
+    });
+    expect(login.status).toBe(200);
+    expect(login.headers.get('set-cookie')).toMatch(/HttpOnly/);
+  });
+
+  it('generates a LAN password when none is set and prints it exactly once', async () => {
+    h = createTestService({ envFile: '# no password\nTEAM_LAN_PASSWORD=\n' });
+    const running = await h.service.start();
+    const lines = h.printed.filter((l) => l.includes('密碼'));
+    expect(lines).toHaveLength(1);
+    const password = /：(\S+)\n$/.exec(lines[0]!)![1]!;
+    expect(password).toMatch(/^[a-z0-9]{4}(-[a-z0-9]{4}){3}$/);
+    const login = await fetch(`${running.lanUrl}/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    expect(login.status).toBe(200);
+  });
+
+  it('lan.enabled=false starts only the local listener', async () => {
+    h = createTestService({ configure: (c) => (c.lan.enabled = false) });
+    const running = await h.service.start();
+    expect(running.lanUrl).toBeUndefined();
+    expect(h.printed).toEqual([]);
+  });
+
+  it('a failed start (port in use) cleans up the listener file', async () => {
+    h = createTestService();
+    const first = await h.service.start();
+    const port = Number(new URL(first.localUrl).port);
+    const clash = createTestService({ configure: (c) => (c.local.port = port) });
+    try {
+      await expect(clash.service.start()).rejects.toThrow(/already in use/);
+      expect(existsSync(join(clash.dataDir, 'run', 'listener.json'))).toBe(false);
+    } finally {
+      await clash.cleanup();
+    }
+  });
+});

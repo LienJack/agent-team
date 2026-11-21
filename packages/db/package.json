@@ -4,7 +4,8 @@
   "private": true,
   "files": [
     "dist",
-    "src"
+    "src",
+    "drizzle"
   ],
   "type": "module",
   "exports": {
@@ -13,6 +14,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
+  },
+  "scripts": {
+    "test": "vitest run --root ../.. --project db",
+    "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
     "@agent-team/core": "workspace:*",
