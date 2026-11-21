@@ -91,5 +91,32 @@ export const ACTION_LABELS: Record<TaskActionKind, string> = {
   reassign: '改派',
 };
 
-/** Roles offered by the reassign picker (no API lists config/models.json roles yet). */
+/** Fallback roles of the reassign picker while GET /api/roles is not loaded. */
 export const REASSIGN_ROLES = ['impl_A', 'impl_B', 'impl_C'] as const;
+
+export interface RoleChoice {
+  name: string;
+  label: string;
+}
+
+/**
+ * Reassign picker options from GET /api/roles: enabled roles only (the engine refuses disabled
+ * ones), implementation roles first; the task's current role is always listed.
+ */
+export function reassignChoices(
+  roles:
+    | ReadonlyArray<{ name: string; model_alias: string; runner: string; enabled: boolean }>
+    | undefined,
+  current: string,
+): { impl: RoleChoice[]; other: RoleChoice[] } {
+  const label = (r: { name: string; model_alias: string; runner: string }) =>
+    `${r.name} — ${r.model_alias}（${r.runner}）`;
+  const list = roles
+    ? roles
+        .filter((r) => r.enabled || r.name === current)
+        .map((r) => ({ name: r.name, label: label(r) }))
+    : REASSIGN_ROLES.map((name) => ({ name, label: name }));
+  if (!list.some((r) => r.name === current)) list.push({ name: current, label: current });
+  const isImpl = (name: string) => name.startsWith('impl_');
+  return { impl: list.filter((r) => isImpl(r.name)), other: list.filter((r) => !isImpl(r.name)) };
+}

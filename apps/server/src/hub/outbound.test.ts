@@ -263,4 +263,28 @@ describe('§10 hub outbound (fake grokmsg)', () => {
     ]);
     expect(calls).toEqual(['40:報告：細', '40:報告：細']); // the short one never reached the model
   });
+
+  it('a failing proactive notice never holds up the replies to Grok messages', async () => {
+    const { h: t, grok } = boot();
+    grok.configure({ notifyFail: true });
+    await t.service.start();
+    // a task-less notice that fails (and then backs off) …
+    t.service.engine.ctx.transact((tx) =>
+      t.service.hub.onLeaderRateLimited(tx, '2026-11-21T09:00:00.000Z'),
+    );
+    await until(() => grok.records('notify').length === 1);
+    // … while replies to two Grok conversations go out right away, in their own lanes
+    leaderReplied(t, 'g-a', '第一個回覆');
+    leaderReplied(t, 'g-b', '第二個回覆');
+    await until(() => grok.records('reply').length === 2);
+    expect(
+      grok
+        .records('reply')
+        .map((r) => r.argv[1])
+        .sort(),
+    ).toEqual(['g-a', 'g-b']);
+    const quota = t.store.outbox.list().find((o) => o.kind === 'quota_exhausted')!;
+    expect(quota.status).toBe('pending');
+    expect(t.store.effects.get('outbox.send', quota.id)).toMatchObject({ attempts: 1 });
+  });
 });

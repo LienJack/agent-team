@@ -7,6 +7,7 @@ export const keys = {
   runLogs: () => ['runLog'] as const,
   runLog: (id: string) => ['runLog', id] as const,
   leaderMessages: () => ['leaderMessages'] as const,
+  roles: () => ['roles'] as const,
 };
 
 export type QueryKey = readonly string[];

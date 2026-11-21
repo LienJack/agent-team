@@ -34,9 +34,11 @@
     "worktree_retention_hours": 72
   },
   "leader": {
+    "enabled": true,
     "compact_threshold_tokens": 60000,
     "event_window_ms": 3000,
-    "turn_timeout_ms": 600000
+    "turn_timeout_ms": 600000,
+    "reply_wait_ms": 240000
   },
   "sse": { "heartbeat_ms": 15000, "max_queue": 1000 }
 }

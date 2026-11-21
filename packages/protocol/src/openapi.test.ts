@@ -8,7 +8,7 @@ import { formatWithOxfmt, workspaceRoot } from './scripts/format.js';
 const packageDir = fileURLToPath(new URL('..', import.meta.url));
 const committedPath = fileURLToPath(new URL('../openapi.json', import.meta.url));
 
-/** Spec §11 route list (paths under /api, plus the LAN login). */
+/** Spec §11 route list (paths under /api, plus the LAN login). Keep docs/spec.md §11 in sync. */
 const SPEC_ROUTES = [
   'GET /api/state',
   'GET /api/events',
@@ -26,11 +26,13 @@ const SPEC_ROUTES = [
   'GET /api/runs/{id}/log',
   'POST /api/leader/messages',
   'GET /api/leader/messages',
+  'GET /api/leader/messages/{id}',
   'POST /api/leader/reset',
   'GET /api/attention',
   'POST /api/attention',
   'POST /api/attention/{id}/answer',
   'GET /api/resume',
+  'GET /api/roles',
   'GET /api/quota',
   'GET /api/doctor',
   'POST /auth/login',

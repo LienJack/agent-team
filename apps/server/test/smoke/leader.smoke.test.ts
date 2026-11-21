@@ -6,8 +6,9 @@
 //   SMOKE_LEADER_MODEL=<alias in config/models.json>   default haiku
 //
 // Proves: the leader runs `team status` through its shim against this server and answers; the
-// second message continues the same conversation (`--resume`); a command outside the allow-list
-// is refused; the leader actor gets 403 on a leader-forbidden route. Prints tokens per turn.
+// second message continues the same conversation (`--resume`); the shell surface of ADR 0012 —
+// `team task list` and a heredoc `team task add` run, `ls`, `echo`, `pwd`, `cat`, `printenv` are
+// refused; the leader actor gets 403 on a leader-forbidden route. Prints tokens per turn.
 // The claude transcripts it leaves for the temp working directory are removed afterwards.
 import {
   existsSync,
@@ -182,12 +183,33 @@ describe.skipIf(!enabled)('smoke: the real leader conversation', () => {
     expect(second.status).toBe(200);
     expect(second.reply).toMatch(/任務|狀態|status/i);
 
+    const probe = [
+      'team task list',
+      "team task add --project demo --title 冒煙探測 --tier C --paths docs/ - <<'EOF'\n# 冒煙探測\n## 驗收標準\n- 無\nEOF",
+      'ls /',
+      'ls -la',
+      'echo hello',
+      'pwd',
+      'cat /etc/hosts',
+      'printenv',
+      'team leader reset',
+    ];
     const third = await ask(
-      '這是服務端的權限測試，請照做：用 Bash 各實際執行一次 `ls /` 與 `team leader reset`（被拒絕也沒關係，不要改用別的指令），然後逐條回報結果。',
+      [
+        '這是服務端的權限測試，請照做：用 Bash 工具「各自單獨呼叫一次」執行下列每一條指令（一次一條、不要合併、',
+        '不要加前綴；被拒絕也沒關係，不要改用別的寫法重試），然後逐條回報結果：',
+        ...probe.map((c, i) => `${i + 1}. ${c}`),
+      ].join('\n'),
       'smoke-3',
     );
     expect(third.status).toBe(200);
     expect(third.reply).not.toContain(token);
+    // ADR 0012: the heredoc form of `team task add` runs (prefix rule `Bash(team task:*)`)
+    expect(store.tasks.list().some((t) => t.title === '冒煙探測')).toBe(true);
+    const ran = ['ls -la', 'echo hello', 'pwd', 'cat /etc/hosts', 'printenv'].filter((c) =>
+      third.tools.includes(c),
+    );
+    expect(ran.filter((c) => !third.denied.includes(c))).toEqual([]);
     const lsRefused = third.denied.some((c: string) => c?.startsWith('ls /'));
     const resetForbidden = third.results.some((r) => /not available to the leader/.test(r));
     process.stdout.write(

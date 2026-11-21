@@ -1,14 +1,28 @@
 import type { EffectRecord } from '@agent-team/schema';
 import { describe, expect, it } from 'vitest';
 import { createTestEngine, editing } from '../testing/harness.js';
-import { enqueueEffect, type EffectHandler } from './effect-queue.js';
+import { effectLane, enqueueEffect, type EffectHandler } from './effect-queue.js';
 import { EFFECT_HANDLERS, EffectExecutor } from './effects.js';
+import { notify, outboxLane } from './notify.js';
 
 /** A harness whose engine never wakes itself, so a hand-built executor is the only one running. */
 function isolated() {
   const h = createTestEngine();
   h.engine.ctx.onCommit = undefined;
   return h;
+}
+
+/**
+ * Await background work until none is left, letting queued wake-ups (microtasks) run first.
+ * Never calls tick/drain itself: whatever runs was started by the engine's own wake-ups and lane
+ * drains.
+ */
+async function settle(h: { engine: { ctx: { work: Set<Promise<unknown>> } } }): Promise<void> {
+  for (let i = 0; i < 50; i++) {
+    for (let j = 0; j < 10; j++) await Promise.resolve();
+    if (h.engine.ctx.work.size === 0) return;
+    await Promise.allSettled(h.engine.ctx.work);
+  }
 }
 
 function gate() {
@@ -103,11 +117,8 @@ describe('§14 effect 的重試與世代 — store first, then execute', () => {
     );
     expect(exec.runDue()).toBe(0); // same lane is busy
     g.open();
-    await Promise.allSettled(h.engine.ctx.work);
-    const survivor = h.store.effects.get('run.stop', 'r_x');
-    expect(survivor).toMatchObject({ generation: 2, payload: { reason: 'b' } });
-    expect(exec.runDue()).toBe(1);
-    await Promise.allSettled(h.engine.ctx.work);
+    await settle(h);
+    // generation 2 survived the completion of generation 1 and ran right after it (lane drain)
     expect(seen).toEqual([1, 2]);
     expect(h.store.effects.get('run.stop', 'r_x')).toBeUndefined();
   });
@@ -168,5 +179,83 @@ describe('§14 effect 的重試與世代 — store first, then execute', () => {
     exec.runDue();
     await Promise.allSettled(h.engine.ctx.work);
     expect(h.store.effects.get('run.verify', 'r_v')).toBeUndefined();
+  });
+
+  it('the next effect of a lane starts as soon as the previous one finished (no patrol tick)', async () => {
+    // regression: the wake-up from the first effect's commit ran while its lane was still busy,
+    // so the second waited for the next patrol tick (`engine.tick_ms`)
+    const h = createTestEngine();
+    h.engine.ctx.transact((tx) => {
+      for (const n of [1, 2, 3]) {
+        notify(h.engine.ctx, tx, {
+          kind: 'task_done',
+          signature: `lane-drain:${n}`,
+          body: `notice ${n}`,
+          task_id: null,
+        });
+      }
+    });
+    await settle(h); // never calls tick/drain/runUntilIdle
+    expect(h.notifier.sent.map((i) => i.body)).toEqual(['notice 1', 'notice 2', 'notice 3']);
+    expect(h.store.effects.list()).toEqual([]);
+  });
+});
+
+describe('outbox lanes — replies never wait for a failing notice', () => {
+  it('a notice in backoff holds up later notices, not the replies to a Grok message', async () => {
+    const h = createTestEngine();
+    h.notifier.failNext(1);
+    const ctx = h.engine.ctx;
+    const reply = (n: number) =>
+      ctx.transact((tx) => {
+        const item = {
+          id: `o_reply${n}`,
+          target: 'grok' as const,
+          kind: 'reply' as const,
+          body: `reply ${n}`,
+          signature: `reply:g_1:${n}`,
+          status: 'pending' as const,
+          task_id: null,
+          attempts: 0,
+          error: null,
+          created_at: tx.now,
+          sent_at: null,
+        };
+        tx.r.outbox.insert(item);
+        enqueueEffect(tx, 'outbox.send', item.id, {
+          outbox_id: item.id,
+          task_id: null,
+          lane: outboxLane(item, 'g_1'),
+        });
+      });
+    ctx.transact((tx) => {
+      notify(ctx, tx, { kind: 'quota_exhausted', signature: 'q:1', body: 'quota', task_id: null });
+      notify(ctx, tx, { kind: 'task_done', signature: 'd:1', body: 'later notice', task_id: null });
+    });
+    reply(1);
+    reply(2);
+    await settle(h);
+    // the quota notice failed and backs off; its lane waits, the replies went out in order
+    expect(h.notifier.sent.map((i) => i.body)).toEqual(['reply 1', 'reply 2']);
+    expect(h.store.effects.list().map((e) => [e.kind, effectLane(e), e.attempts])).toEqual([
+      ['outbox.send', 'outbox:notify:-', 1],
+      ['outbox.send', 'outbox:notify:-', 0],
+    ]);
+    h.clock.advance(5000);
+    await h.engine.runUntilIdle();
+    expect(h.notifier.sent.map((i) => i.body)).toEqual([
+      'reply 1',
+      'reply 2',
+      'quota',
+      'later notice',
+    ]);
+  });
+
+  it('lane keys: replies per Grok message, notices per task, legacy payloads per task', () => {
+    expect(outboxLane({ kind: 'reply', task_id: null }, 'g_9')).toBe('reply:g_9');
+    expect(outboxLane({ kind: 'task_done', task_id: 't_1' })).toBe('notify:t_1');
+    expect(outboxLane({ kind: 'attention', task_id: null })).toBe('notify:-');
+    const legacy = { kind: 'outbox.send', key: 'o', payload: { outbox_id: 'o', task_id: 't_2' } };
+    expect(effectLane(legacy as unknown as EffectRecord)).toBe('outbox:t_2');
   });
 });

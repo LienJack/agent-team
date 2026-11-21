@@ -20,6 +20,7 @@
     }
   },
   "scripts": {
+    "test": "vitest run --root ../.. --project client",
     "generate": "tsx --conditions=@agent-team/source src/scripts/generate-types.ts",
     "check:generated": "tsx --conditions=@agent-team/source src/scripts/generate-types.ts --check"
   },

@@ -226,6 +226,17 @@ describe('team — argument parsing', () => {
         seen.push(`reassign ${id} ${role}`);
         return task;
       },
+      roles: async () => [
+        {
+          name: 'impl_B',
+          description: null,
+          model_alias: 'gpt-sol',
+          runner: 'codex',
+          slots: 3,
+          enabled: true,
+          fallback: [],
+        },
+      ],
     });
     for (const argv of [['queue'], ['cancel'], ['retry'], ['reassign']]) {
       const extra = argv[0] === 'reassign' ? ['impl_B'] : [];
@@ -304,21 +315,6 @@ describe('team — output and exit codes', () => {
     );
     const none = captureIo(fakeClient({ getTask: async () => ({ ...detail, runs: [] }) }));
     expect(await runCli(['receipt', 't_000001'], none)).toBe(1);
-  });
-
-  it('ask sends source cli with a client message id', async () => {
-    let body: unknown;
-    const io = captureIo(
-      fakeClient({
-        sendLeaderMessage: async (b) => {
-          body = b;
-          return { reply: '收到', message_id: 'm_1', reply_message_id: null };
-        },
-      }),
-    );
-    expect(await runCli(['ask', '進度如何？'], io)).toBe(0);
-    expect(body).toEqual({ text: '進度如何？', source: 'cli', client_msg_id: 'msg-1' });
-    expect(io.text()).toBe('收到\n');
   });
 
   it('leader reset starts a new conversation', async () => {

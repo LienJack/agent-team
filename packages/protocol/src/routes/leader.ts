@@ -1,20 +1,25 @@
 import { createRoute } from '@hono/zod-openapi';
 import {
+  LeaderMessageDetailResponseSchema,
   LeaderMessageRequestSchema,
   LeaderResetResponseSchema,
   LeaderMessageResponseSchema,
   LeaderMessagesQuerySchema,
   LeaderMessagesResponseSchema,
+  MessageIdSchema,
 } from '@agent-team/schema';
-import { body, errors, json, MutationHeadersSchema } from '../common.js';
+import { body, errors, idParam, json, MutationHeadersSchema } from '../common.js';
 import { LOCAL_ONLY_EXTENSION } from '../constants.js';
 
 const tags = ['leader'];
 
 /**
  * Send a message to the leader conversation. The message is stored first (deduplicated by
- * `client_msg_id`), then handed to the leader; 503 `unavailable` while the leader cannot answer
- * (rate limit, login, no CLI): the message stays queued and is answered later. A duplicate
+ * `client_msg_id`), then queued for the leader. `wait: false` answers at once with
+ * `pending: true` (the reply follows as a `leader.reply` event and in GET /leader/messages).
+ * `wait: true` (default) waits for the reply up to `leader.reply_wait_ms` (240 s), then answers
+ * `pending: true` (poll GET /leader/messages/{id}); while waiting is impossible (rate limit,
+ * login, no CLI) it answers 503 `unavailable` and the message stays queued. A duplicate
  * `client_msg_id` returns the stored reply.
  */
 export const postLeaderMessage = createRoute({
@@ -27,6 +32,20 @@ export const postLeaderMessage = createRoute({
   responses: {
     200: json(LeaderMessageResponseSchema, 'The leader’s reply'),
     ...errors(409, 501, 503),
+  },
+});
+
+/** One input message and its reply (callers waiting on a `pending` message poll this). */
+export const getLeaderMessage = createRoute({
+  operationId: 'getLeaderMessage',
+  tags,
+  method: 'get',
+  path: '/api/leader/messages/{id}',
+  summary: 'One leader message and its reply (null while pending)',
+  request: { params: idParam(MessageIdSchema) },
+  responses: {
+    200: json(LeaderMessageDetailResponseSchema, 'The message, its reply, the leader status'),
+    ...errors(404),
   },
 });
 
@@ -56,4 +75,9 @@ export const resetLeader = createRoute({
   responses: { 200: json(LeaderResetResponseSchema, 'The new session'), ...errors(503) },
 });
 
-export const leaderRoutes = { postLeaderMessage, listLeaderMessages, resetLeader };
+export const leaderRoutes = {
+  postLeaderMessage,
+  listLeaderMessages,
+  getLeaderMessage,
+  resetLeader,
+};

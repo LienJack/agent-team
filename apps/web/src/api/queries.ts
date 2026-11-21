@@ -30,15 +30,25 @@ export function useTaskDetail(id: string | undefined, enabled = true) {
 
 export const LOG_TAIL_LINES = 200;
 
-/** GET /api/runs/:id/log?tail=. No log events exist, so a live run's tail is polled. */
+/**
+ * GET /api/runs/:id/log?tail=. A live run's log refreshes on `run.log_advanced` events; only
+ * while the event stream is down does it fall back to polling.
+ */
 export function useRunLog(runId: string | undefined, live: boolean) {
   const client = useClient();
+  const streaming = useUi((s) => s.connection === 'live');
   return useQuery({
     queryKey: keys.runLog(runId ?? ''),
     queryFn: () => client.runLog(runId!, LOG_TAIL_LINES),
     enabled: runId !== undefined,
-    refetchInterval: live ? 3_000 : false,
+    refetchInterval: live && !streaming ? 5_000 : false,
   });
+}
+
+/** GET /api/roles (config/models.json; static while the server runs). */
+export function useRoles() {
+  const client = useClient();
+  return useQuery({ queryKey: keys.roles(), queryFn: () => client.roles(), staleTime: Infinity });
 }
 
 const PAGE = 200;

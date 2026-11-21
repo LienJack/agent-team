@@ -84,7 +84,10 @@ export function TopBar({ state }: { state: StateSnapshot | undefined }) {
       <div className="flex flex-wrap items-center gap-2 px-3 py-2">
         <h1 className="mr-1 text-sm font-semibold">agent-team</h1>
         {leader ? (
-          <Chip tone={leader.tone} title={`Leader：${leader.label}`}>
+          <Chip
+            tone={leader.tone}
+            title={`Leader：${leader.label}${state?.leader.hint ? `（${state.leader.hint}）` : ''}`}
+          >
             <span aria-hidden="true" className={`size-2 rounded-full ${DOT[leader.tone]}`} />
             Leader {leader.label}
           </Chip>

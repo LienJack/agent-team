@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { ListenerFileSchema } from '@agent-team/schema';
 import { afterEach, describe, expect, it } from 'vitest';
+import { boardUrls } from './listeners.js';
 import { createTestService, TEST_PASSWORD, type TestService } from './testing/harness.js';
 
 let h: TestService | undefined;
@@ -88,7 +89,23 @@ describe('§14 server — listeners and listener.json', () => {
     h = createTestService({ configure: (c) => (c.lan.enabled = false) });
     const running = await h.service.start();
     expect(running.lanUrl).toBeUndefined();
-    expect(h.printed).toEqual([]);
+    expect(h.printed).toEqual([
+      '看板已關閉（service.json lan.enabled = false）；CLI／MCP 走本機監聽埠\n',
+    ]);
+  });
+
+  it('prints where to open the board: this machine and the LAN addresses', () => {
+    const listening = (host: string) => ({
+      url: `http://${host}:4518`,
+      host,
+      port: 4518,
+      close: async () => {},
+    });
+    // bound to every interface (not in tests: only the formatting is checked here)
+    const all = boardUrls(listening('0.0.0.0'));
+    expect(all.thisMachine).toBe('http://127.0.0.1:4518');
+    expect(all.lan.every((u) => /^http:\/\/[\d.]+:4518$/.test(u))).toBe(true);
+    expect(boardUrls(listening('192.168.1.20'))).toEqual({ lan: ['http://192.168.1.20:4518'] });
   });
 
   it('a failed start (port in use) cleans up the listener file', async () => {

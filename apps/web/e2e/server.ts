@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { createTeamClient, type TeamClient } from '@agent-team/client';
 
 // Boots the real server (apps/server/src/main.ts through tsx) for the board smoke test:
-// in-process fake runners, a temp AGENT_TEAM_HOME / config / .env / HOME, a fresh git repo, both
+// in-process fake runners, the leader off, a temp AGENT_TEAM_HOME / config / .env / HOME, a fresh git repo, both
 // listeners on ephemeral loopback ports. The web app may not import the server, so it is a child
 // process, the same way `team serve` starts it.
 
@@ -73,6 +73,8 @@ export async function startServer(): Promise<TestServer> {
       lan: { enabled: true, host: '127.0.0.1', port: 0 },
       paths: { worktree_root: join(tmp, 'worktrees') },
       engine: { tick_ms: 500 },
+      // never the real claude: the leader is independent of AGENT_TEAM_FAKE_RUNNERS
+      leader: { enabled: false },
     }),
   );
   copyFileSync(join(repoRoot, 'config/models.json'), join(config, 'models.json'));

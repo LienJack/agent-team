@@ -1,6 +1,7 @@
 import { OpenAPIHono, type RouteConfig } from '@hono/zod-openapi';
 import {
   AttentionSchema,
+  BoardTaskSchema,
   ErrorEnvelopeSchema,
   MessageSchema,
   ProjectSchema,
@@ -40,6 +41,7 @@ export function isLocalOnly(route: RouteConfig): boolean {
 const COMPONENTS: ReadonlyArray<[string, z.ZodType]> = [
   ['Project', ProjectSchema],
   ['Task', TaskSchema],
+  ['BoardTask', BoardTaskSchema],
   ['Workspace', WorkspaceSchema],
   ['Run', RunSchema],
   ['Attention', AttentionSchema],

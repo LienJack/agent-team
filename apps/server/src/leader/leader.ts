@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { errorMessage, TeamError, type Tx } from '@agent-team/core';
 import type { ClaudeTextResult } from '@agent-team/runners';
-import type { EventRecord, LeaderStatus, Message } from '@agent-team/schema';
+import type { Message } from '@agent-team/schema';
 import {
   freshConversation,
   loadConversation,
@@ -10,6 +10,7 @@ import {
   type Unavailable,
 } from './conversation.js';
 import { isLeaderRelevant } from './digest.js';
+import { EventBuffer } from './event-buffer.js';
 import {
   AUTH_HINT,
   classifyFailure,
@@ -27,11 +28,21 @@ import { LeaderProcess, leaderModel } from './process.js';
 import { LEADER_PROMPT_VERSION } from './prompt/system-v1.js';
 import { resumeBrief } from './resume.js';
 import {
+  leaderStatus,
+  StatusEvents,
+  unavailableError as unavailable,
+  whyUnavailable,
+  type Offline,
+  type StatusInputs,
+} from './status.js';
+import {
   LEADER_EVENT_CURSOR_KEY,
   LEADER_RECEIPTS_CURSOR_KEY,
-  type Leader,
   type LeaderDeps,
+  type LeaderImpl,
 } from './types.js';
+
+export type { LeaderImpl } from './types.js';
 
 // The Team Leader (spec §9): one headless Claude conversation, one `claude -p` per input, one
 // turn at a time; humans first, engine events within `event_window_ms` as one digest. Compaction
@@ -45,31 +56,21 @@ interface Running {
   done: Promise<void>;
 }
 
-const MAX_BUFFERED_EVENTS = 500;
-
-/** The leader plus test hooks (`pump`, `settled`). */
-export interface LeaderImpl extends Leader {
-  /** Re-check availability and start the next turn if possible. */
-  pump(): void;
-  /** Resolves once no turn runs and nothing runnable is queued. */
-  settled(): Promise<void>;
-}
-
 export function createLeader(deps: LeaderDeps): LeaderImpl {
   const { engine, store, clock, logger, service } = deps;
   const runtime = deps.runtime ?? { enabled: false };
   const proc = runtime.enabled ? new LeaderProcess(runtime, deps.dataDir) : undefined;
-  const windowMs = service.leader.event_window_ms;
 
   let conv: ConversationState = freshConversation(randomUUID(), LEADER_PROMPT_VERSION);
-  let offline: { reason: 'disabled' | 'not_installed'; hint: string } | undefined = proc
+  let offline: Offline | undefined = proc
     ? undefined
-    : { reason: 'disabled', hint: 'no leader conversation in this process; messages are stored' };
+    : {
+        reason: 'disabled',
+        hint: 'the leader is off (service.json leader.enabled = false); messages are stored',
+      };
   const humans: Pending[] = [];
   const byMessage = new Map<string, Pending>();
-  let events: EventRecord[] = [];
-  let eventsSince: number | undefined;
-  let seenSeq = 0;
+  const buffer = new EventBuffer(service.leader.event_window_ms);
   let running: Running | undefined;
   let started = false;
   let stopped = false;
@@ -77,35 +78,32 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
   let recoveries = 0;
   let pumpQueued = false;
   const timers: { events?: NodeJS.Timeout | undefined; retry?: NodeJS.Timeout | undefined } = {};
+  const statusEvents = new StatusEvents();
 
   const save = () => saveConversation(store.kv, conv);
   const nowIso = () => clock.now().toISOString();
 
-  function unavailability():
-    | { reason: LeaderStatus['reason']; hint: string; until: string | null }
-    | undefined {
-    if (offline) return { reason: offline.reason, hint: offline.hint, until: null };
-    if (!started) return { reason: null, hint: 'the leader is starting', until: null };
-    const u = conv.unavailable;
-    return u ? { reason: u.reason, hint: u.hint, until: u.until } : undefined;
-  }
+  const inputs = (): StatusInputs => ({
+    offline,
+    started,
+    conv,
+    running: running !== undefined,
+    queued: humans.length + (buffer.size > 0 ? 1 : 0),
+    lastActivity,
+  });
+  const unavailability = () => whyUnavailable(inputs());
+  const unavailableError = () => unavailable(unavailability());
 
-  function unavailableError(): TeamError {
-    const why = unavailability();
-    return new TeamError(
-      'unavailable',
-      `the leader cannot answer right now (${why?.reason ?? 'unavailable'}); the message is stored and queued`,
-      why?.hint ?? 'try again later; GET /api/leader/messages shows the reply once it exists',
-    );
-  }
-
+  /** `leader.status_changed` in `tx` when the status differs from the last one emitted. */
   function emitStatus(tx: Tx): void {
-    const u = conv.unavailable;
-    tx.emit('leader.status_changed', {
-      available: u === null,
-      reason: u?.reason ?? null,
-      until: u?.until ?? null,
-    });
+    const now = leaderStatus(inputs());
+    if (statusEvents.changed(now)) statusEvents.emit(tx, now);
+  }
+
+  /** Emit a status change (busy ↔ idle) in its own transaction, if there is one. */
+  function syncStatus(): void {
+    if (!started || stopped || !statusEvents.changed(leaderStatus(inputs()))) return;
+    engine.ctx.transact(emitStatus);
   }
 
   /** Reject everyone waiting for a queued message; the messages stay queued. */
@@ -138,6 +136,7 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
     setImmediate(() => {
       pumpQueued = false;
       pump();
+      syncStatus();
     });
   }
 
@@ -147,6 +146,7 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
       () => {
         timers[name] = undefined;
         pump();
+        syncStatus();
       },
       Math.max(0, Math.min(ms, 2 ** 31 - 1)),
     );
@@ -169,29 +169,25 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
 
   function pump(): void {
     if (!started || stopped || running || offline || blocked()) return;
-    let next: Input | undefined;
-    if (humans[0]) next = { kind: 'human', pending: humans[0] };
-    else if (events.length > 0) {
-      const wait = (eventsSince ?? 0) + windowMs - Date.now();
+    let next: 'human' | 'events' | undefined;
+    if (humans[0]) next = 'human';
+    else if (buffer.size > 0) {
+      const wait = buffer.waitMs();
       if (wait > 0) return arm('events', wait);
-      next = { kind: 'events', events: [...events] };
+      next = 'events';
     }
     if (!next) return;
     if (conv.needs_compact) return run({ kind: 'compact' });
-    if (next.kind === 'human') humans.shift();
-    else {
-      events = [];
-      eventsSince = undefined;
-    }
-    run(next);
+    run(
+      next === 'human'
+        ? { kind: 'human', pending: humans.shift()! }
+        : { kind: 'events', events: buffer.take() },
+    );
   }
 
   function requeue(input: Input): void {
     if (input.kind === 'human') humans.unshift(input.pending);
-    else if (input.kind === 'events') {
-      events = [...input.events, ...events];
-      eventsSince = Date.now() - windowMs;
-    }
+    else if (input.kind === 'events') buffer.putBack(input.events);
   }
 
   function newSession(): void {
@@ -356,54 +352,49 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
     return pending;
   }
 
+  /** A stored reply, or a conflict for an input that was handled without one. */
+  function answered(message: Message, info: { duplicate: boolean }) {
+    const stored = findReply(store, message);
+    if (stored) return { reply: stored.body, reply_message_id: stored.id };
+    if (!byMessage.has(message.id) && info.duplicate && message.status !== 'new') {
+      throw new TeamError(
+        'conflict',
+        `message ${message.id} was already handled without a reply`,
+        'send it again with a new client_msg_id',
+      );
+    }
+    return undefined;
+  }
+
   const leader: LeaderImpl = {
-    status: () => {
-      const why = unavailability();
-      return {
-        state: why ? 'offline' : running ? 'busy' : 'idle',
-        last_activity_at: lastActivity,
-        available: why === undefined,
-        reason: why?.reason ?? null,
-        hint: why?.hint ?? null,
-        until: why?.until ?? null,
-        queued: humans.length + (events.length > 0 ? 1 : 0),
-        context_tokens: conv.context_tokens,
-        quota: conv.quota,
-      };
-    },
+    status: () => leaderStatus(inputs()),
 
     notify: (batch) => {
       if (!started || stopped || offline?.reason === 'disabled') return;
-      for (const event of batch) {
-        if (event.seq <= seenSeq) continue;
-        seenSeq = event.seq;
-        if (!isLeaderRelevant(event)) continue;
-        events.push(event);
-        if (events.length > MAX_BUFFERED_EVENTS) events.shift();
-        eventsSince ??= Date.now();
-      }
-      if (events.length > 0) schedule();
+      buffer.add(batch, isLeaderRelevant);
+      if (buffer.size > 0) schedule();
     },
 
     handleMessage: async (message, info) => {
-      const stored = findReply(store, message);
-      if (stored) return { reply: stored.body, reply_message_id: stored.id };
+      const done = answered(message, info);
+      if (done) return done;
       const inflight = byMessage.get(message.id);
       if (inflight) {
         if (unavailability()) throw unavailableError();
         return inflight.promise;
       }
-      if (info.duplicate && message.status !== 'new') {
-        throw new TeamError(
-          'conflict',
-          `message ${message.id} was already handled without a reply`,
-          'send it again with a new client_msg_id',
-        );
-      }
       if (offline || stopped) throw unavailableError();
       const pending = enqueue(message);
       if (unavailability()) throw unavailableError();
       return pending.promise;
+    },
+
+    submit: (message, info) => {
+      const done = answered(message, info);
+      if (done) return done;
+      // queued (or answered after the next start / `team leader reset` when the leader is off)
+      if (!byMessage.has(message.id) && !offline && !stopped) enqueue(message);
+      return undefined;
     },
 
     resumeBrief: () => resumeBrief(deps),
@@ -434,6 +425,7 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
       save();
       if (!proc) {
         started = true;
+        statusEvents.baseline(leaderStatus(inputs()));
         return;
       }
       const prep = await proc.prepare();
@@ -444,18 +436,17 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
       const cursor = store.kv.get(LEADER_EVENT_CURSOR_KEY);
       const from = cursor === undefined ? store.events.lastSeq() : Number(cursor);
       if (cursor === undefined) store.kv.set(LEADER_EVENT_CURSOR_KEY, String(from));
-      seenSeq = store.events.lastSeq();
-      events = store.events.listAfter(from).filter(isLeaderRelevant).slice(-MAX_BUFFERED_EVENTS);
-      if (events.length > 0) eventsSince = Date.now();
+      buffer.load(store.events.listAfter(from).filter(isLeaderRelevant), store.events.lastSeq());
       replayStored();
       started = true;
+      statusEvents.baseline(leaderStatus(inputs()));
       if (!offline && prep.loggedIn === false) {
         setUnavailable({ reason: 'auth', until: null, hint: AUTH_HINT });
       }
       logger.info('leader started', {
         session_resumed: conv.started,
         queued: humans.length,
-        pending_events: events.length,
+        pending_events: buffer.size,
         offline: offline?.reason ?? null,
       });
       schedule();
@@ -478,16 +469,19 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
           'the message is kept and answered after restart',
         ),
       );
-      if (started && !offline && events.length === 0 && humans.length === 0) {
-        store.kv.set(LEADER_EVENT_CURSOR_KEY, String(seenSeq));
+      if (started && !offline && buffer.size === 0 && humans.length === 0) {
+        store.kv.set(LEADER_EVENT_CURSOR_KEY, String(buffer.seenSeq));
       }
     },
 
-    pump,
+    pump: () => {
+      pump();
+      syncStatus();
+    },
 
     settled: async () => {
       for (;;) {
-        const runnable = !offline && !conv.unavailable && (humans.length > 0 || events.length > 0);
+        const runnable = !offline && !conv.unavailable && (humans.length > 0 || buffer.size > 0);
         if (!running && !pumpQueued && !runnable) return;
         await (running?.done ?? new Promise((r) => setTimeout(r, 5)));
       }

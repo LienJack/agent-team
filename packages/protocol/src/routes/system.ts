@@ -4,6 +4,7 @@ import {
   EventsQuerySchema,
   QuotaResponseSchema,
   ResumeResponseSchema,
+  RolesResponseSchema,
   RunIdSchema,
   RunLogQuerySchema,
   RunLogResponseSchema,
@@ -65,6 +66,16 @@ export const getResume = createRoute({
   responses: { 200: json(ResumeResponseSchema, 'Markdown summary'), ...errors() },
 });
 
+/** The roles of config/models.json (what `reassign` accepts; disabled roles are refused). */
+export const getRoles = createRoute({
+  operationId: 'getRoles',
+  tags: ['system'],
+  method: 'get',
+  path: '/api/roles',
+  summary: 'Roles from config/models.json with their model alias, runner and slots',
+  responses: { 200: json(RolesResponseSchema, 'Roles in config order'), ...errors() },
+});
+
 export const getQuota = createRoute({
   operationId: 'getQuota',
   tags: ['system'],
@@ -83,4 +94,12 @@ export const getDoctor = createRoute({
   responses: { 200: json(DoctorResponseSchema, 'Doctor report'), ...errors() },
 });
 
-export const systemRoutes = { getState, streamEvents, getRunLog, getResume, getQuota, getDoctor };
+export const systemRoutes = {
+  getState,
+  streamEvents,
+  getRunLog,
+  getResume,
+  getRoles,
+  getQuota,
+  getDoctor,
+};

@@ -1,4 +1,4 @@
-import type { TeamClient } from '@agent-team/client';
+import { askLeader as askTheLeader, randomId, type TeamClient } from '@agent-team/client';
 import { z } from 'zod';
 import { attentionList, formatStatus, taskLine } from './format.js';
 
@@ -8,13 +8,25 @@ export interface ToolOutput {
   data?: Record<string, unknown>;
 }
 
+/** Per-call context from the MCP request (cancellation, progress). */
+export interface ToolContext {
+  /** Aborted when the MCP client cancels the call. */
+  signal?: AbortSignal;
+  /** Report that the call is still working (keeps clients that reset on progress waiting). */
+  progress?: (message: string) => void;
+}
+
 export interface ToolDef<Shape extends z.ZodRawShape = z.ZodRawShape> {
   name: string;
   title: string;
   description: string;
   shape: Shape;
   readOnly: boolean;
-  run(client: TeamClient, args: z.infer<z.ZodObject<Shape>>): Promise<ToolOutput>;
+  run(
+    client: TeamClient,
+    args: z.infer<z.ZodObject<Shape>>,
+    context: ToolContext,
+  ): Promise<ToolOutput>;
 }
 
 function tool<Shape extends z.ZodRawShape>(def: ToolDef<Shape>): ToolDef<Shape> {
@@ -27,16 +39,22 @@ const askLeader = tool({
   name: 'ask_leader',
   title: 'Ask the leader',
   description:
-    'Send a message to the agent-team leader (the planning model that manages the task board) and return its reply text. Use for requests, questions or instructions about the work; the reply may take a while.',
+    'Send a message to the agent-team leader (the planning model that manages the task board) and return its reply text. Use for requests, questions or instructions about the work; the reply may take several minutes (the tool keeps waiting until it arrives or the call is cancelled; a cancelled message is still answered later in the board chat).',
   shape: { text: z.string().min(1).max(20000).describe('Message for the leader') },
   readOnly: false,
-  async run(client, { text }) {
-    const reply = await client.sendLeaderMessage({
+  async run(client, { text }, context) {
+    const reply = await askTheLeader(client, {
       text,
       source: 'mcp',
-      client_msg_id: `mcp-${globalThis.crypto.randomUUID()}`,
+      clientMsgId: `mcp-${randomId()}`,
+      ...(context.signal ? { signal: context.signal } : {}),
+      onPending: ({ messageId }) =>
+        context.progress?.(`the leader is still working on ${messageId}`),
     });
-    return { text: reply.reply === '' ? '(empty reply)' : reply.reply };
+    return {
+      text: reply.reply === '' ? '(empty reply)' : reply.reply,
+      data: { message_id: reply.message_id },
+    };
   },
 });
 

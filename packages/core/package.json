@@ -19,6 +19,9 @@
       "default": "./dist/testing/index.js"
     }
   },
+  "scripts": {
+    "test": "vitest run --root ../.. --project core"
+  },
   "dependencies": {
     "@agent-team/schema": "workspace:*"
   },

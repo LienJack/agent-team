@@ -1,5 +1,6 @@
 import type {
   Attention,
+  BoardTask,
   Message,
   Project,
   Run,
@@ -46,6 +47,17 @@ export function makeTask(over: Partial<Task> = {}): Task {
     recovery_note: null,
     created_at: T0,
     updated_at: T0,
+    ...over,
+  };
+}
+
+/** A task as the board snapshot carries it (no runs yet unless overridden). */
+export function makeBoardTask(over: Partial<BoardTask> = {}): BoardTask {
+  return {
+    ...makeTask(over),
+    latest_run: null,
+    head_sha: null,
+    run_totals: { runs: 0, cost_usd: null, usage: {}, finished_ms: 0 },
     ...over,
   };
 }

@@ -22,6 +22,7 @@
     "./openapi.json": "./openapi.json"
   },
   "scripts": {
+    "test": "vitest run --root ../.. --project protocol",
     "generate": "tsx --conditions=@agent-team/source src/scripts/generate-openapi.ts",
     "check:generated": "tsx --conditions=@agent-team/source src/scripts/generate-openapi.ts --check"
   },

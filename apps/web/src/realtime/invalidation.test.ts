@@ -30,11 +30,45 @@ describe('queriesForEvent — event → query invalidation', () => {
     ]);
   });
 
-  it('touches only the task detail for commits, reviews and workspaces', () => {
-    for (const type of ['commit.created', 'review.completed', 'workspace.updated']) {
-      expect(queriesForEvent(event(type, { task_id: 't_2' }))).toEqual([['task', 't_2']]);
+  it('refreshes the board for commits and workspace changes (cards show the head sha)', () => {
+    for (const type of ['commit.created', 'workspace.updated', 'workspace.created']) {
+      expect(queriesForEvent(event(type, { task_id: 't_2' }))).toEqual([
+        ['state'],
+        ['task', 't_2'],
+      ]);
     }
-    expect(queriesForEvent(event('workspace.removed'))).toEqual([]);
+    expect(queriesForEvent(event('review.completed', { task_id: 't_2' }))).toEqual([
+      ['task', 't_2'],
+    ]);
+    expect(queriesForEvent(event('workspace.kept'))).toEqual([]);
+  });
+
+  it('a run log event refreshes only that run’s log tail', () => {
+    expect(queriesForEvent(event('run.log_advanced', { run_id: 'r_7' }, { offset: 1024 }))).toEqual(
+      [['runLog', 'r_7']],
+    );
+  });
+
+  it('leader events refresh the chat and the top bar', () => {
+    expect(
+      queriesForEvent(
+        event('leader.reply', {}, { message_id: 'm_2', in_reply_to: 'm_1', channel: 'leader' }),
+      ),
+    ).toEqual([['leaderMessages'], ['state']]);
+    expect(
+      queriesForEvent(
+        event('leader.reply', {}, { message_id: 'm_2', in_reply_to: 'm_1', channel: 'grok' }),
+      ),
+    ).toEqual([['state']]);
+    expect(
+      queriesForEvent(
+        event(
+          'leader.status_changed',
+          {},
+          { state: 'busy', available: true, reason: null, until: null },
+        ),
+      ),
+    ).toEqual([['state']]);
   });
 
   it('maps attention to the snapshot and messages to the chat history', () => {
@@ -50,7 +84,12 @@ describe('queriesForEvent — event → query invalidation', () => {
   it('ignores bookkeeping events and refreshes everything after a recovery', () => {
     expect(queriesForEvent(event('effect.failed'))).toEqual([]);
     expect(queriesForEvent(event('outbox.sent'))).toEqual([]);
-    expect(queriesForEvent(event('recovery.completed'))).toEqual([['state'], ['task'], ['runLog']]);
+    expect(queriesForEvent(event('recovery.completed'))).toEqual([
+      ['state'],
+      ['task'],
+      ['runLog'],
+      ['roles'],
+    ]);
   });
 
   it('maps every known event type without throwing, and unknown ones to the snapshot', () => {

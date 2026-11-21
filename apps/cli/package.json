@@ -17,6 +17,9 @@
       "default": "./dist/index.js"
     }
   },
+  "scripts": {
+    "test": "vitest run --root ../.. --project cli"
+  },
   "dependencies": {
     "@agent-team/client": "workspace:*",
     "@agent-team/schema": "workspace:*",

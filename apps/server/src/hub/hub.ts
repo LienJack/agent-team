@@ -289,17 +289,8 @@ export function createHub(deps: HubDeps): Hub {
   const hub: Hub = {
     delivering: true,
 
-    send: async (item) => {
-      try {
-        await deliver(item);
-      } finally {
-        // the engine's wake after this effect's finalizer still sees the lane busy; wake once
-        // more after it, so the next message of the same lane goes out now, not at the patrol
-        setImmediate(() => {
-          if (!stopped) deps.engine?.()?.wake();
-        });
-      }
-    },
+    // the engine drains the effect lane itself once this resolves (core EffectExecutor)
+    send: (item) => deliver(item),
 
     onLeaderReply: (tx, inboundMessage, reply) => {
       if (inboundMessage.channel !== 'grok') return;

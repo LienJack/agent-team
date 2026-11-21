@@ -1,14 +1,15 @@
-import type {
-  AnswerVia,
-  Attention,
-  AttentionCreateRequest,
-  Message,
-  MessageStatus,
-  Project,
-  ProjectCreateRequest,
-  RunnerStatus,
-  Task,
-  TaskCreateRequest,
+import {
+  isLiveRunState,
+  type AnswerVia,
+  type Attention,
+  type AttentionCreateRequest,
+  type Message,
+  type MessageStatus,
+  type Project,
+  type ProjectCreateRequest,
+  type RunnerStatus,
+  type Task,
+  type TaskCreateRequest,
 } from '@agent-team/schema';
 import { errorMessage } from '../errors.js';
 import {
@@ -29,7 +30,7 @@ import { dispatchPlanned, type DispatchReport } from './dispatch.js';
 import { EffectExecutor } from './effects.js';
 import { recordMessage, setMessageStatus, type RecordMessageInput } from './messages.js';
 import { blockTask } from './outcomes.js';
-import { recover, sweepWorkspaces, type RecoveryReport } from './recovery.js';
+import { abandonLiveRuns, recover, sweepWorkspaces, type RecoveryReport } from './recovery.js';
 import { resolveRole, type QuotaState } from './resolve-role.js';
 import { runnerStatuses } from './runner-health.js';
 import { planDispatch, PATH_HOLDING_STATUSES, type DeferReason } from './scheduler.js';
@@ -211,14 +212,36 @@ export class Engine {
   }
 
   /**
-   * Stop for good: no more ticks or wake-ups, abort runs started by this process and wait for
-   * in-flight work. Aborted runs are not finalized; the next startup's `recover()` marks them
-   * abandoned and requeues their tasks with a recovery note (attempts unchanged).
+   * Stop for good: no more ticks or wake-ups; abort the runs started by this process (each runner
+   * terminates its worker's whole process group before it resolves) and wait for in-flight work.
+   * Their results are not applied; instead every live run is marked `abandoned` and its task
+   * requeued with a recovery note (attempts unchanged), so the next start has nothing to repair.
+   * A crash skips this step and `recover()` does the same on the next start.
    */
-  async shutdown(): Promise<void> {
+  async shutdown(): Promise<{ abandonedRuns: string[] }> {
     this.ctx.stopping = true;
-    for (const controller of this.ctx.inflight.values()) controller.abort('service shutdown');
-    await Promise.allSettled([...this.ctx.work, ...this.ctx.runWork]);
+    // A pass in progress may still finish a dispatch (it starts no effects any more: `runDue`
+    // is off) and a run.start already executing may still have spawned: abort and settle until
+    // nothing is left, so no worker outlives the service and no run is created after the marking.
+    for (let round = 0; round < 50; round++) {
+      for (const controller of this.ctx.inflight.values()) controller.abort('service shutdown');
+      const pending = [
+        ...this.ctx.work,
+        ...this.ctx.runWork,
+        ...(this.ticking ? [this.ticking] : []),
+      ];
+      if (pending.length === 0 && this.ctx.inflight.size === 0) break;
+      await Promise.allSettled(pending);
+    }
+    try {
+      return this.ctx.transact((tx) => ({
+        abandonedRuns: abandonLiveRuns(tx, 'shutdown').abandonedRuns,
+      }));
+    } catch (err) {
+      // the store may already be unusable; recovery on the next start covers it
+      this.ctx.logger.error('marking runs at shutdown failed', { error: errorMessage(err) });
+      return { abandonedRuns: [] };
+    }
   }
 
   // ------------------------------------------------------------ commands
@@ -270,5 +293,20 @@ export class Engine {
 
   setMessageStatus(id: string, status: MessageStatus): Message {
     return setMessageStatus(this.ctx, id, status);
+  }
+
+  /**
+   * A live run's log grew to `offset` bytes (the server watches the files; core does no IO):
+   * one `run.log_advanced` event so viewers refresh the log tail. Not a state change, so the
+   * scheduler is not woken. False when the run is unknown or no longer live.
+   */
+  recordRunLog(runId: string, offset: number): boolean {
+    return this.ctx.transact((tx) => {
+      const run = tx.r.runs.get(runId);
+      if (!run || !isLiveRunState(run.state)) return false;
+      tx.emit('run.log_advanced', { offset }, { run_id: run.id });
+      tx.dirty = false;
+      return true;
+    });
   }
 }

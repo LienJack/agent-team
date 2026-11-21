@@ -5,3 +5,7 @@
 
 `team serve` 以子行程啟動 `apps/server/dist/main.js`（或 `AGENT_TEAM_SERVER_ENTRY`）；
 `AGENT_TEAM_ACTOR=leader` 讓呼叫以 leader 身分送出（不佔保留給人的槽位）。
+
+`team ask` 等到 leader 回覆為止（伺服器等滿 `leader.reply_wait_ms` 仍沒有回覆就回 pending，接著每 2 秒查
+`GET /api/leader/messages/{id}`）；Ctrl-C 只停止等待（結束碼 130），訊息保留、之後照樣回覆。
+`team task reassign <id> <role>` 先用 `GET /api/roles` 檢查角色存在且啟用；`team roles` 列出全部角色。

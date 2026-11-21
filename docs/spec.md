@@ -31,11 +31,12 @@
 | MCP | `@modelcontextprotocol/sdk`（stdio） |
 | CLI | commander |
 | Codex | `@openai/codex-sdk`，鎖定確切版本，使用它自帶的執行檔 |
-| 測試 | vitest（單元、整合）；Playwright 一條看板冒煙 |
+| 測試 | vitest（單元、整合；看板元件測試用 jsdom，根目錄 `pnpm test` 一併執行）；Playwright 一條看板冒煙（`pnpm test:e2e`，有 Playwright 的 Chromium 就用它，否則用系統的 Chrome） |
 | 品質 | oxlint、oxfmt、`tsc -b`。git hook 不自動安裝（husky 會改寫各 worktree 共用的 git 設定）；需要時手動 `pnpm hooks:install` |
-| CI | GitHub Actions：安裝 → lint → typecheck → test → build → 檢查產生檔漂移 |
+| CI | GitHub Actions：安裝 → lint → typecheck → test → build（含 `vite build`）→ 邊界檢查 → 產生檔漂移；Playwright 冒煙是另一個 job |
 
-SQLite 驅動：優先 Drizzle 的 `node:sqlite` 驅動（免原生編譯）；不可用則 `better-sqlite3`。實作者在本機驗證後定案並寫 ADR。
+SQLite 驅動：Node 內建的 `node:sqlite`（免原生編譯）。drizzle-orm 0.45 沒有它的驅動，所以自寫一個同步的 Drizzle
+session；遷移由 drizzle-kit 產生、自寫的 migrator 套用（ADR 0007）。
 所有依賴鎖定確切版本。不在執行期用 `npx -y` 下載任何東西。
 
 ## 3. 工作區
@@ -47,7 +48,7 @@ packages/core       領域邏輯：ports、engine（排程、核對、升級、�
 packages/db         Drizzle schema、遷移、SQLite 版 repositories（實作 core 的 ports）
 packages/runners    Runner 實作：claude、codex、dsh、fake；共用的子行程工具；錄製的 fixture
 packages/git        worktree 生命週期、變更清單、代 commit、基底漂移檢查（實作 core 的 ports）
-packages/client     型別安全的 HTTP 客戶端 + 讀取 listener 檔的連線工具
+packages/client     型別安全的 HTTP 客戶端 + 讀取 listener 檔的連線工具 + `askLeader`（等 leader 回覆）。只依賴 schema、protocol
 apps/server         Hono 應用、驗證與區網監聽、SSE、組裝（wiring）、leader、hub
 apps/cli            `team` 指令
 apps/mcp            stdio MCP 伺服器
@@ -56,7 +57,8 @@ config/             models.json（已存在）、service.json
 docs/               spec.md、adr/、conventions.md
 ```
 
-依賴方向只能往上表的上方走；`apps/*` 之間互不依賴。用一支檢查腳本在 CI 裡擋住違反的 import。
+依賴方向只能往上表的上方走；`apps/*` 之間互不依賴。用一支檢查腳本在 CI 裡擋住違反的 import（允許表比這更嚴，
+見 ADR 0006：`db`／`runners`／`git` 互不依賴，`cli`／`mcp`／`web` 只依賴 `schema` 與 `client`）。
 單一原始檔不超過 500 行；超過就拆。每個套件有自己的 `README.md`（三五行說明職責與對外介面）。
 根目錄 `AGENTS.md` 寫給 agent 看的開發規範（`CLAUDE.md` 連到它）。重要決定寫 `docs/adr/NNNN-title.md`（半頁以內）。
 
@@ -68,6 +70,7 @@ docs/               spec.md、adr/、conventions.md
 | 資料庫 | `DATA/team.db` |
 | 連線資訊 | `DATA/run/listener.json`（權限 0600）：`{ addr, token }`，供 CLI／MCP 自動連線 |
 | 執行日誌 | `DATA/runs/<run_id>/{events.jsonl, stderr.log, prompt.md}` |
+| leader | `DATA/leader/cwd/`（空的工作目錄）、`DATA/leader/bin/team`（以 leader 身分執行的 shim）、`DATA/leader/turn/`（最近一個 turn 的日誌） |
 | 任務 worktree | `<worktree_root>/<project>/<task_id>/`，預設 `~/RanoLabs/worktrees`，分支 `team/<task_id>` |
 | 金鑰 | 專案根目錄 `.env`（git 忽略；`AGENT_TEAM_ENV_FILE` 可改指）。`packages/schema` 定義需要哪些變數，`apps/server` 提供唯一的讀取函式，一次只回傳被要求的那一個 |
 
@@ -80,6 +83,8 @@ project      id, name, repo_path, base_branch, checks[{name, cmd}]
 task         id, project_id, parent_id?, title, tier(A|B|C), ticket_md, owned_paths[], priority,
              status, impl_role, fix_rounds, attempts, blocked_reason?, version
 workspace    id, task_id, path, branch, base_sha, head_sha?, state(active|kept|removed)
+             -- active＝服務端管理中（任務完成後仍是 active，直到定時清理移除）；kept＝移除時發現未提交的變更，
+             --   刻意保留、不再自動清理、開一筆待決事項給人；removed＝已移除（ADR 0009）
 run          id, task_id, workspace_id, dispatch_id(unique), kind(impl|fix|review), role, model_alias, runner, model,
              state(starting|running|succeeded|failed|start_unknown|stopped|abandoned),
              outcome?(ok|rejected|error|rate_limited|timeout|cancelled), reject_reason?,
@@ -166,30 +171,40 @@ worker 規則：只改 owned_paths；不 commit、不 push；不要提問，解�
 - **派工結果**四種：`accepted`、`rejected`、`unknown`（→ `start_unknown`，不自動重送，開 attention）、`deferred`（槽位滿，延後）。
 - **錯誤**：`rate_limit` → runner 冷卻到 `resetsAt`（不明則 15 分鐘），任務回 `queued`，不計 attempts；
   其他 → `attempts+1`，指數退避（5 秒起、上限 5 分鐘），達上限 `failed`。同一 runner 連續失敗 3 次 → 熔斷並通知。
-- **啟動復原**：遺留的 `starting|running` run 標為 `abandoned`；任務回 `queued` 並在下一次提示附上復原說明；
-  資料庫裡沒有對應紀錄的 worktree 目錄移除；未完成的 effect 繼續執行。
+- **啟動復原**：遺留的 `starting|running` run 標為 `abandoned`；任務回 `queued`（審查 run 則留在 `review` 重新審查）
+  並在下一次提示附上復原說明；資料庫裡沒有對應紀錄的 worktree 目錄移除；未完成的 effect 繼續執行。
+- **正常關機**：終止執行中 worker 的整個行程群組，並把它們的 run 依同樣規則標為 `abandoned`、任務重新排入，
+  所以下次啟動沒有東西要修（當機時由啟動復原補做；ADR 0005）。
+- **effect lane**：同一 lane 保序、不同 lane 並行；一個 effect 結束後立刻接著跑同 lane 的下一個，不等巡檢。
 - **清理**：定時移除已完成任務的 worktree（預設完成後 72 小時；分支保留）。
-- 每個狀態變化寫一筆 `event`。
+- 每個狀態變化寫一筆 `event`。另有兩種非狀態事件給看板即時更新：`leader.status_changed`（idle／busy／offline 與
+  可用性）、`run.log_advanced`（執行中 run 的日誌變長，只帶 run id 與位元組位置，每個 run 每 2 秒最多一筆；ADR 0013）。
 
 ## 9. Leader
 
-`apps/server` 持有一個無頭 Claude 對話（session id 存 `kv`）。
+`apps/server` 持有一個無頭 Claude 對話（session id 存 `kv`）。是否啟用由 `service.json` 的 `leader.enabled`（預設 true）
+決定，與 worker 用不用假 runner 無關：`AGENT_TEAM_FAKE_RUNNERS=1` + 真的 leader 是最便宜的真實端到端組合。
 
 - 每則輸入：`claude -p --resume <id>`（首次 `--session-id`），精簡啟動：`--safe-mode --strict-mcp-config
-  --mcp-config '{"mcpServers":{}}' --tools Bash`，`--allowedTools` 只放行 `team` 指令。模型取角色 `leader`。
+  --mcp-config '{"mcpServers":{}}' --restricted --tools Bash`，`--allowedTools` 只放行 leader 用得到的 `team` 子指令，
+  `--disallowedTools` 明確拒絕 Claude Code 會自動核准的唯讀指令（`ls`、`cat`、`echo`、`pwd`…），
+  `--permission-mode dontAsk`。剩下的範圍與實測見 ADR 0012。模型取角色 `leader`。
 - 輸入：人的訊息（任何入口）與服務端合併後的事件批次。序列處理；`client_msg_id` 去重。
 - `--append-system-prompt`：只做受理、拆解、派工、回報；不自己改程式碼；任務細節一律用 `team` 查，不憑記憶；
   需要人決定就 `team attention open`；回覆要短。
 - 上下文超過門檻（預設 60000 token）送 `/compact`。關鍵狀態全在資料庫，壓縮後丟失細節是預期行為。
 - leader 用的 `team` 子集**不含**讀取 run 日誌或對話的指令。
 - `GET /resume` 產生不經模型的現況摘要，供新對話或換登入後接手。
+- `team leader reset`（`POST /leader/reset`，僅本機）：開新對話（新 session id，第一個 turn 先附現況摘要），
+  例如換了一個 Claude 登入；未登入或額度用完時 leader 標為不可用，訊息保留、恢復後依序回覆。
 
 ## 10. 中樞與 Grok
 
 `service.json` 的 `grok.enabled` 控制，**預設關閉**（現有的中樞 session 監看同一個收件匣，不能同時開）。
 
 - 進：`grokmsg watch` → `grokmsg read <id>` → 原文寫入 message（去重鍵 = grokmsg id）→ 交給 leader。
-- 出：一律先寫 `outbox` 再發送（effect），同一任務的訊息保序。leader 的回覆超過門檻時用角色 `hub_summarizer` 整理；
+- 出：一律先寫 `outbox` 再發送（effect）。保序的單位：回覆同一則 Grok 訊息的「處理中」與最終回覆保序；主動通知
+  依任務保序；兩者分開，失敗退避中的通知不會卡住回覆。leader 的回覆超過門檻時用角色 `hub_summarizer` 整理；
   待決事項的問題與選項不經模型，原樣以 `--question`、`--option` 傳遞。
 - 主動回報 `grokmsg notify`：任務完成／失敗、待決事項、阻塞、額度用完、worker 無回執、runner 熔斷。
   每則有 `signature`，相同特徵不重發（服務重啟後亦然）；同類進度在時間窗內合併；待決與額度不合併、不受安靜時段限制。
@@ -199,7 +214,7 @@ worker 規則：只改 owned_paths；不 commit、不 push；不要提問，解�
 
 **兩個監聽埠。**
 
-- **本機**：`127.0.0.1:4517`。需要 `listener.json` 裡的權杖（Bearer）。CLI 與 MCP 走這個。
+- **本機**：`127.0.0.1:4517`。只接受 `listener.json` 裡的權杖（Bearer），不提供看板頁面。CLI 與 MCP 走這個。
 - **區網**：`service.json` 的 `lan.enabled`（預設開啟）、`lan.host`（預設 `0.0.0.0`）、`lan.port`（預設 4518）。
   - 密碼取 `.env` 的 `TEAM_LAN_PASSWORD`；未設定則啟動時產生一組隨機值並只在終端機印出一次。
   - `POST /auth/login` 換取 HMAC 簽章的 session cookie（HttpOnly、SameSite=Strict、同源才接受）。常數時間比較。
@@ -207,19 +222,25 @@ worker 規則：只改 owned_paths；不 commit、不 push；不要提問，解�
   - 檢查 `Origin` 允許清單與 `Sec-Fetch-Site`，不符回 403。不使用寬鬆的 CORS。權杖與密碼不出現在網址。
   - 區網**不開放**：新增或修改 project（涉及本機路徑）、任何設定寫入。其餘（看板、聊天、待決事項、任務操作、日誌檢視）開放。
   - 區網內為未加密 HTTP；TLS 交給反向代理，v1 不做。
+  - 看板（`apps/web/dist`）只由區網監聽埠提供；在這台電腦上也是開區網埠（例如 `http://127.0.0.1:4518`）登入。
+  - `team serve` 印出看板網址（這台電腦與各區網位址）；密碼是啟動時產生的才印，且只印一次。
 
 路由（`/api` 下，皆有 Zod 請求與回應 schema，錯誤一律 `{ error: { code, message, hint? } }`）：
 
 ```
-GET  /state                         看板快照
+GET  /state                         看板快照；每個任務附最近一次 run（別名、runner、狀態、費用、用量、起訖時間）、
+                                    workspace 的 head_sha 與 run 合計，卡片不必再各自請求
 GET  /events?after=<seq>            SSE：首幀 server.connected，15 秒心跳，帶游標補發；每連線有上限的佇列，溢出只斷該連線
 GET/POST /projects                  （POST 僅本機）
 GET/POST /tasks        GET /tasks/:id
 POST /tasks/:id/{queue,cancel,retry,approve,reject}      POST /tasks/:id/reassign { role }
 GET  /runs/:id/log?tail=            只給人看
-POST /leader/messages { text, source, client_msg_id } → { reply }     GET /leader/messages
+POST /leader/messages { text, source, client_msg_id, wait? } → { message_id, pending, reply?, reply_message_id?, leader }
+                                    wait=false：存好就回 pending；wait=true（預設）最多等 leader.reply_wait_ms（240 秒，
+                                    低於 Node fetch 的 300 秒標頭逾時），之後回 pending 而不是錯誤
+GET  /leader/messages?after=&limit=     GET /leader/messages/:id（一則輸入與它的回覆）    POST /leader/reset（僅本機）
 GET/POST /attention    POST /attention/:id/answer { answer, via }
-GET  /resume    GET /quota    GET /doctor
+GET  /resume    GET /quota    GET /doctor    GET /roles（models.json 的角色：說明、別名、runner、槽位、啟用、fallback）
 ```
 
 ## 12. CLI 與 MCP
@@ -227,16 +248,21 @@ GET  /resume    GET /quota    GET /doctor
 `team` 讀 `listener.json` 連線；每個指令輸出要短，`--json` 給機器；結束碼 0 成功、1 業務錯誤、2 用法或連線錯誤。
 
 ```
-team serve | status | doctor | resume | watch [--after seq]
+team serve | status | doctor | resume | roles | watch [--after seq]
 team project add <name> <repo> [--base B] [--check "name=cmd"]…
 team task add --project P --title T --tier C --paths "…" (--ticket-file F | -) [--queue]
 team task list | show <id> | queue|cancel|retry <id> | reassign <id> <role>
 team receipt <task_id>
 team ask "<text>"
+team leader reset
 team attention list | open --question Q --option A … [--task T] | answer <id> "<answer>"
 ```
 
-MCP 工具（薄包裝）：`ask_leader`、`status`、`list_attention`、`answer_attention`、`task_action`。
+`team ask` 一直等到回覆（伺服器回 pending 就改為輪詢 `GET /leader/messages/:id`），Ctrl-C 只停止等待、訊息保留；
+`team task reassign` 先以 `GET /roles` 檢查角色存在且啟用。`pnpm start` 先建置（需要時）再從 `dist` 啟動服務。
+
+MCP 工具（薄包裝）：`ask_leader`（與 `team ask` 相同的等待方式，可被呼叫端取消）、`status`、`list_attention`、
+`answer_attention`、`task_action`。
 
 ## 13. 看板
 
@@ -244,9 +270,10 @@ MCP 工具（薄包裝）：`ask_leader`、`status`、`list_attention`、`answer
 
 - 頂部：leader 狀態、三家 runner 可用性與額度、未決事項數。
 - 五欄看板；卡片：標題、tier、執行者、耗時、用量／費用、commit、狀態。
-- 卡片抽屜：派工單、回執、審查發現、run 清單、日誌尾段；操作：改派、重試、停止、通過、退回。
-- 待決事項：問題 + 選項按鈕。聊天面板：直接對 leader。
-- 即時：訂閱 `/events`，斷線後用最後的 `seq` 接續；收到事件後重新讀取受影響的資源。
+- 卡片抽屜：派工單、回執、審查發現、run 清單、日誌尾段；操作：改派（角色清單來自 `GET /roles`）、重試、停止、通過、退回。
+- 待決事項：問題 + 選項按鈕。聊天面板：直接對 leader（不等待：送出後回覆經 `leader.reply` 事件出現）。
+- 即時：訂閱 `/events`，斷線後用最後的 `seq` 接續；收到事件後重新讀取受影響的資源（對照表是一張以全部事件型別為鍵的表，
+  新增事件型別時型別檢查會在那裡失敗）。日誌尾段跟著 `run.log_advanced`，頂部的 leader 狀態跟著 `leader.status_changed`。
 - 登入頁（區網）。
 
 ## 14. 測試

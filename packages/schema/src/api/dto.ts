@@ -2,8 +2,12 @@ import { z } from 'zod';
 import {
   IsoDateTimeSchema,
   MessageSourceSchema,
+  ModelAliasSchema,
+  ModelRunnerSchema,
   NonNegativeIntSchema,
   RoleNameSchema,
+  RunnerNameSchema,
+  ShaSchema,
   TierSchema,
 } from '../common.js';
 import {
@@ -20,10 +24,10 @@ import {
   TaskSchema,
   WorkspaceSchema,
 } from '../domain.js';
-import { ProjectIdSchema, TaskIdSchema } from '../ids.js';
+import { MessageIdSchema, ProjectIdSchema, RunIdSchema, TaskIdSchema } from '../ids.js';
 import { RunnerStatusSchema } from '../records.js';
-import { RunnerCapabilitiesSchema } from '../runner.js';
-import { TaskStatusSchema } from '../status.js';
+import { RunnerCapabilitiesSchema, UsageSchema } from '../runner.js';
+import { RunKindSchema, RunStateSchema, TaskStatusSchema } from '../status.js';
 
 // Request/response bodies for the routes under /api (spec §11). Wire shapes are snake_case.
 
@@ -33,7 +37,7 @@ const queryInt = (min: number, max: number) => z.coerce.number().int().min(min).
 
 /** Why the leader cannot take turns right now (`available: false`). */
 export const LeaderUnavailableReasonSchema = z.enum([
-  /** No leader conversation in this process (fake runners, tests). */
+  /** No leader conversation in this process (`service.json` leader.enabled = false, tests). */
   'disabled',
   /** The claude CLI is missing or lacks a required flag. */
   'not_installed',
@@ -72,12 +76,48 @@ export const LeaderStatusSchema = z.object({
 });
 export type LeaderStatus = z.infer<typeof LeaderStatusSchema>;
 
+/** What a board card shows of a task's latest run (the current one, else the newest). */
+export const TaskRunSummarySchema = z.object({
+  id: RunIdSchema,
+  kind: RunKindSchema,
+  role: RoleNameSchema,
+  model_alias: ModelAliasSchema,
+  runner: RunnerNameSchema,
+  state: RunStateSchema,
+  cost_usd: z.number().nonnegative().nullable(),
+  usage: UsageSchema.nullable(),
+  started_at: IsoDateTimeSchema,
+  ended_at: IsoDateTimeSchema.nullable(),
+});
+export type TaskRunSummary = z.infer<typeof TaskRunSummarySchema>;
+
+/**
+ * A task as the board snapshot carries it: the task plus what its card shows, so cards need no
+ * request of their own — the latest run, the workspace's last service-side commit and the sums
+ * over all runs (a live run's own time is added by the viewer: `now - latest_run.started_at`).
+ */
+export const BoardTaskSchema = TaskSchema.extend({
+  latest_run: TaskRunSummarySchema.nullable(),
+  /** `head_sha` of the task's current workspace (null before the first commit). */
+  head_sha: ShaSchema.nullable(),
+  run_totals: z.object({
+    runs: NonNegativeIntSchema,
+    /** Sum of known costs; null when no run reported one. */
+    cost_usd: z.number().nonnegative().nullable(),
+    /** Summed token counts of all runs. */
+    usage: UsageSchema,
+    /** Summed duration of the runs that ended (ms). */
+    finished_ms: NonNegativeIntSchema,
+  }),
+});
+export type BoardTask = z.infer<typeof BoardTaskSchema>;
+
 /** GET /state — board snapshot; `last_seq` is the cursor to continue with GET /events. */
 export const StateResponseSchema = z.object({
   last_seq: NonNegativeIntSchema,
   generated_at: IsoDateTimeSchema,
   projects: z.array(ProjectSchema),
-  tasks: z.array(TaskSchema),
+  tasks: z.array(BoardTaskSchema),
   active_runs: z.array(RunSchema),
   open_attention: z.array(AttentionSchema),
   runners: z.array(RunnerStatusSchema),
@@ -155,6 +195,24 @@ export const TaskReassignRequestSchema = z.object({ role: RoleNameSchema });
 export const TaskActionSchema = z.enum(['queue', 'cancel', 'retry', 'approve', 'reject']);
 export type TaskAction = z.infer<typeof TaskActionSchema>;
 
+// -------------------------------------------------------------------- roles
+
+/** One role of `config/models.json` (GET /roles; reassign pickers and `team task reassign`). */
+export const RoleInfoSchema = z.object({
+  name: RoleNameSchema,
+  description: z.string().nullable(),
+  /** Model alias the role uses first (`roles.<name>.use`). */
+  model_alias: ModelAliasSchema,
+  /** Runner of that alias (`models.<alias>.runner`). */
+  runner: ModelRunnerSchema,
+  slots: NonNegativeIntSchema,
+  enabled: z.boolean(),
+  /** Aliases tried in order while the first one is unavailable. */
+  fallback: z.array(ModelAliasSchema),
+});
+export type RoleInfo = z.infer<typeof RoleInfoSchema>;
+export const RolesResponseSchema = z.object({ roles: z.array(RoleInfoSchema) });
+
 // --------------------------------------------------------------------- runs
 
 /** GET /runs/:id/log?tail= — for humans only (never part of the leader's command set). */
@@ -167,18 +225,40 @@ export const RunLogResponseSchema = z.object({
 
 // ------------------------------------------------------------------- leader
 
-/** POST /leader/messages */
+/**
+ * POST /leader/messages. `wait: false` returns as soon as the message is stored and queued (the
+ * reply arrives as a `leader.reply` event and in GET /leader/messages); `wait: true` (default)
+ * waits for the reply up to the server's cap (`leader.reply_wait_ms`, below the 300 s header
+ * timeout of Node's fetch) and then answers `pending: true` instead of an error.
+ */
 export const LeaderMessageRequestSchema = z.object({
   text: z.string().min(1).max(20000),
   source: MessageSourceSchema,
   client_msg_id: z.string().min(1).max(200),
+  wait: z.boolean().default(true),
 });
-export type LeaderMessageRequest = z.infer<typeof LeaderMessageRequestSchema>;
+export type LeaderMessageRequest = z.input<typeof LeaderMessageRequestSchema>;
+/** `pending: true` = stored and queued, no reply yet (`reply` and `reply_message_id` null). */
 export const LeaderMessageResponseSchema = z.object({
-  reply: z.string(),
-  message_id: z.string(),
+  message_id: MessageIdSchema,
+  pending: z.boolean(),
+  reply: z.string().nullable(),
   reply_message_id: z.string().nullable(),
+  /** The leader right now (e.g. `available: false` while a queued message waits for a reset). */
+  leader: LeaderStatusSchema,
 });
+export type LeaderMessageResponse = z.infer<typeof LeaderMessageResponseSchema>;
+/**
+ * GET /leader/messages/:id — one input and its reply, for callers waiting on a pending message
+ * (`team ask`, MCP `ask_leader`). `reply: null` with the input no longer `new` = the leader
+ * could not answer it (send again).
+ */
+export const LeaderMessageDetailResponseSchema = z.object({
+  message: MessageSchema,
+  reply: MessageSchema.nullable(),
+  leader: LeaderStatusSchema,
+});
+export type LeaderMessageDetailResponse = z.infer<typeof LeaderMessageDetailResponseSchema>;
 /** GET /leader/messages?after=&limit= */
 export const LeaderMessagesQuerySchema = z.object({
   after: queryInt(0, Number.MAX_SAFE_INTEGER).optional(),

@@ -56,9 +56,21 @@ export async function listen(fetch: FetchHandler, host: string, port: number): P
   };
 }
 
+const WILDCARD = new Set(['0.0.0.0', '::']);
+
+/**
+ * Board URLs to print (`team serve`): `thisMachine` = the loopback address when the LAN listener
+ * binds every interface (open it on this computer), `lan` = the addresses other devices use.
+ */
+export function boardUrls(listening: Listening): { thisMachine?: string; lan: string[] } {
+  const lan = lanAddresses(listening);
+  if (!WILDCARD.has(listening.host)) return { lan };
+  return { thisMachine: `http://127.0.0.1:${listening.port}`, lan };
+}
+
 /** Addresses to print for a LAN listener (every IPv4 interface when bound to 0.0.0.0). */
 export function lanAddresses(listening: Listening): string[] {
-  if (listening.host !== '0.0.0.0' && listening.host !== '::') return [listening.url];
+  if (!WILDCARD.has(listening.host)) return [listening.url];
   const urls: string[] = [];
   for (const entries of Object.values(networkInterfaces())) {
     for (const entry of entries ?? []) {

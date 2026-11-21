@@ -97,12 +97,24 @@ export const ServiceConfigSchema = z.strictObject({
     .prefault({}),
   leader: z
     .strictObject({
+      /**
+       * Run the headless leader conversation (spec §9). Independent of the worker runners:
+       * `AGENT_TEAM_FAKE_RUNNERS=1` with the real leader is the cheapest realistic setup.
+       * false = messages are stored, never answered.
+       */
+      enabled: z.boolean().default(true),
       /** Send `/compact` above this many context tokens (spec §9). */
       compact_threshold_tokens: z.number().int().positive().default(60000),
       /** Engine events arriving within this window are handed to the leader as one digest. */
       event_window_ms: ms.default(3000),
       /** One leader turn (one `claude -p` process) is killed after this long. */
       turn_timeout_ms: ms.default(600000),
+      /**
+       * POST /leader/messages with `wait: true` answers `pending: true` after this long. Stays
+       * below the 300 s header timeout of Node's fetch (undici), so a long turn never looks like
+       * a dropped connection; the caller then polls GET /leader/messages/:id.
+       */
+      reply_wait_ms: ms.max(290000).default(240000),
     })
     .prefault({}),
   sse: z

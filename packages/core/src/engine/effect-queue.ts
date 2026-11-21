@@ -40,8 +40,9 @@ export function effectPayload<K extends EffectKind>(
 /** Effects in the same lane run one at a time in seq order; different lanes run concurrently. */
 export function effectLane(effect: EffectRecord): string {
   if (effect.kind === 'outbox.send') {
-    const taskId = (effect.payload as { task_id?: string | null } | null)?.task_id;
-    return `outbox:${taskId ?? '-'}`;
+    const payload = effect.payload as { task_id?: string | null; lane?: string } | null;
+    if (typeof payload?.lane === 'string') return `outbox:${payload.lane}`;
+    return `outbox:${payload?.task_id ?? '-'}`; // effects stored before lanes existed
   }
   return `${effect.kind}:${effect.key}`;
 }

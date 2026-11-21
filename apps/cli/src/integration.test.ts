@@ -149,6 +149,15 @@ describe('§14 cli — against the real server', () => {
     expect(ask.err).toMatch(/leader cannot answer right now \(disabled\)/);
   });
 
+  it('roles come from the server; reassign refuses a role it does not know', async () => {
+    const roles = await team('roles');
+    expect(roles.code).toBe(0);
+    expect(roles.out).toMatch(/^impl_C\s/m);
+    const bad = await team('task', 'reassign', 't_999999', 'no_such_role');
+    expect(bad.code).toBe(2);
+    expect(bad.err).toMatch(/unknown role "no_such_role"; one of: .*impl_C/);
+  });
+
   it('a business error exits 1; a stopped server exits 2', async () => {
     expect((await team('task', 'show', 't_999999')).code).toBe(1);
     await server.service.stop();

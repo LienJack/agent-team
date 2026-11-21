@@ -1,7 +1,6 @@
-import type { Run, Task } from '@agent-team/client';
+import type { BoardTask } from '@agent-team/client';
 import { Draggable } from '@hello-pangea/dnd';
 import { memo } from 'react';
-import { useTaskDetail } from '../api/queries.js';
 import { summarizeTask } from '../lib/board.js';
 import { EMPTY, formatCost, formatDuration, formatTokens, shortSha } from '../lib/format.js';
 import { useNow } from '../lib/now.js';
@@ -25,12 +24,10 @@ function Meta({
   );
 }
 
-/** Live parts of a card (re-render every second only while a run is live). */
-function CardMeta({ task, activeRun }: { task: Task; activeRun: Run | undefined }) {
-  // drafts have no runs or workspace yet
-  const detail = useTaskDetail(task.id, task.status !== 'draft');
+/** Live parts of a card, from the snapshot alone (re-render every second while a run is live). */
+function CardMeta({ task }: { task: BoardTask }) {
   const now = useNow();
-  const s = summarizeTask(task, detail.data, activeRun, now);
+  const s = summarizeTask(task, now);
   return (
     <>
       <div className="flex min-w-0 flex-wrap items-center gap-1">
@@ -61,11 +58,9 @@ function CardMeta({ task, activeRun }: { task: Task; activeRun: Run | undefined 
 export const TaskCard = memo(function TaskCard({
   task,
   index,
-  activeRun,
 }: {
-  task: Task;
+  task: BoardTask;
   index: number;
-  activeRun: Run | undefined;
 }) {
   const openTask = useUi((s) => s.openTask);
   return (
@@ -97,7 +92,7 @@ export const TaskCard = memo(function TaskCard({
               {task.title}
             </button>
           </div>
-          <CardMeta task={task} activeRun={activeRun} />
+          <CardMeta task={task} />
           {task.blocked_reason ? (
             <p className="truncate text-xs text-bad" title={task.blocked_reason}>
               <span aria-hidden="true">■ </span>

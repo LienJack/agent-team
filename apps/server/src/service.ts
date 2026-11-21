@@ -26,12 +26,13 @@ import type { Hub, HubRuntime } from './hub/types.js';
 import { createLeader } from './leader/leader.js';
 import type { Leader, LeaderRuntime } from './leader/types.js';
 import {
-  lanAddresses,
+  boardUrls,
   listen,
   removeListenerFile,
   writeListenerFile,
   type Listening,
 } from './listeners.js';
+import { watchRunLogs, type RunLogWatcher } from './run-log-watch.js';
 
 /** Ports and settings; `main.ts` supplies the real adapters, tests supply fakes. */
 export interface ServiceDeps {
@@ -74,7 +75,10 @@ export interface Service {
   readonly context: AppContext;
   /** Recover, bind both listeners, write listener.json, start the patrol tick. */
   start(): Promise<RunningService>;
-  /** Graceful shutdown (idempotent): listeners, SSE, engine, listener.json, onClose. */
+  /**
+   * Graceful shutdown (idempotent): leader and hub, SSE, listeners, then the engine (worker
+   * process groups terminated, their runs marked abandoned and requeued), listener.json, onClose.
+   */
   stop(): Promise<void>;
 }
 
@@ -168,12 +172,14 @@ export function createService(deps: ServiceDeps): Service {
   let local: Listening | undefined;
   let lan: Listening | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
+  let logWatch: RunLogWatcher | undefined;
   let listenerFile: { path: string; token: string } | undefined;
   let stopping: Promise<void> | undefined;
 
   async function stop(): Promise<void> {
     stopping ??= (async () => {
       if (timer) clearInterval(timer);
+      logWatch?.stop();
       for (const part of [leader, hub]) {
         await part
           .stop()
@@ -181,7 +187,12 @@ export function createService(deps: ServiceDeps): Service {
       }
       events.closeAll();
       await Promise.all([local?.close(), lan?.close()]);
-      await engine.shutdown();
+      const { abandonedRuns } = await engine.shutdown();
+      if (abandonedRuns.length > 0) {
+        logger.info('stopped live runs (requeued with a recovery note)', {
+          abandoned_runs: abandonedRuns,
+        });
+      }
       if (listenerFile) await removeListenerFile(listenerFile.path, listenerFile.token);
       await deps.onClose?.();
       logger.info('service stopped');
@@ -226,8 +237,12 @@ export function createService(deps: ServiceDeps): Service {
         });
         const lanApp = createApp(context, { listener: 'lan', lan: lanAuth });
         lan = await listen(lanApp.fetch, service.lan.host, service.lan.port);
-        print(`區網看板：${lanAddresses(lan).join('  ')}\n`);
+        const urls = boardUrls(lan);
+        if (urls.thisMachine) print(`看板（這台電腦）：${urls.thisMachine}\n`);
+        print(`區網看板：${urls.lan.join('  ')}\n`);
         logger.info('lan listener', { url: lan.url });
+      } else {
+        print('看板已關閉（service.json lan.enabled = false）；CLI／MCP 走本機監聽埠\n');
       }
 
       timer = setInterval(() => {
@@ -235,6 +250,7 @@ export function createService(deps: ServiceDeps): Service {
           .tick()
           .catch((err: unknown) => logger.error('tick failed', { error: errorMessage(err) }));
       }, service.engine.tick_ms);
+      logWatch = watchRunLogs({ store, engine, logger });
       await hub.start();
       await leader.start();
       engine.wake();

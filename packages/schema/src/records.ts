@@ -36,8 +36,16 @@ export const EffectPayloadSchemas = {
     path: z.string().min(1),
     reason: z.enum(['cleanup', 'orphan']),
   }),
-  /** Deliver one outbox item; key = outbox id. Same-task items are delivered in order. */
-  'outbox.send': z.object({ outbox_id: OutboxIdSchema, task_id: TaskIdSchema.nullable() }),
+  /**
+   * Deliver one outbox item; key = outbox id. Items of the same `lane` are delivered in order:
+   * `reply:<grokmsg id>` for the replies to one Grok message, `notify:<task id or ->` for
+   * proactive notices, so a failing notice never holds up a reply (no lane = legacy per-task).
+   */
+  'outbox.send': z.object({
+    outbox_id: OutboxIdSchema,
+    task_id: TaskIdSchema.nullable(),
+    lane: z.string().min(1).max(300).optional(),
+  }),
 } as const satisfies Record<EffectKind, z.ZodType>;
 export type EffectPayload<K extends EffectKind> = z.infer<(typeof EffectPayloadSchemas)[K]>;
 

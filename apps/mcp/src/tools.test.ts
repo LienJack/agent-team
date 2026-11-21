@@ -60,25 +60,76 @@ describe('tool list', () => {
 });
 
 describe('ask_leader', () => {
+  const leader = { state: 'idle', last_activity_at: null, available: true };
+
   it('posts source mcp with a generated client_msg_id and returns only the reply', async () => {
-    const sendLeaderMessage = mock(async (_body: { client_msg_id: string }) => ({
-      reply: 'On it.',
+    const sendLeaderMessage = mock(async (_body: { client_msg_id: string }, _opts?: unknown) => ({
       message_id: 'm_1',
+      pending: false,
+      reply: 'On it.',
       reply_message_id: 'm_2',
+      leader,
     }));
     const client = await connect({ sendLeaderMessage });
     const r = await client.callTool({ name: 'ask_leader', arguments: { text: 'ship it' } });
     expect(text(r)).toBe('On it.');
-    expect(sendLeaderMessage).toHaveBeenCalledWith({
-      text: 'ship it',
-      source: 'mcp',
-      client_msg_id: expect.stringMatching(/^mcp-[0-9a-f-]{36}$/),
-    });
+    expect(sendLeaderMessage).toHaveBeenCalledWith(
+      {
+        text: 'ship it',
+        source: 'mcp',
+        client_msg_id: expect.stringMatching(/^mcp-[0-9a-f-]{36}$/),
+        wait: true,
+      },
+      expect.anything(),
+    );
     await client.callTool({ name: 'ask_leader', arguments: { text: 'again' } });
     const ids = sendLeaderMessage.mock.calls.map(
       (c) => (c[0] as { client_msg_id: string }).client_msg_id,
     );
     expect(new Set(ids).size).toBe(2);
+  });
+
+  it('keeps waiting past the server cap (pending) until the reply exists', async () => {
+    const inbound = {
+      id: 'm_1',
+      channel: 'leader',
+      direction: 'in',
+      source: 'mcp',
+      body: 'long one',
+      client_msg_id: 'x',
+      ref: null,
+      status: 'new',
+      seq: 1,
+      created_at: '2026-11-21T00:00:00.000Z',
+    };
+    let polls = 0;
+    const sendLeaderMessage = mock(async () => ({
+      message_id: 'm_1',
+      pending: true,
+      reply: null,
+      reply_message_id: null,
+      leader,
+    }));
+    const leaderMessage = mock(async () => {
+      polls += 1;
+      return {
+        message: inbound,
+        reply: polls < 2 ? null : { ...inbound, id: 'm_2', direction: 'out', body: 'Done.' },
+        leader,
+      };
+    });
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      const client = await connect({ sendLeaderMessage, leaderMessage });
+      const call = client.callTool({ name: 'ask_leader', arguments: { text: 'long one' } });
+      await vi.advanceTimersByTimeAsync(2000);
+      await vi.advanceTimersByTimeAsync(2000);
+      const r = await call;
+      expect(text(r)).toBe('Done.');
+      expect(polls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects empty text without calling the client', async () => {

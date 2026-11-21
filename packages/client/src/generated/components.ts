@@ -53,6 +53,85 @@ export interface components {
       /** Format: date-time */
       updated_at: string;
     };
+    BoardTask: {
+      id: string;
+      project_id: string;
+      parent_id: string | null;
+      title: string;
+      /** @enum {string} */
+      tier: 'A' | 'B' | 'C';
+      ticket_md: string;
+      owned_paths: string[];
+      priority: number;
+      /** @enum {string} */
+      status:
+        | 'draft'
+        | 'queued'
+        | 'running'
+        | 'verifying'
+        | 'review'
+        | 'done'
+        | 'blocked'
+        | 'failed'
+        | 'cancelled';
+      impl_role: string;
+      fix_rounds: number;
+      attempts: number;
+      blocked_reason: string | null;
+      version: number;
+      current_run_id: string | null;
+      /** Format: date-time */
+      retry_at: string | null;
+      fix_notes: string | null;
+      recovery_note: string | null;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
+      latest_run: {
+        id: string;
+        /** @enum {string} */
+        kind: 'impl' | 'fix' | 'review';
+        role: string;
+        model_alias: string;
+        /** @enum {string} */
+        runner: 'claude' | 'codex' | 'dsh' | 'fake';
+        /** @enum {string} */
+        state:
+          | 'starting'
+          | 'running'
+          | 'succeeded'
+          | 'failed'
+          | 'start_unknown'
+          | 'stopped'
+          | 'abandoned';
+        cost_usd: number | null;
+        usage: {
+          input_tokens?: number;
+          output_tokens?: number;
+          cache_read_tokens?: number;
+          cache_write_tokens?: number;
+          reasoning_tokens?: number;
+        } | null;
+        /** Format: date-time */
+        started_at: string;
+        /** Format: date-time */
+        ended_at: string | null;
+      } | null;
+      head_sha: string | null;
+      run_totals: {
+        runs: number;
+        cost_usd: number | null;
+        usage: {
+          input_tokens?: number;
+          output_tokens?: number;
+          cache_read_tokens?: number;
+          cache_write_tokens?: number;
+          reasoning_tokens?: number;
+        };
+        finished_ms: number;
+      };
+    };
     Workspace: {
       id: string;
       task_id: string;

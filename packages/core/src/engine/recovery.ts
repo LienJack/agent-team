@@ -1,6 +1,6 @@
 import { errorMessage } from '../errors.js';
 import { addMs } from '../util/time.js';
-import type { EngineContext } from './context.js';
+import type { EngineContext, Tx } from './context.js';
 import { enqueueEffect } from './effect-queue.js';
 import { recoveryNoteFor } from './prompt.js';
 import { finishRun, saveTask } from './records.js';
@@ -23,29 +23,45 @@ export interface RecoveryReport {
  *    (forced: nothing references them; docs/adr/0009);
  * 4. unfinished effects simply run again (start effects of abandoned runs become no-ops).
  */
+/**
+ * Every live (`starting`/`running`) run → `abandoned`; its task goes back to `queued` (impl/fix)
+ * or stays in `review` (review run), with a recovery note for the next prompt and attempts
+ * unchanged. Used by startup recovery and by a graceful shutdown (after the worker process
+ * groups were terminated), so a clean stop leaves nothing for the next start to repair.
+ */
+export function abandonLiveRuns(
+  tx: Tx,
+  why: 'restart' | 'shutdown',
+): { abandonedRuns: string[]; requeuedTasks: string[] } {
+  const abandonedRuns: string[] = [];
+  const requeuedTasks: string[] = [];
+  const error = why === 'restart' ? 'abandoned: service restarted' : 'abandoned: service stopped';
+  for (const run of tx.r.runs.list({ states: ['starting', 'running'] })) {
+    finishRun(tx, run, { state: 'abandoned', error });
+    abandonedRuns.push(run.id);
+    const task = tx.r.tasks.get(run.task_id);
+    if (!task || task.current_run_id !== run.id) continue;
+    saveTask(
+      tx,
+      task,
+      {
+        status: run.kind === 'review' ? task.status : 'queued',
+        current_run_id: null,
+        retry_at: null,
+        recovery_note: recoveryNoteFor(run.id, run.dispatch_id, run.kind),
+      },
+      why === 'restart'
+        ? `recovered after restart (run ${run.id} abandoned)`
+        : `service stopped (run ${run.id} abandoned)`,
+    );
+    requeuedTasks.push(task.id);
+  }
+  return { abandonedRuns, requeuedTasks };
+}
+
 export async function recover(ctx: EngineContext): Promise<RecoveryReport> {
   const report = ctx.transact((tx) => {
-    const abandonedRuns: string[] = [];
-    const requeuedTasks: string[] = [];
-    for (const run of tx.r.runs.list({ states: ['starting', 'running'] })) {
-      finishRun(tx, run, { state: 'abandoned', error: 'abandoned: service restarted' });
-      abandonedRuns.push(run.id);
-      const task = tx.r.tasks.get(run.task_id);
-      if (!task || task.current_run_id !== run.id) continue;
-      const note = recoveryNoteFor(run.id, run.dispatch_id, run.kind);
-      saveTask(
-        tx,
-        task,
-        {
-          status: run.kind === 'review' ? task.status : 'queued',
-          current_run_id: null,
-          retry_at: null,
-          recovery_note: note,
-        },
-        `recovered after restart (run ${run.id} abandoned)`,
-      );
-      requeuedTasks.push(task.id);
-    }
+    const { abandonedRuns, requeuedTasks } = abandonLiveRuns(tx, 'restart');
     // a verifying task whose verify effect is missing would hang: re-enqueue it
     for (const task of tx.r.tasks.list({ statuses: ['verifying'] })) {
       if (task.current_run_id && !tx.r.effects.get('run.verify', task.current_run_id)) {

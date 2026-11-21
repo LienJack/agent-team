@@ -26,7 +26,7 @@ export interface operations_part1 {
             /** Format: date-time */
             generated_at: string;
             projects: components['schemas']['Project'][];
-            tasks: components['schemas']['Task'][];
+            tasks: components['schemas']['BoardTask'][];
             active_runs: components['schemas']['Run'][];
             open_attention: components['schemas']['Attention'][];
             runners: components['schemas']['RunnerStatus'][];
@@ -139,6 +139,41 @@ export interface operations_part1 {
             summary_md: string;
             /** Format: date-time */
             generated_at: string;
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      500: components['responses']['Error'];
+    };
+  };
+  getRoles: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Roles in config order */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            roles: {
+              name: string;
+              description: string | null;
+              model_alias: string;
+              /** @enum {string} */
+              runner: 'claude' | 'codex' | 'dsh' | 'jev' | 'fake';
+              slots: number;
+              enabled: boolean;
+              fallback: string[];
+            }[];
           };
         };
       };
@@ -380,44 +415,6 @@ export interface operations_part1 {
       401: components['responses']['Error'];
       403: components['responses']['Error'];
       404: components['responses']['Error'];
-      500: components['responses']['Error'];
-    };
-  };
-  queueTask: {
-    parameters: {
-      query?: never;
-      header?: {
-        'Idempotency-Key'?: string;
-      };
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: {
-      content: {
-        'application/json': {
-          reason?: string;
-        };
-      };
-    };
-    responses: {
-      /** @description The updated task */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            task: components['schemas']['Task'];
-          };
-        };
-      };
-      400: components['responses']['Error'];
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
       500: components['responses']['Error'];
     };
   };

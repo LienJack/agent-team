@@ -72,7 +72,11 @@ describe('§9 leader availability (fake claude)', () => {
     expect(b.status).toBe(503);
     expect(h.service.leader.status().queued).toBe(2);
     expect(fake.turns()).toHaveLength(1); // no turn while unavailable
-    expect(statusEvents()).toEqual([{ available: false, reason: 'rate_limit', until: until1 }]);
+    // the turn started (busy), then hit the limit (offline until the reset)
+    expect(statusEvents()).toEqual([
+      { state: 'busy', available: true, reason: null, until: null },
+      { state: 'offline', available: false, reason: 'rate_limit', until: until1 },
+    ]);
     // nothing was dropped: both inputs are stored and still `new`
     expect(h.store.messages.list().map((m) => [m.client_msg_id, m.status])).toEqual([
       ['a', 'new'],
@@ -91,7 +95,18 @@ describe('§9 leader availability (fake claude)', () => {
     expect(stdin[1]).toContain('第一則');
     expect(stdin[2]).toContain('第二則');
     expect(h.service.leader.status()).toMatchObject({ available: true, state: 'idle', queued: 0 });
-    expect(statusEvents().at(-1)).toEqual({ available: true, reason: null, until: null });
+    expect(statusEvents().at(-1)).toEqual({
+      state: 'idle',
+      available: true,
+      reason: null,
+      until: null,
+    });
+    // back to available, then one busy/idle pair per turn (no duplicates in between)
+    expect(
+      statusEvents()
+        .slice(2)
+        .map((e) => (e as { state: string }).state),
+    ).toEqual(['idle', 'busy', 'idle']);
     // a retry with the same client_msg_id now returns the stored reply
     expect((await send('第一則', 'a')).body.reply).toBe('恢復了');
   });

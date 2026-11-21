@@ -3,6 +3,7 @@ import { OpenAPIHono, type RouteHandler } from '@hono/zod-openapi';
 import {
   ALL_ROUTES,
   createProject,
+  getLeaderMessage,
   getRunLog,
   isLocalOnly,
   listLeaderMessages,
@@ -56,6 +57,7 @@ export const LEADER_FORBIDDEN = [
   createProject,
   getRunLog,
   listLeaderMessages,
+  getLeaderMessage,
   postLeaderMessage,
   streamEvents,
   resetLeader,

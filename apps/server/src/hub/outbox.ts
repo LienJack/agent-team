@@ -1,4 +1,10 @@
-import { enqueueEffect, type Engine, type KvRepository, type Tx } from '@agent-team/core';
+import {
+  enqueueEffect,
+  outboxLane,
+  type Engine,
+  type KvRepository,
+  type Tx,
+} from '@agent-team/core';
 import type { NotifyKind, OutboxItem } from '@agent-team/schema';
 
 // Hub-written outbox rows (spec §10 出：一律先寫 outbox 再發送): the same shape and guarantees as
@@ -60,6 +66,12 @@ export function enqueueOutbox(engine: Engine, tx: Tx, input: OutboxInput): Outbo
     { outbox_id: item.id, kind: item.kind, signature: item.signature },
     { task_id: item.task_id },
   );
-  enqueueEffect(tx, 'outbox.send', item.id, { outbox_id: item.id, task_id: item.task_id });
+  // replies to one Grok message keep their order (working → final) in their own lane; a
+  // notice stuck in backoff never holds them up
+  enqueueEffect(tx, 'outbox.send', item.id, {
+    outbox_id: item.id,
+    task_id: item.task_id,
+    lane: outboxLane(item, input.meta?.reply_to),
+  });
   return item;
 }

@@ -2,6 +2,7 @@ import type {
   Attention,
   DoctorReport,
   Project,
+  RoleInfo,
   Run,
   StateSnapshot,
   Task,
@@ -61,7 +62,10 @@ export function formatStatus(s: StateSnapshot): string {
     return `${r.runner} ok`;
   });
   lines.push(`runners: ${runners.join(' · ') || 'none'}`);
-  lines.push(`leader: ${s.leader.state}`);
+  const why = s.leader.reason
+    ? ` (${s.leader.reason}${s.leader.until ? ` until ${s.leader.until}` : ''})`
+    : '';
+  lines.push(`leader: ${s.leader.state}${why}`);
   return lines.join('\n');
 }
 
@@ -132,4 +136,12 @@ export function eventLine(e: EventRecord): string {
     detail = clip(JSON.stringify(e.data), 100);
   }
   return `#${e.seq} ${e.ts} ${e.type}${refs ? ` ${refs}` : ''} ${detail}`;
+}
+
+/** `impl_B  gpt-sol (codex) ×3  → kimi-pro, sonnet  多檔案、需要判斷或除錯` */
+export function roleLine(r: RoleInfo): string {
+  const fallback = r.fallback.length > 0 ? `  → ${r.fallback.join(', ')}` : '';
+  const off = r.enabled ? '' : '  [disabled]';
+  const desc = r.description ? `  ${clip(r.description, 40)}` : '';
+  return `${r.name}  ${r.model_alias} (${r.runner}) ×${r.slots}${fallback}${off}${desc}`;
 }

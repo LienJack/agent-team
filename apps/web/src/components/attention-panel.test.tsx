@@ -2,7 +2,7 @@ import { TeamApiError, type AttentionAnswerBody, type TeamClient } from '@agent-
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { makeAttention, makeState, makeTask } from '../test/fixtures.js';
+import { makeAttention, makeBoardTask, makeState } from '../test/fixtures.js';
 import { fakeClient, renderWithClient } from '../test/render.js';
 import { AttentionPanel } from './attention-panel.js';
 
@@ -54,7 +54,7 @@ describe('AttentionPanel — answering', () => {
       <AttentionPanel
         state={makeState({
           open_attention: [makeAttention({ kind: 'question', options: [], task_id: 't_1' })],
-          tasks: [makeTask({ id: 't_1', title: '修正登入' })],
+          tasks: [makeBoardTask({ id: 't_1', title: '修正登入' })],
         })}
       />,
       fakeClient({ answerAttention }),

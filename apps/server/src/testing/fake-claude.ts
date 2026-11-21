@@ -28,6 +28,7 @@ export const FAKE_CLAUDE_HELP = [
   '  --append-system-prompt <p>  Append to the system prompt',
   '  --tools <tools...>          Built-in tools',
   '  --allowedTools, --allowed-tools <tools...>  Allowed tools',
+  '  --disallowedTools, --disallowed-tools <tools...>  Denied tools',
   '  --permission-mode <mode>    Permission mode',
   '  --permission-prompts <t>    Who answers permission prompts',
   '  --safe-mode                 No customizations',

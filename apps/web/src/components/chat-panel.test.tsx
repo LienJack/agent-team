@@ -1,6 +1,7 @@
 import {
   TeamApiError,
   type LeaderMessageBody,
+  type LeaderStatusView,
   type Message,
   type TeamClient,
 } from '@agent-team/client';
@@ -10,28 +11,58 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChat } from '../store/chat.js';
 import { makeMessage, makeState } from '../test/fixtures.js';
 import { fakeClient, renderWithClient } from '../test/render.js';
-import { ChatPanel, LEADER_UNAVAILABLE_NOTICE } from './chat-panel.js';
+import { ChatPanel } from './chat-panel.js';
 
 beforeEach(() => useChat.setState({ pending: [], draft: '' }));
 
-/** A server that stores messages (deduped by client_msg_id) and answers like the phase-2 stub. */
-function stubServer(reply: (body: LeaderMessageBody) => Error | undefined) {
+const IDLE = { state: 'idle' as const, last_activity_at: null, available: true };
+
+/**
+ * A server that stores messages (deduped by client_msg_id) and answers the non-blocking POST
+ * (`wait: false`) with `pending: true`; `answer` adds the leader's reply to the history.
+ */
+function stubServer(
+  opts: {
+    fail?: (body: LeaderMessageBody) => Error | undefined;
+    answer?: string;
+    leader?: LeaderStatusView;
+  } = {},
+) {
   const stored: Message[] = [];
   const sendLeaderMessage = vi.fn<TeamClient['sendLeaderMessage']>(
     async (body: LeaderMessageBody) => {
       if (!stored.some((m) => m.client_msg_id === body.client_msg_id)) {
-        stored.push(
-          makeMessage({
-            id: `m_${stored.length + 1}`,
-            seq: stored.length + 1,
-            body: body.text,
-            client_msg_id: body.client_msg_id,
-          }),
-        );
+        const inbound = makeMessage({
+          id: `m_${stored.length + 1}`,
+          seq: stored.length + 1,
+          body: body.text,
+          client_msg_id: body.client_msg_id,
+        });
+        stored.push(inbound);
+        if (opts.answer !== undefined) {
+          inbound.status = 'delivered';
+          stored.push(
+            makeMessage({
+              id: `m_${stored.length + 1}`,
+              seq: stored.length + 1,
+              direction: 'out',
+              source: 'service',
+              body: opts.answer,
+              client_msg_id: `reply:${inbound.id}`,
+              ref: inbound.id,
+            }),
+          );
+        }
       }
-      const err = reply(body);
+      const err = opts.fail?.(body);
       if (err) throw err;
-      return { reply: '收到', message_id: 'm_x', reply_message_id: null };
+      return {
+        message_id: stored.find((m) => m.client_msg_id === body.client_msg_id)!.id,
+        pending: true,
+        reply: null,
+        reply_message_id: null,
+        leader: opts.leader ?? IDLE,
+      };
     },
   );
   const leaderMessages = vi.fn<TeamClient['leaderMessages']>(async () => [...stored]);
@@ -39,34 +70,36 @@ function stubServer(reply: (body: LeaderMessageBody) => Error | undefined) {
 }
 
 describe('ChatPanel', () => {
-  it('shows a clear inline notice when the leader is not implemented, without duplicates', async () => {
-    const server = stubServer(
-      () =>
-        new TeamApiError(
-          {
-            code: 'not_implemented',
-            message: 'not_implemented: the leader conversation is not available yet',
-          },
-          501,
-        ),
-    );
+  it('sends without waiting and shows that the reply is pending', async () => {
+    const server = stubServer();
     renderWithClient(<ChatPanel state={makeState()} />, server.client);
     await screen.findByText('還沒有對話。');
 
     await userEvent.type(screen.getByLabelText('給 leader 的訊息'), '請排程登入修正');
     await userEvent.click(screen.getByRole('button', { name: '送出' }));
 
-    expect(await screen.findByText(LEADER_UNAVAILABLE_NOTICE)).toBeTruthy();
     const body = server.sendLeaderMessage.mock.calls[0]![0];
-    expect(body).toMatchObject({ text: '請排程登入修正', source: 'web' });
+    expect(body).toMatchObject({ text: '請排程登入修正', source: 'web', wait: false });
     expect(body.client_msg_id).toMatch(/^[0-9a-f-]{36}$/);
-    // history refetch returns the stored copy: it replaces the pending one
+    // history refetch returns the stored copy (status new): it replaces the pending one
     await waitFor(() => expect(screen.getAllByText('請排程登入修正')).toHaveLength(1));
+    expect(await screen.findByText('等待 leader 回覆…')).toBeTruthy();
     expect(screen.queryByText('傳送中…')).toBeNull();
   });
 
+  it('shows a clear inline notice when the leader cannot answer (stored, queued)', async () => {
+    const server = stubServer({
+      leader: { ...IDLE, state: 'offline', available: false, reason: 'disabled', hint: null },
+    });
+    renderWithClient(<ChatPanel state={makeState()} />, server.client);
+    await userEvent.type(await screen.findByLabelText('給 leader 的訊息'), '在嗎');
+    await userEvent.click(screen.getByRole('button', { name: '送出' }));
+    expect(await screen.findByText(/Leader 沒有啟用/)).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByText('在嗎')).toHaveLength(1));
+  });
+
   it('keeps a failed message for retry with the same client_msg_id', async () => {
-    const server = stubServer(() => undefined);
+    const server = stubServer({ answer: '收到' });
     // the first attempt never reaches the server (nothing stored)
     server.sendLeaderMessage.mockImplementationOnce(async () => {
       throw new TeamApiError({ code: 'unavailable', message: 'cannot reach' }, 0);
@@ -84,9 +117,11 @@ describe('ChatPanel', () => {
     await waitFor(() => expect(server.sendLeaderMessage).toHaveBeenCalledTimes(2));
     const [first, second] = server.sendLeaderMessage.mock.calls.map((c) => c[0].client_msg_id);
     expect(second).toBe(first);
+    // the reply arrives through the history (a `leader.reply` event refetches it)
     expect(await screen.findByText('收到')).toBeTruthy();
     await waitFor(() => expect(screen.getAllByText('哈囉')).toHaveLength(1));
     expect(screen.queryByText('未送出')).toBeNull();
+    expect(screen.queryByText('等待 leader 回覆…')).toBeNull();
   });
 
   it('shows the history in seq order', async () => {

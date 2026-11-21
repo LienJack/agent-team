@@ -3,13 +3,15 @@
 //   AGENT_TEAM_HOME         data directory (default ~/.agent-team)
 //   AGENT_TEAM_ENV_FILE     .env location (default <project root>/.env)
 //   AGENT_TEAM_CONFIG_DIR   directory with service.json / models.json (default <root>/config)
-//   AGENT_TEAM_FAKE_RUNNERS=1  in-process fake runners instead of claude/codex/dsh (the leader
-//                              conversation is off too: messages are stored, not answered)
+//   AGENT_TEAM_FAKE_RUNNERS=1  in-process fake runners instead of claude/codex/dsh for the
+//                              workers; the leader is controlled separately by service.json
+//                              `leader.enabled` (default true), so fake workers + the real leader
+//                              is the cheapest realistic end-to-end setup
 // (all listed in ENV_VARS, packages/schema/src/env.ts)
 import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { errorMessage, randomIdGen, type Clock } from '@agent-team/core';
+import { errorMessage, randomIdGen, type Clock, type Store } from '@agent-team/core';
 import { createSqliteStore } from '@agent-team/db';
 import { createGitPort, type CliGitPort } from '@agent-team/git';
 import { createCheckExecutor, createRunnerRegistry } from '@agent-team/runners';
@@ -24,6 +26,25 @@ const systemClock: Clock = { now: () => new Date() };
 /** The git adapter: worktrees under `paths.worktree_root`, commits as `git.author`. */
 export function createGit(config: LoadedConfig): CliGitPort {
   return createGitPort({ worktreeRoot: config.worktreeRoot, author: config.service.git.author });
+}
+
+/**
+ * Last resort before a forced exit (second Ctrl-C): SIGKILL the process group of every live run
+ * (workers run in their own groups, so they would outlive this process). The next start's
+ * recovery marks the runs abandoned.
+ */
+export function killLiveRunGroups(store: Pick<Store, 'runs'>): number {
+  let killed = 0;
+  for (const run of store.runs.list({ states: ['starting', 'running'] })) {
+    if (run.pid === null) continue;
+    try {
+      process.kill(-run.pid, 'SIGKILL');
+      killed++;
+    } catch {
+      // already gone
+    }
+  }
+  return killed;
 }
 
 export async function main(processEnv: NodeJS.ProcessEnv = process.env): Promise<Service> {
@@ -56,9 +77,10 @@ export async function main(processEnv: NodeJS.ProcessEnv = process.env): Promise
     env,
     logger,
     onClose: () => store.close(),
-    // the leader's `team` is this checkout's built CLI; fake runners mean no real claude at all
+    // the leader's `team` is this checkout's built CLI; `leader.enabled` is independent of
+    // AGENT_TEAM_FAKE_RUNNERS (fake workers + the real leader is a supported setup)
     leader: {
-      enabled: !fake,
+      enabled: config.service.leader.enabled,
       teamEntry: join(config.projectRoot, 'apps', 'cli', 'dist', 'bin.js'),
     },
   });
@@ -68,7 +90,13 @@ export async function main(processEnv: NodeJS.ProcessEnv = process.env): Promise
   const onSignal = (signal: NodeJS.Signals) => {
     signals += 1;
     if (signals > 1) {
-      logger.warn('second signal: exiting now', { signal });
+      let killed = 0;
+      try {
+        killed = killLiveRunGroups(store);
+      } catch {
+        // the store may be closed already
+      }
+      logger.warn('second signal: exiting now', { signal, killed_run_groups: killed });
       process.exit(1);
     }
     logger.info('shutting down', { signal });

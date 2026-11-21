@@ -13,7 +13,7 @@ export function LogTail({ runId, live }: { runId: string | undefined; live: bool
     <div className="space-y-1">
       <p className="text-xs text-muted">
         {truncated ? `只顯示最後 ${LOG_TAIL_LINES} 行` : `共 ${lines.length} 行`}
-        {live ? '（執行中，每 3 秒更新）' : ''}
+        {live ? '（執行中，即時更新）' : ''}
       </p>
       <pre
         tabIndex={0}

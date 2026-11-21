@@ -28,6 +28,7 @@ describe('§9 leader-forbidden routes', () => {
       ['/api/runs/r_000001/log', undefined],
       ['/api/leader/messages', undefined],
       ['/api/leader/messages', msg],
+      ['/api/leader/messages/m_000001', undefined],
       ['/api/events', undefined],
       ['/api/leader/reset', {}],
       ['/api/projects', { name: 'x', repo_path: '/tmp/x' }],

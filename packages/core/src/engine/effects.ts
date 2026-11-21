@@ -118,6 +118,7 @@ export class EffectExecutor {
 
   /** Start every due effect whose lane is free. Returns how many were started. */
   runDue(): number {
+    if (this.ctx.stopping) return 0; // shutting down: nothing new starts (rows stay for restart)
     const now = this.ctx.nowIso();
     const blocked = new Set(this.busyLanes);
     let started = 0;
@@ -148,6 +149,9 @@ export class EffectExecutor {
     const done = this.execute(effect).finally(() => {
       this.running.delete(id);
       this.busyLanes.delete(lane);
+      // Drain the lane now: the wake-up from the finalizer's commit ran while this lane was
+      // still busy, so without this the next effect of the lane would wait for the patrol tick.
+      if (!this.ctx.stopping) this.runDue();
     });
     this.ctx.track(done);
   }

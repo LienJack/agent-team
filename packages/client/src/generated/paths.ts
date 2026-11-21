@@ -77,6 +77,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/roles': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Roles from config/models.json with their model alias, runner and slots */
+    get: operations['getRoles'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/quota': {
     parameters: {
       query?: never;
@@ -278,6 +295,23 @@ export interface paths {
     put?: never;
     /** Talk to the leader */
     post: operations['postLeaderMessage'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/leader/messages/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** One leader message and its reply (null while pending) */
+    get: operations['getLeaderMessage'];
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;

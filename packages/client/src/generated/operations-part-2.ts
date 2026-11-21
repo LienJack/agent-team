@@ -6,6 +6,44 @@
 import type { components } from './components.js';
 
 export interface operations_part2 {
+  queueTask: {
+    parameters: {
+      query?: never;
+      header?: {
+        'Idempotency-Key'?: string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        'application/json': {
+          reason?: string;
+        };
+      };
+    };
+    responses: {
+      /** @description The updated task */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            task: components['schemas']['Task'];
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      404: components['responses']['Error'];
+      409: components['responses']['Error'];
+      500: components['responses']['Error'];
+    };
+  };
   cancelTask: {
     parameters: {
       query?: never;
@@ -241,6 +279,8 @@ export interface operations_part2 {
           /** @enum {string} */
           source: 'web' | 'cli' | 'mcp' | 'grok' | 'service';
           client_msg_id: string;
+          /** @default true */
+          wait?: boolean;
         };
       };
     };
@@ -252,9 +292,30 @@ export interface operations_part2 {
         };
         content: {
           'application/json': {
-            reply: string;
             message_id: string;
+            pending: boolean;
+            reply: string | null;
             reply_message_id: string | null;
+            leader: {
+              /** @enum {string} */
+              state: 'idle' | 'busy' | 'offline';
+              /** Format: date-time */
+              last_activity_at: string | null;
+              available?: boolean;
+              /** @enum {string|null} */
+              reason?: 'disabled' | 'not_installed' | 'auth' | 'rate_limit' | null;
+              hint?: string | null;
+              /** Format: date-time */
+              until?: string | null;
+              queued?: number;
+              context_tokens?: number | null;
+              quota?: {
+                utilization: number | null;
+                /** Format: date-time */
+                resets_at: string | null;
+                exhausted: boolean;
+              } | null;
+            };
           };
         };
       };
@@ -265,6 +326,56 @@ export interface operations_part2 {
       500: components['responses']['Error'];
       501: components['responses']['Error'];
       503: components['responses']['Error'];
+    };
+  };
+  getLeaderMessage: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The message, its reply, the leader status */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            message: components['schemas']['Message'];
+            reply: components['schemas']['Message'] | null;
+            leader: {
+              /** @enum {string} */
+              state: 'idle' | 'busy' | 'offline';
+              /** Format: date-time */
+              last_activity_at: string | null;
+              available?: boolean;
+              /** @enum {string|null} */
+              reason?: 'disabled' | 'not_installed' | 'auth' | 'rate_limit' | null;
+              hint?: string | null;
+              /** Format: date-time */
+              until?: string | null;
+              queued?: number;
+              context_tokens?: number | null;
+              quota?: {
+                utilization: number | null;
+                /** Format: date-time */
+                resets_at: string | null;
+                exhausted: boolean;
+              } | null;
+            };
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      404: components['responses']['Error'];
+      500: components['responses']['Error'];
     };
   };
   resetLeader: {
@@ -314,117 +425,6 @@ export interface operations_part2 {
       403: components['responses']['Error'];
       500: components['responses']['Error'];
       503: components['responses']['Error'];
-    };
-  };
-  listAttention: {
-    parameters: {
-      query?: {
-        status?: 'open' | 'answered' | 'superseded';
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Attention items */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            attention: components['schemas']['Attention'][];
-          };
-        };
-      };
-      400: components['responses']['Error'];
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-      500: components['responses']['Error'];
-    };
-  };
-  createAttention: {
-    parameters: {
-      query?: never;
-      header?: {
-        'Idempotency-Key'?: string;
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          task_id?: string;
-          /**
-           * @default decision
-           * @enum {string}
-           */
-          kind?: 'decision' | 'approval' | 'question';
-          question: string;
-          /** @default [] */
-          options?: string[];
-        };
-      };
-    };
-    responses: {
-      /** @description The opened item */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            attention: components['schemas']['Attention'];
-          };
-        };
-      };
-      400: components['responses']['Error'];
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      500: components['responses']['Error'];
-    };
-  };
-  answerAttention: {
-    parameters: {
-      query?: never;
-      header?: {
-        'Idempotency-Key'?: string;
-      };
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          answer: string;
-          /** @enum {string} */
-          via: 'web' | 'cli' | 'mcp' | 'grok' | 'leader';
-        };
-      };
-    };
-    responses: {
-      /** @description The answered item */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            attention: components['schemas']['Attention'];
-          };
-        };
-      };
-      400: components['responses']['Error'];
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      409: components['responses']['Error'];
-      500: components['responses']['Error'];
     };
   };
 }

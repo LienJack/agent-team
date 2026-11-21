@@ -6,6 +6,117 @@
 import type { components } from './components.js';
 
 export interface operations_part3 {
+  listAttention: {
+    parameters: {
+      query?: {
+        status?: 'open' | 'answered' | 'superseded';
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Attention items */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            attention: components['schemas']['Attention'][];
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      500: components['responses']['Error'];
+    };
+  };
+  createAttention: {
+    parameters: {
+      query?: never;
+      header?: {
+        'Idempotency-Key'?: string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          task_id?: string;
+          /**
+           * @default decision
+           * @enum {string}
+           */
+          kind?: 'decision' | 'approval' | 'question';
+          question: string;
+          /** @default [] */
+          options?: string[];
+        };
+      };
+    };
+    responses: {
+      /** @description The opened item */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            attention: components['schemas']['Attention'];
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      404: components['responses']['Error'];
+      500: components['responses']['Error'];
+    };
+  };
+  answerAttention: {
+    parameters: {
+      query?: never;
+      header?: {
+        'Idempotency-Key'?: string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          answer: string;
+          /** @enum {string} */
+          via: 'web' | 'cli' | 'mcp' | 'grok' | 'leader';
+        };
+      };
+    };
+    responses: {
+      /** @description The answered item */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            attention: components['schemas']['Attention'];
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      404: components['responses']['Error'];
+      409: components['responses']['Error'];
+      500: components['responses']['Error'];
+    };
+  };
   login: {
     parameters: {
       query?: never;

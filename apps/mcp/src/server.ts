@@ -2,7 +2,7 @@ import type { TeamClient } from '@agent-team/client';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { describeError } from './errors.js';
-import { InputError, TOOLS, type ToolDef } from './tools.js';
+import { InputError, TOOLS, type ToolContext, type ToolDef } from './tools.js';
 
 export type ClientProvider = () => Promise<TeamClient>;
 
@@ -11,9 +11,10 @@ export async function runTool(
   def: ToolDef,
   getClient: ClientProvider,
   args: Record<string, unknown>,
+  context: ToolContext = {},
 ): Promise<CallToolResult> {
   try {
-    const out = await def.run(await getClient(), args);
+    const out = await def.run(await getClient(), args, context);
     return {
       content: [{ type: 'text', text: out.text }],
       ...(out.data === undefined ? {} : { structuredContent: out.data }),
@@ -36,7 +37,24 @@ export function createServer(getClient: ClientProvider): McpServer {
         inputSchema: def.shape,
         annotations: { readOnlyHint: def.readOnly, openWorldHint: false },
       },
-      (args) => runTool(def, getClient, args as Record<string, unknown>),
+      (args, extra) => {
+        const token = extra['_meta']?.progressToken;
+        let step = 0;
+        const progress =
+          token === undefined
+            ? undefined
+            : (message: string) =>
+                void extra
+                  .sendNotification({
+                    method: 'notifications/progress',
+                    params: { progressToken: token, progress: ++step, message },
+                  })
+                  .catch(() => {});
+        return runTool(def, getClient, args as Record<string, unknown>, {
+          signal: extra.signal,
+          ...(progress ? { progress } : {}),
+        });
+      },
     );
   }
   return server;

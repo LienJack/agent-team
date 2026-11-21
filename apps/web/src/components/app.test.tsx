@@ -8,7 +8,7 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useUi } from '../store/ui.js';
-import { makeAttention, makeState, makeTask } from '../test/fixtures.js';
+import { makeAttention, makeBoardTask, makeState } from '../test/fixtures.js';
 import { fakeClient, renderWithClient } from '../test/render.js';
 import { App } from './app.js';
 
@@ -32,8 +32,8 @@ describe('App shell', () => {
   it('shows the login page on 401 and the board after logging in', async () => {
     const snapshot = makeState({
       tasks: [
-        makeTask({ title: '草稿一' }),
-        makeTask({ id: 't_2', status: 'done', title: '做完了' }),
+        makeBoardTask({ title: '草稿一' }),
+        makeBoardTask({ id: 't_2', status: 'done', title: '做完了' }),
       ],
       open_attention: [makeAttention()],
     });
@@ -67,6 +67,8 @@ describe('App shell', () => {
     expect(screen.getByRole('button', { name: '做完了' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '未決事項 1 筆' })).toBeTruthy();
     expect(useUi.getState().auth).toBe('ok');
+    // cards render from the snapshot alone: no per-card detail request
+    expect(getTask).not.toHaveBeenCalled();
   });
 
   it('shows an error with retry when the service is unreachable', async () => {

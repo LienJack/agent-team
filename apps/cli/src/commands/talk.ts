@@ -1,7 +1,11 @@
+import { AskAbortedError, askLeader, randomId } from '@agent-team/client';
 import type { Command } from 'commander';
 import { attentionLine } from '../format.js';
 import { UsageError } from '../io.js';
 import type { CommandContext } from '../program.js';
+
+/** Exit code after Ctrl-C stopped `team ask` waiting (the message stays queued). */
+export const ASK_INTERRUPTED = 130;
 
 const collect = (value: string, previous: string[]) => [...previous, value];
 const STATUSES = ['open', 'answered', 'superseded'] as const;
@@ -10,13 +14,27 @@ const STATUSES = ['open', 'answered', 'superseded'] as const;
 export function registerTalkCommands(program: Command, ctx: CommandContext): void {
   program
     .command('ask <text>')
-    .description('send a message to the leader and print the reply')
+    .description('send a message to the leader and wait for its reply (Ctrl-C stops waiting)')
     .action(async (text: string) => {
-      const id = ctx.io.newMessageId?.() ?? globalThis.crypto.randomUUID();
-      const reply = await (
-        await ctx.client()
-      ).sendLeaderMessage({ text, source: 'cli', client_msg_id: id });
-      ctx.print(reply, reply.reply);
+      const client = await ctx.client();
+      try {
+        const reply = await askLeader(client, {
+          text,
+          source: 'cli',
+          clientMsgId: ctx.io.newMessageId?.() ?? randomId(),
+          ...(ctx.io.signal ? { signal: ctx.io.signal } : {}),
+          ...(ctx.io.askPollMs === undefined ? {} : { pollMs: ctx.io.askPollMs }),
+          onPending: ({ messageId }) =>
+            ctx.io.stderr(`(leader 還在處理 ${messageId}，繼續等待；Ctrl-C 停止等待)\n`),
+        });
+        ctx.print(reply, reply.reply);
+      } catch (err) {
+        if (!(err instanceof AskAbortedError)) throw err;
+        ctx.io.stderr(
+          `stopped waiting${err.messageId ? ` for ${err.messageId}` : ''}: the message is stored and the leader still answers it (board chat, GET /api/leader/messages)\n`,
+        );
+        ctx.exitCode = ASK_INTERRUPTED;
+      }
     });
 
   const leader = program.command('leader').description('the leader conversation');

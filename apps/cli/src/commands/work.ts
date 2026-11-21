@@ -1,7 +1,7 @@
 import { isAbsolute, resolve } from 'node:path';
 import { TeamApiError, type TeamClient } from '@agent-team/client';
 import { Option, type Command } from 'commander';
-import { formatReceipt, formatTaskDetail, projectLine, taskLine } from '../format.js';
+import { formatReceipt, formatTaskDetail, projectLine, roleLine, taskLine } from '../format.js';
 import { UsageError } from '../io.js';
 import type { CommandContext } from '../program.js';
 
@@ -140,10 +140,27 @@ export function registerWorkCommands(program: Command, ctx: CommandContext): voi
 
   task
     .command('reassign <id> <role>')
-    .description('use another role for the next impl/fix run')
+    .description('use another role for the next impl/fix run (see `team roles`)')
     .action(async (id: string, role: string) => {
-      const updated = await (await ctx.client()).reassignTask(id, role);
+      const client = await ctx.client();
+      const roles = await client.roles();
+      const found = roles.find((r) => r.name === role);
+      if (!found || !found.enabled) {
+        const usable = roles.filter((r) => r.enabled).map((r) => r.name);
+        throw new UsageError(
+          `${found ? 'disabled' : 'unknown'} role "${role}"; one of: ${usable.join(', ')}`,
+        );
+      }
+      const updated = await client.reassignTask(id, role);
       ctx.print(updated, () => taskLine(updated));
+    });
+
+  program
+    .command('roles')
+    .description('roles from config/models.json (model alias, runner, slots)')
+    .action(async () => {
+      const roles = await (await ctx.client()).roles();
+      ctx.print(roles, () => roles.map(roleLine).join('\n'));
     });
 
   program

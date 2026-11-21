@@ -2,26 +2,11 @@ import { TeamApiError } from '@agent-team/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createBrowserClient } from './client.js';
 import { describeError, isConnectionError, isLeaderUnavailable, isUnauthorized } from './errors.js';
-import { randomId } from './ids.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-describe('randomId', () => {
-  it('builds v4 UUIDs from getRandomValues', () => {
-    const a = randomId();
-    const b = randomId();
-    expect(a).toMatch(UUID);
-    expect(a).not.toBe(b);
-  });
-
-  it('uses only the given random source', () => {
-    const source = { getRandomValues: <T extends ArrayBufferView>(a: T) => a };
-    expect(randomId(source as Pick<Crypto, 'getRandomValues'>)).toBe(
-      '00000000-0000-4000-8000-000000000000',
-    );
-  });
-});
-
+// the client's own default key (crypto.getRandomValues) covers plain-HTTP LAN pages; the board
+// no longer needs a private workaround
 describe('browser client on a plain-HTTP origin (no crypto.randomUUID)', () => {
   afterEach(() => vi.unstubAllGlobals());
 

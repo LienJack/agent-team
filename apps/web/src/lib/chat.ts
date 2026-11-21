@@ -30,6 +30,8 @@ export interface ChatItem {
   error?: string;
   /** Present on this page's own messages (retry uses it). */
   clientMsgId?: string;
+  /** An input the leader has not answered yet (stored, queued or in its turn). */
+  awaiting?: boolean;
 }
 
 /** History in seq order, then pending messages the server has not returned yet. */
@@ -54,6 +56,7 @@ export function mergeChat(
       state: 'sent',
       ...(mine?.notice ? { notice: mine.notice } : {}),
       ...(mine ? { clientMsgId: mine.client_msg_id } : {}),
+      ...(message.direction === 'in' && message.status === 'new' ? { awaiting: true } : {}),
     });
     if (mine?.reply !== undefined) items.push(replyItem(mine));
     if (mine) byClientId.delete(message.client_msg_id);

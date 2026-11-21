@@ -1,8 +1,11 @@
 import type { EventRecord, EventType } from '@agent-team/schema';
 import { keys, type QueryKey } from '../api/keys.js';
 
-// Event → affected queries (spec §13 即時：收到事件後重新讀取受影響的資源). The table is keyed by
-// every EventType, so a new event type in packages/schema fails the type check until mapped here.
+// Event → affected queries (spec §13 即時：收到事件後重新讀取受影響的資源).
+//
+// EVENT_QUERIES below is the ONE place to map an event type: it must name every `EventType`
+// (`satisfies Record<EventType, Mapper>`), so adding an event in packages/schema fails the type
+// check right here until it is mapped (to `none` if nothing on the board shows it).
 
 type Mapper = (event: EventRecord) => QueryKey[];
 
@@ -15,7 +18,7 @@ const boardAndTask: Mapper = (e) => [keys.state(), ...taskOf(e)];
 /** Snapshot (active runs) + task detail + that run's log tail. */
 const runChange: Mapper = (e) => [keys.state(), ...taskOf(e), ...runLogOf(e)];
 
-const EVENT_QUERIES: Record<EventType, Mapper> = {
+const EVENT_QUERIES = {
   'project.created': board,
 
   'task.created': board,
@@ -25,19 +28,21 @@ const EVENT_QUERIES: Record<EventType, Mapper> = {
   'task.dispatch_failed': boardAndTask,
   'task.base_drift': boardAndTask,
 
-  // workspaces only show in the task detail (commit sha)
-  'workspace.created': taskOf,
+  // the card shows the workspace's head sha (snapshot) and the drawer the workspace
+  'workspace.created': boardAndTask,
   'workspace.rebased': taskOf,
-  'workspace.updated': taskOf,
-  'workspace.removed': taskOf,
+  'workspace.updated': boardAndTask,
+  'workspace.removed': boardAndTask,
   'workspace.kept': taskOf,
 
   'run.created': runChange,
   'run.dispatched': runChange,
   'run.state_changed': runChange,
+  // the drawer's log tail of that run, nothing else
+  'run.log_advanced': runLogOf,
   'run.finished': runChange,
   'run.verified': (e) => [...taskOf(e), ...runLogOf(e)],
-  'commit.created': taskOf,
+  'commit.created': boardAndTask,
   'review.completed': taskOf,
 
   // open attention items are part of the snapshot
@@ -45,12 +50,19 @@ const EVENT_QUERIES: Record<EventType, Mapper> = {
   'attention.answered': boardAndTask,
   'attention.superseded': boardAndTask,
 
-  // leader status has no event of its own; chat activity is when it changes, so refresh it too
+  // the leader's queue length (top bar) changes with chat activity, so refresh the snapshot too
   'message.created': (e) =>
     e.type === 'message.created' && e.data.channel !== 'leader'
       ? []
       : [keys.leaderMessages(), keys.state()],
   'message.status_changed': () => [keys.leaderMessages(), keys.state()],
+  // a reply landed: the chat history (and the leader's queue in the snapshot)
+  'leader.reply': (e) =>
+    e.type === 'leader.reply' && e.data.channel !== 'leader'
+      ? [keys.state()]
+      : [keys.leaderMessages(), keys.state()],
+  // availability / busy-idle of the leader is part of the snapshot (top bar)
+  'leader.status_changed': board,
 
   // runner health / quota is part of the snapshot
   'runner.cooldown': board,
@@ -66,8 +78,8 @@ const EVENT_QUERIES: Record<EventType, Mapper> = {
   'outbox.failed': none,
 
   // a restart may have touched any task and run
-  'recovery.completed': () => [keys.state(), keys.tasks(), keys.runLogs()],
-};
+  'recovery.completed': () => [keys.state(), keys.tasks(), keys.runLogs(), keys.roles()],
+} satisfies Record<EventType, Mapper>;
 
 /** Query keys to refetch after `event`; unknown types (newer server) refresh the snapshot. */
 export function queriesForEvent(event: EventRecord): QueryKey[] {

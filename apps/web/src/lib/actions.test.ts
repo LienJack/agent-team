@@ -1,6 +1,6 @@
 import { BOARD_COLUMNS, TASK_STATUSES, type TaskStatus } from '@agent-team/schema';
 import { describe, expect, it } from 'vitest';
-import { actionBlocker, decideDrop } from './actions.js';
+import { actionBlocker, decideDrop, reassignChoices } from './actions.js';
 
 describe('decideDrop — legal drag targets', () => {
   it.each<[TaskStatus, string, string]>([
@@ -93,5 +93,30 @@ describe('actionBlocker — drawer buttons', () => {
     expect(actionBlocker(task('running', 'r_1'), 'reassign')).toBeDefined();
     expect(actionBlocker(task('verifying'), 'reassign')).toBeDefined();
     expect(actionBlocker(task('cancelled'), 'reassign')).toBeDefined();
+  });
+});
+
+describe('reassignChoices — the picker lists GET /api/roles', () => {
+  const role = (name: string, enabled = true) => ({
+    name,
+    model_alias: 'opus',
+    runner: 'claude',
+    enabled,
+  });
+
+  it('enabled roles only, implementation roles first, the current role always present', () => {
+    const { impl, other } = reassignChoices(
+      [role('planner'), role('impl_A'), role('gate', false), role('impl_C')],
+      'impl_C',
+    );
+    expect(impl.map((r) => r.name)).toEqual(['impl_A', 'impl_C']);
+    expect(other.map((r) => r.name)).toEqual(['planner']);
+    expect(impl[0]!.label).toBe('impl_A — opus（claude）');
+  });
+
+  it('falls back to impl_A/B/C while the roles are not loaded', () => {
+    const { impl, other } = reassignChoices(undefined, 'researcher');
+    expect(impl.map((r) => r.name)).toEqual(['impl_A', 'impl_B', 'impl_C']);
+    expect(other.map((r) => r.name)).toEqual(['researcher']);
   });
 });

@@ -15,6 +15,7 @@
     }
   },
   "scripts": {
+    "test": "vitest run --root ../.. --project server",
     "test:smoke": "TEAM_SMOKE=1 vitest run --config test/smoke/vitest.config.ts"
   },
   "dependencies": {

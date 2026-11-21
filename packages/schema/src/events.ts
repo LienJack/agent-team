@@ -90,6 +90,11 @@ export const EVENT_DATA_SCHEMAS = {
     reason: nullableString,
   }),
   'run.state_changed': z.object({ from: RunStateSchema, to: RunStateSchema }),
+  /**
+   * A live run's log grew (the run is the event's `run_id`): byte size of the log the tail reads
+   * (`events.jsonl`, else `stderr.log`). Written by the server at most once per run per 2 s.
+   */
+  'run.log_advanced': z.object({ offset: NonNegativeIntSchema }),
   'run.finished': z.object({
     state: RunStateSchema,
     outcome: RunOutcomeSchema.nullable(),
@@ -141,8 +146,9 @@ export const EVENT_DATA_SCHEMAS = {
     in_reply_to: MessageIdSchema,
     channel: MessageChannelSchema,
   }),
-  /** Leader availability changed (rate limit, login, reset, back to normal). */
+  /** Leader status changed: idle/busy (a turn started or ended) or availability (rate limit, login, reset). */
   'leader.status_changed': z.object({
+    state: z.enum(['idle', 'busy', 'offline']),
     available: z.boolean(),
     reason: nullableString,
     until: IsoDateTimeSchema.nullable(),

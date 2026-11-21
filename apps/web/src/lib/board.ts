@@ -1,8 +1,8 @@
-import type { Run, Task, TaskDetail } from '@agent-team/client';
+import type { BoardTask, Run, Task } from '@agent-team/client';
 import { BOARD_COLUMNS, boardColumnOf, type BoardColumnId } from '@agent-team/schema';
 import { usageTokens } from './format.js';
 
-export type Columns = Record<BoardColumnId, Task[]>;
+export type Columns<T extends Task = Task> = Record<BoardColumnId, T[]>;
 
 const byUpdatedDesc = (a: Task, b: Task) => b.updated_at.localeCompare(a.updated_at);
 
@@ -14,8 +14,8 @@ const bySchedule = (a: Task, b: Task) =>
  * Tasks per board column (spec §5). Cancelled tasks are not on the board. 待派 lists queued
  * tasks in dispatch order, then drafts (newest first); other columns show the latest change first.
  */
-export function groupTasks(tasks: readonly Task[], projectId?: string): Columns {
-  const columns = Object.fromEntries(BOARD_COLUMNS.map((c) => [c.id, [] as Task[]])) as Columns;
+export function groupTasks<T extends Task>(tasks: readonly T[], projectId?: string): Columns<T> {
+  const columns = Object.fromEntries(BOARD_COLUMNS.map((c) => [c.id, [] as T[]])) as Columns<T>;
   for (const task of tasks) {
     if (projectId !== undefined && task.project_id !== projectId) continue;
     const column = boardColumnOf(task.status);
@@ -50,42 +50,31 @@ function latest(runs: readonly Run[]): Run | undefined {
   return best;
 }
 
-function isLive(run: Run): boolean {
+function isLive(run: Pick<Run, 'state'>): boolean {
   return run.state === 'starting' || run.state === 'running';
 }
 
 /**
- * What a card shows, from the task's detail (runs, workspace) when loaded and the snapshot's
- * active run otherwise.
+ * What a card shows, straight from the board snapshot (GET /api/state carries each task's latest
+ * run, head sha and run totals, so cards make no requests of their own). A live run's own time is
+ * counted until `now`.
  */
 export function summarizeTask(
-  task: Pick<Task, 'current_run_id'>,
-  detail: Pick<TaskDetail, 'runs' | 'workspace'> | undefined,
-  activeRun: Run | undefined,
+  task: Pick<BoardTask, 'latest_run' | 'head_sha' | 'run_totals'>,
   now: number,
 ): CardSummary {
-  const runs = detail?.runs ?? (activeRun ? [activeRun] : []);
-  const current =
-    (task.current_run_id ? runs.find((r) => r.id === task.current_run_id) : undefined) ??
-    activeRun ??
-    latest(runs);
-  let elapsed = 0;
-  let cost: number | null = null;
-  let tokens = 0;
-  for (const run of runs) {
-    const end = run.ended_at ? Date.parse(run.ended_at) : now;
-    elapsed += Math.max(0, end - Date.parse(run.started_at));
-    if (run.cost_usd !== null) cost = (cost ?? 0) + run.cost_usd;
-    tokens += usageTokens(run.usage);
-  }
+  const run = task.latest_run;
+  const live = run !== null && isLive(run);
+  const elapsed =
+    task.run_totals.finished_ms + (live ? Math.max(0, now - Date.parse(run.started_at)) : 0);
   return {
-    executor: current?.model_alias,
-    executorDetail: current ? `${current.kind} · ${current.role} · ${current.runner}` : undefined,
-    liveSince: current && isLive(current) ? current.started_at : undefined,
-    elapsedMs: runs.length > 0 ? elapsed : undefined,
-    costUsd: cost,
-    tokens,
-    commit: detail?.workspace?.head_sha ?? null,
+    executor: run?.model_alias,
+    executorDetail: run ? `${run.kind} · ${run.role} · ${run.runner}` : undefined,
+    liveSince: live ? run.started_at : undefined,
+    elapsedMs: task.run_totals.runs > 0 ? elapsed : undefined,
+    costUsd: task.run_totals.cost_usd,
+    tokens: usageTokens(task.run_totals.usage),
+    commit: task.head_sha,
   };
 }
 

@@ -90,6 +90,136 @@
           "updated_at"
         ]
       },
+      "BoardTask": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "pattern": "^t_[0-9a-z]{1,32}$" },
+          "project_id": { "type": "string", "pattern": "^p_[0-9a-z]{1,32}$" },
+          "parent_id": { "type": ["string", "null"], "pattern": "^t_[0-9a-z]{1,32}$" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "tier": { "type": "string", "enum": ["A", "B", "C"] },
+          "ticket_md": { "type": "string" },
+          "owned_paths": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "priority": { "type": "integer" },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "queued",
+              "running",
+              "verifying",
+              "review",
+              "done",
+              "blocked",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "impl_role": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9_]*$" },
+          "fix_rounds": { "type": "integer", "minimum": 0 },
+          "attempts": { "type": "integer", "minimum": 0 },
+          "blocked_reason": { "type": ["string", "null"] },
+          "version": { "type": "integer", "exclusiveMinimum": 0 },
+          "current_run_id": { "type": ["string", "null"], "pattern": "^r_[0-9a-z]{1,32}$" },
+          "retry_at": { "type": ["string", "null"], "format": "date-time" },
+          "fix_notes": { "type": ["string", "null"] },
+          "recovery_note": { "type": ["string", "null"] },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" },
+          "latest_run": {
+            "type": ["object", "null"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^r_[0-9a-z]{1,32}$" },
+              "kind": { "type": "string", "enum": ["impl", "fix", "review"] },
+              "role": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9_]*$" },
+              "model_alias": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+              "runner": { "type": "string", "enum": ["claude", "codex", "dsh", "fake"] },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "starting",
+                  "running",
+                  "succeeded",
+                  "failed",
+                  "start_unknown",
+                  "stopped",
+                  "abandoned"
+                ]
+              },
+              "cost_usd": { "type": ["number", "null"], "minimum": 0 },
+              "usage": {
+                "type": ["object", "null"],
+                "properties": {
+                  "input_tokens": { "type": "integer", "minimum": 0 },
+                  "output_tokens": { "type": "integer", "minimum": 0 },
+                  "cache_read_tokens": { "type": "integer", "minimum": 0 },
+                  "cache_write_tokens": { "type": "integer", "minimum": 0 },
+                  "reasoning_tokens": { "type": "integer", "minimum": 0 }
+                }
+              },
+              "started_at": { "type": "string", "format": "date-time" },
+              "ended_at": { "type": ["string", "null"], "format": "date-time" }
+            },
+            "required": [
+              "id",
+              "kind",
+              "role",
+              "model_alias",
+              "runner",
+              "state",
+              "cost_usd",
+              "usage",
+              "started_at",
+              "ended_at"
+            ]
+          },
+          "head_sha": { "type": ["string", "null"], "pattern": "^[0-9a-f]{4,64}$" },
+          "run_totals": {
+            "type": "object",
+            "properties": {
+              "runs": { "type": "integer", "minimum": 0 },
+              "cost_usd": { "type": ["number", "null"], "minimum": 0 },
+              "usage": {
+                "type": "object",
+                "properties": {
+                  "input_tokens": { "type": "integer", "minimum": 0 },
+                  "output_tokens": { "type": "integer", "minimum": 0 },
+                  "cache_read_tokens": { "type": "integer", "minimum": 0 },
+                  "cache_write_tokens": { "type": "integer", "minimum": 0 },
+                  "reasoning_tokens": { "type": "integer", "minimum": 0 }
+                }
+              },
+              "finished_ms": { "type": "integer", "minimum": 0 }
+            },
+            "required": ["runs", "cost_usd", "usage", "finished_ms"]
+          }
+        },
+        "required": [
+          "id",
+          "project_id",
+          "parent_id",
+          "title",
+          "tier",
+          "ticket_md",
+          "owned_paths",
+          "priority",
+          "status",
+          "impl_role",
+          "fix_rounds",
+          "attempts",
+          "blocked_reason",
+          "version",
+          "current_run_id",
+          "retry_at",
+          "fix_notes",
+          "recovery_note",
+          "created_at",
+          "updated_at",
+          "latest_run",
+          "head_sha",
+          "run_totals"
+        ]
+      },
       "Workspace": {
         "type": "object",
         "properties": {
@@ -439,7 +569,10 @@
                       "type": "array",
                       "items": { "$ref": "#/components/schemas/Project" }
                     },
-                    "tasks": { "type": "array", "items": { "$ref": "#/components/schemas/Task" } },
+                    "tasks": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/BoardTask" }
+                    },
                     "active_runs": {
                       "type": "array",
                       "items": { "$ref": "#/components/schemas/Run" }
@@ -597,6 +730,62 @@
                     "generated_at": { "type": "string", "format": "date-time" }
                   },
                   "required": ["summary_md", "generated_at"]
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/roles": {
+      "get": {
+        "operationId": "getRoles",
+        "tags": ["system"],
+        "summary": "Roles from config/models.json with their model alias, runner and slots",
+        "responses": {
+          "200": {
+            "description": "Roles in config order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "roles": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9_]*$" },
+                          "description": { "type": ["string", "null"] },
+                          "model_alias": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+                          "runner": {
+                            "type": "string",
+                            "enum": ["claude", "codex", "dsh", "jev", "fake"]
+                          },
+                          "slots": { "type": "integer", "minimum": 0 },
+                          "enabled": { "type": "boolean" },
+                          "fallback": {
+                            "type": "array",
+                            "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" }
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "description",
+                          "model_alias",
+                          "runner",
+                          "slots",
+                          "enabled",
+                          "fallback"
+                        ]
+                      }
+                    }
+                  },
+                  "required": ["roles"]
                 }
               }
             }
@@ -1247,7 +1436,8 @@
                 "properties": {
                   "text": { "type": "string", "minLength": 1, "maxLength": 20000 },
                   "source": { "type": "string", "enum": ["web", "cli", "mcp", "grok", "service"] },
-                  "client_msg_id": { "type": "string", "minLength": 1, "maxLength": 200 }
+                  "client_msg_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+                  "wait": { "type": "boolean", "default": true }
                 },
                 "required": ["text", "source", "client_msg_id"]
               }
@@ -1262,11 +1452,42 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "reply": { "type": "string" },
-                    "message_id": { "type": "string" },
-                    "reply_message_id": { "type": ["string", "null"] }
+                    "message_id": { "type": "string", "pattern": "^m_[0-9a-z]{1,32}$" },
+                    "pending": { "type": "boolean" },
+                    "reply": { "type": ["string", "null"] },
+                    "reply_message_id": { "type": ["string", "null"] },
+                    "leader": {
+                      "type": "object",
+                      "properties": {
+                        "state": { "type": "string", "enum": ["idle", "busy", "offline"] },
+                        "last_activity_at": { "type": ["string", "null"], "format": "date-time" },
+                        "available": { "type": "boolean" },
+                        "reason": {
+                          "type": ["string", "null"],
+                          "enum": ["disabled", "not_installed", "auth", "rate_limit", null]
+                        },
+                        "hint": { "type": ["string", "null"] },
+                        "until": { "type": ["string", "null"], "format": "date-time" },
+                        "queued": { "type": "integer", "minimum": 0 },
+                        "context_tokens": { "type": ["integer", "null"], "minimum": 0 },
+                        "quota": {
+                          "type": ["object", "null"],
+                          "properties": {
+                            "utilization": {
+                              "type": ["number", "null"],
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "resets_at": { "type": ["string", "null"], "format": "date-time" },
+                            "exhausted": { "type": "boolean" }
+                          },
+                          "required": ["utilization", "resets_at", "exhausted"]
+                        }
+                      },
+                      "required": ["state", "last_activity_at"]
+                    }
                   },
-                  "required": ["reply", "message_id", "reply_message_id"]
+                  "required": ["message_id", "pending", "reply", "reply_message_id", "leader"]
                 }
               }
             }
@@ -1319,6 +1540,75 @@
           "400": { "$ref": "#/components/responses/Error" },
           "401": { "$ref": "#/components/responses/Error" },
           "403": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/leader/messages/{id}": {
+      "get": {
+        "operationId": "getLeaderMessage",
+        "tags": ["leader"],
+        "summary": "One leader message and its reply (null while pending)",
+        "parameters": [
+          {
+            "schema": { "type": "string", "pattern": "^m_[0-9a-z]{1,32}$" },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The message, its reply, the leader status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": { "$ref": "#/components/schemas/Message" },
+                    "reply": {
+                      "anyOf": [{ "$ref": "#/components/schemas/Message" }, { "type": "null" }]
+                    },
+                    "leader": {
+                      "type": "object",
+                      "properties": {
+                        "state": { "type": "string", "enum": ["idle", "busy", "offline"] },
+                        "last_activity_at": { "type": ["string", "null"], "format": "date-time" },
+                        "available": { "type": "boolean" },
+                        "reason": {
+                          "type": ["string", "null"],
+                          "enum": ["disabled", "not_installed", "auth", "rate_limit", null]
+                        },
+                        "hint": { "type": ["string", "null"] },
+                        "until": { "type": ["string", "null"], "format": "date-time" },
+                        "queued": { "type": "integer", "minimum": 0 },
+                        "context_tokens": { "type": ["integer", "null"], "minimum": 0 },
+                        "quota": {
+                          "type": ["object", "null"],
+                          "properties": {
+                            "utilization": {
+                              "type": ["number", "null"],
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "resets_at": { "type": ["string", "null"], "format": "date-time" },
+                            "exhausted": { "type": "boolean" }
+                          },
+                          "required": ["utilization", "resets_at", "exhausted"]
+                        }
+                      },
+                      "required": ["state", "last_activity_at"]
+                    }
+                  },
+                  "required": ["message", "reply", "leader"]
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
           "500": { "$ref": "#/components/responses/Error" }
         }
       }

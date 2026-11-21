@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { bootLeader, compactSteps, type FakeClaude, turnSteps } from '../testing/fake-claude.js';
 import { local, type Loose, type TestService } from '../testing/harness.js';
 import type { LeaderImpl } from './leader.js';
+import { LEADER_ALLOW_RULES, LEADER_DENY_RULES } from './args.js';
 import { LEADER_SYSTEM_PROMPT } from './prompt/system-v1.js';
 import { LEADER_EVENT_CURSOR_KEY, LEADER_SESSION_KEY } from './types.js';
 
@@ -65,7 +66,9 @@ describe('§9 leader turns (fake claude)', () => {
       '--tools',
       'Bash',
       '--allowedTools',
-      'Bash(team:*)',
+      ...LEADER_ALLOW_RULES,
+      '--disallowedTools',
+      ...LEADER_DENY_RULES,
       '--permission-mode',
       'dontAsk',
       '--permission-prompts',

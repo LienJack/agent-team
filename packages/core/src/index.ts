@@ -46,6 +46,7 @@ export {
   type EffectFinalizer,
   type EffectHandler,
 } from './engine/effect-queue.js';
+export { outboxLane } from './engine/notify.js';
 export {
   circuitState,
   defaultHealth,

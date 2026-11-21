@@ -1,9 +1,8 @@
-import type { StateSnapshot } from '@agent-team/client';
+import { randomId, type LeaderStatusView, type StateSnapshot } from '@agent-team/client';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useMemo, useRef, type KeyboardEvent } from 'react';
 import { useClient } from '../api/context.js';
 import { errorLine, isLeaderUnavailable } from '../api/errors.js';
-import { randomId } from '../api/ids.js';
 import { keys } from '../api/keys.js';
 import { useLeaderMessages } from '../api/queries.js';
 import { mergeChat, type ChatItem, type PendingMessage } from '../lib/chat.js';
@@ -12,29 +11,52 @@ import { useChat } from '../store/chat.js';
 import { Button } from './ui/button.js';
 import { Empty, ErrorState, Loading } from './ui/states.js';
 
-export const LEADER_UNAVAILABLE_NOTICE =
-  'Leader 尚未上線（目前階段未實作）：訊息已保存，但暫時不會有回覆。';
+export const LEADER_UNAVAILABLE_NOTICE = 'Leader 暫時無法回覆：訊息已保存，恢復後會依序回覆。';
+
+/** Inline notice for a message stored while the leader cannot take turns. */
+export function leaderNotice(leader: LeaderStatusView): string | undefined {
+  if (leader.available !== false || leader.reason === null || leader.reason === undefined) {
+    return undefined;
+  }
+  if (leader.reason === 'disabled') {
+    return 'Leader 沒有啟用（service.json 的 leader.enabled）：訊息已保存，但不會有回覆。';
+  }
+  return `${LEADER_UNAVAILABLE_NOTICE}${leader.hint ? `（${leader.hint}）` : ''}`;
+}
 
 const TEXT_MAX = 20000;
 
-/** Send one message (new or retried with the same client_msg_id; the server dedupes). */
+/**
+ * Send one message (new or retried with the same client_msg_id; the server dedupes). Non-blocking
+ * (`wait: false`): the POST returns once the message is stored and queued; the reply arrives as a
+ * `leader.reply` event, which refetches the history.
+ */
 export function useSendLeaderMessage() {
   const client = useClient();
   const qc = useQueryClient();
   const upsert = useChat((s) => s.upsert);
   return useMutation({
     mutationFn: (p: PendingMessage) =>
-      client.sendLeaderMessage({ text: p.text, source: 'web', client_msg_id: p.client_msg_id }),
+      client.sendLeaderMessage({
+        text: p.text,
+        source: 'web',
+        client_msg_id: p.client_msg_id,
+        wait: false,
+      }),
     onMutate: (p) => upsert({ ...p, state: 'sending' }),
     onSuccess: (res, p) => {
+      const notice = res.pending ? leaderNotice(res.leader) : undefined;
       const next: PendingMessage = {
         client_msg_id: p.client_msg_id,
         text: p.text,
         created_at: p.created_at,
         state: 'stored',
+        ...(notice ? { notice } : {}),
       };
       // a reply that was not stored as a message would be lost on refetch: keep it here
-      upsert(res.reply_message_id === null ? { ...next, reply: res.reply } : next);
+      upsert(
+        res.reply !== null && res.reply_message_id === null ? { ...next, reply: res.reply } : next,
+      );
     },
     onError: (err, p) => {
       const base = { client_msg_id: p.client_msg_id, text: p.text, created_at: p.created_at };
@@ -62,6 +84,9 @@ function Bubble({ item, onRetry }: { item: ChatItem; onRetry: (id: string) => vo
         <span>{mine ? `我（${item.source}）` : 'Leader'}</span>
         <span>{formatTime(item.at)}</span>
         {item.state === 'sending' ? <span role="status">傳送中…</span> : null}
+        {item.awaiting && item.state === 'sent' ? (
+          <span role="status">等待 leader 回覆…</span>
+        ) : null}
         {item.state === 'failed' ? <span className="text-bad">未送出</span> : null}
       </div>
       {item.notice ? (

@@ -36,6 +36,13 @@ export interface LeaderReply {
 export interface Leader extends LeaderNotifier {
   status(): LeaderStatus;
   handleMessage(message: Message, info: { duplicate: boolean }): Promise<LeaderReply>;
+  /**
+   * Non-blocking form (POST /api/leader/messages `wait: false`): the stored reply if there is
+   * one, else queue the message (never throws `unavailable`; a stopped or disabled leader keeps
+   * it stored for the next start) and return undefined. Throws `conflict` for an input that was
+   * already handled without a reply.
+   */
+  submit(message: Message, info: { duplicate: boolean }): LeaderReply | undefined;
   /** Model-free summary for a new conversation or a new login (GET /api/resume). */
   resumeBrief(): string;
   /** New conversation (new session id; the next turn starts with the resume brief). */
@@ -46,7 +53,10 @@ export interface Leader extends LeaderNotifier {
 
 /** How the leader runs its turns; `main.ts` supplies the real values, tests the fake CLI. */
 export interface LeaderRuntime {
-  /** false: no conversation in this process (fake runners, tests); messages are only stored. */
+  /**
+   * false: no conversation in this process (`service.json` leader.enabled = false, tests);
+   * messages are only stored. Independent of the worker runners being fakes.
+   */
   enabled: boolean;
   /** argv prefix of the claude executable (default: `claude` on PATH). */
   command?: readonly string[];
@@ -72,4 +82,12 @@ export interface LeaderDeps {
   onReply?: (tx: Tx, inbound: Message, reply: Message) => void;
   /** Runs inside the transaction that marks the leader rate limited (the hub notifies). */
   onRateLimited?: (tx: Tx, until: string) => void;
+}
+
+/** The leader plus test hooks (`pump`, `settled`). */
+export interface LeaderImpl extends Leader {
+  /** Re-check availability and start the next turn if possible. */
+  pump(): void;
+  /** Resolves once no turn runs and nothing runnable is queued. */
+  settled(): Promise<void>;
 }

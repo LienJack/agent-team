@@ -46,12 +46,14 @@
 pnpm install            # 第一次；HUSKY=0 可跳過安裝 git hook
 pnpm lint               # oxlint（警告也算失敗）
 pnpm format             # oxfmt 寫回；pnpm format:check 只檢查
-pnpm typecheck          # tsc -b（project references，輸出到各套件 dist/）
-pnpm test               # vitest，直接跑原始碼，不需先 build
-pnpm build              # tsc -b --force
+pnpm typecheck          # tsc -b（project references，輸出到各套件 dist/）＋ e2e 的 tsconfig
+pnpm test               # vitest，直接跑原始碼，不需先 build（含 apps/web 的 jsdom 元件測試）
+pnpm test:e2e           # Playwright 看板冒煙（先 vite build；假 runner、leader 關閉、只綁 127.0.0.1）
+pnpm build              # tsc -b --force，再 vite build 看板
+pnpm start              # 需要時先建置，再從 dist 啟動服務（等同 team serve）
 pnpm check:boundaries   # 分層、IO 純度、500 行上限
 pnpm check:generated    # openapi.json 與 client 產生型別沒有漂移
 ```
 
-只跑一個套件：`pnpm exec vitest run --project core`。提交前六項（lint、typecheck、test、build、
+只跑一個套件：`pnpm exec vitest run --project core`（或該套件的 `pnpm --filter @agent-team/<name> test`）。提交前六項（lint、typecheck、test、build、
 check:boundaries、check:generated）都要過；pre-commit hook 會對暫存檔跑 oxlint 與 oxfmt。

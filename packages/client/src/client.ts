@@ -4,6 +4,7 @@ import createClient, { type Client } from 'openapi-fetch';
 import { connectionError, errorFromResponse, TeamApiError } from './errors.js';
 import { subscribeEvents, type EventStreamOptions, type EventSubscription } from './events.js';
 import type { components, operations, paths } from './generated/index.js';
+import { randomId } from './ids.js';
 
 type Schemas = components['schemas'];
 type Json<Op extends keyof operations, S extends number = 200> = operations[Op] extends {
@@ -20,6 +21,9 @@ type Query<Op extends keyof operations> = NonNullable<operations[Op]['parameters
 
 export type Project = Schemas['Project'];
 export type Task = Schemas['Task'];
+/** A task in the board snapshot: the task plus its latest run, head sha and run totals. */
+export type BoardTask = Schemas['BoardTask'];
+export type TaskRunSummary = NonNullable<BoardTask['latest_run']>;
 export type Run = Schemas['Run'];
 export type Workspace = Schemas['Workspace'];
 export type Attention = Schemas['Attention'];
@@ -30,6 +34,9 @@ export type StateSnapshot = Json<'getState'>;
 export type TaskDetail = Json<'getTask'>;
 export type RunLog = Json<'getRunLog'>;
 export type LeaderReply = Json<'postLeaderMessage'>;
+export type LeaderMessageDetail = Json<'getLeaderMessage'>;
+export type LeaderStatusView = StateSnapshot['leader'];
+export type RoleInfo = Json<'getRoles'>['roles'][number];
 export type LeaderReset = Json<'resetLeader'>;
 export type Resume = Json<'getResume'>;
 export type DoctorReport = Json<'getDoctor'>;
@@ -56,8 +63,17 @@ export interface TeamClientOptions {
   credentials?: RequestInit['credentials'];
   /** Retries after a connection failure (same Idempotency-Key, so replays are safe). */
   retries?: number;
-  /** Idempotency-Key factory (default: `crypto.randomUUID()`). */
+  /**
+   * Idempotency-Key factory (default: `randomId()`, from `crypto.getRandomValues`, which also
+   * exists on plain-HTTP LAN pages where `crypto.randomUUID` does not).
+   */
   newKey?: () => string;
+}
+
+/** Per-call options of the long-running calls. */
+export interface CallOptions {
+  /** Abort the request (e.g. Ctrl-C while waiting for the leader). */
+  signal?: AbortSignal;
 }
 
 /** Typed wrapper over the API (spec §11). Every method throws `TeamApiError` on failure. */
@@ -75,7 +91,15 @@ export interface TeamClient {
   rejectTask(id: string, note: string): Promise<Task>;
   reassignTask(id: string, role: string): Promise<Task>;
   runLog(id: string, tail?: number): Promise<RunLog>;
-  sendLeaderMessage(body: LeaderMessageBody): Promise<LeaderReply>;
+  /** Roles from config/models.json (what `reassignTask` accepts). */
+  roles(): Promise<RoleInfo[]>;
+  /**
+   * POST /api/leader/messages. `wait: false` returns once stored (`pending: true`); the default
+   * waits up to the server's cap. To wait for the reply however long it takes, use `askLeader`.
+   */
+  sendLeaderMessage(body: LeaderMessageBody, options?: CallOptions): Promise<LeaderReply>;
+  /** One leader input and its reply (null while pending). */
+  leaderMessage(id: string, options?: CallOptions): Promise<LeaderMessageDetail>;
   leaderMessages(query?: LeaderMessagesQuery): Promise<Message[]>;
   /** New leader conversation (local listener only; `team leader reset`). */
   resetLeader(): Promise<LeaderReset>;
@@ -93,10 +117,6 @@ export interface TeamClient {
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
-function defaultKey(): string {
-  return globalThis.crypto.randomUUID();
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -106,7 +126,7 @@ export function createTeamClient(options: TeamClientOptions): TeamClient {
   const baseUrl = options.baseUrl.replace(/\/+$/, '');
   const baseFetch = options.fetch ?? ((req: Request) => globalThis.fetch(req));
   const retries = options.retries ?? 2;
-  const newKey = options.newKey ?? defaultKey;
+  const newKey = options.newKey ?? (() => randomId());
 
   // connection failures are retried with the same request (and so the same Idempotency-Key)
   const fetchWithRetry = async (request: Request): Promise<Response> => {
@@ -180,7 +200,21 @@ export function createTeamClient(options: TeamClientOptions): TeamClient {
           params: { path: { id }, query: tail === undefined ? {} : { tail } },
         }),
       ),
-    sendLeaderMessage: (body) => call(() => raw.POST('/api/leader/messages', { body })),
+    roles: async () => (await call(() => raw.GET('/api/roles'))).roles,
+    sendLeaderMessage: (body, callOptions = {}) =>
+      call(() =>
+        raw.POST('/api/leader/messages', {
+          body,
+          ...(callOptions.signal ? { signal: callOptions.signal } : {}),
+        }),
+      ),
+    leaderMessage: (id, callOptions = {}) =>
+      call(() =>
+        raw.GET('/api/leader/messages/{id}', {
+          ...byId(id),
+          ...(callOptions.signal ? { signal: callOptions.signal } : {}),
+        }),
+      ),
     leaderMessages: async (query = {}) =>
       (await call(() => raw.GET('/api/leader/messages', { params: { query } }))).messages,
     resetLeader: () => call(() => raw.POST('/api/leader/reset')),

@@ -5,8 +5,9 @@ import { runCli } from './program.js';
 
 const argv = process.argv.slice(2);
 const command = argv.find((arg) => !arg.startsWith('-'));
-// `watch` stops cleanly on Ctrl-C; `serve` waits for the server (which gets the same Ctrl-C)
-const longRunning = command === 'watch' || command === 'serve';
+// `watch` and `ask` stop cleanly on Ctrl-C (`ask` keeps the message queued and says so);
+// `serve` waits for the server (which gets the same Ctrl-C)
+const longRunning = command === 'watch' || command === 'serve' || command === 'ask';
 
 const controller = new AbortController();
 process.on('SIGINT', () => {

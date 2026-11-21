@@ -1,4 +1,4 @@
-import type { Run, StateSnapshot, Task } from '@agent-team/client';
+import type { BoardTask, StateSnapshot, Task } from '@agent-team/client';
 import { BOARD_COLUMNS, type BoardColumnId } from '@agent-team/schema';
 import { DragDropContext, Droppable, type DropResult } from '@hello-pangea/dnd';
 import { useCallback, useMemo, useState } from 'react';
@@ -20,17 +20,7 @@ const HINTS: Record<BoardColumnId, string> = {
   done: '已完成',
 };
 
-function Column({
-  id,
-  label,
-  tasks,
-  runsByTask,
-}: {
-  id: BoardColumnId;
-  label: string;
-  tasks: Task[];
-  runsByTask: ReadonlyMap<string, Run>;
-}) {
+function Column({ id, label, tasks }: { id: BoardColumnId; label: string; tasks: BoardTask[] }) {
   const [showAll, setShowAll] = useState(false);
   const visible = id === 'done' && !showAll ? tasks.slice(0, DONE_VISIBLE) : tasks;
   const headingId = `col-${id}`;
@@ -57,12 +47,7 @@ function Column({
             className={`flex min-h-16 flex-1 flex-col gap-2 p-2 ${snapshot.isDraggingOver ? 'bg-info-soft/60' : ''}`}
           >
             {visible.map((task, index) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                index={index}
-                activeRun={runsByTask.get(task.id)}
-              />
+              <TaskCard key={task.id} task={task} index={index} />
             ))}
             {provided.placeholder}
             {tasks.length === 0 && !snapshot.isDraggingOver ? (
@@ -98,10 +83,6 @@ export function Board({ state }: { state: StateSnapshot }) {
     [state.tasks, projectFilter],
   );
   const tasksById = useMemo(() => new Map(state.tasks.map((t) => [t.id, t])), [state.tasks]);
-  const runsByTask = useMemo(
-    () => new Map(state.active_runs.map((r) => [r.task_id, r])),
-    [state.active_runs],
-  );
 
   const onDragEnd = useCallback(
     (result: DropResult) => {
@@ -119,13 +100,7 @@ export function Board({ state }: { state: StateSnapshot }) {
       <DragDropContext onDragEnd={onDragEnd}>
         <div className="grid grid-cols-1 gap-3 p-3 md:flex md:items-start md:overflow-x-auto">
           {BOARD_COLUMNS.map((c) => (
-            <Column
-              key={c.id}
-              id={c.id}
-              label={c.label}
-              tasks={columns[c.id]}
-              runsByTask={runsByTask}
-            />
+            <Column key={c.id} id={c.id} label={c.label} tasks={columns[c.id]} />
           ))}
         </div>
       </DragDropContext>

@@ -35,6 +35,9 @@ export async function runStartHandler(
   }
   // never launch the same run twice from this process (e.g. a retried effect)
   if (ctx.inflight.has(runId)) return undefined;
+  // shutting down: never spawn a worker that would outlive the service (the run is marked
+  // abandoned by the shutdown)
+  if (ctx.stopping) return undefined;
   const runner = ctx.deps.runners.get(run.runner);
   if (!runner) {
     const result: RunResult = {
@@ -68,7 +71,7 @@ export async function runStartHandler(
         settle({ started: false, result });
         return;
       }
-      if (ctx.stopping) return; // left live on purpose: recovery abandons it on next start
+      if (ctx.stopping) return; // not applied: the shutdown marks the run abandoned
       ctx.transact((tx) => applyRunResult(ctx, tx, runId, result));
     }),
     'run',
@@ -76,7 +79,8 @@ export async function runStartHandler(
 
   const signal = await startSignal;
   if (signal.started) return (tx) => markAccepted(tx, runId, signal.info);
-  if (ctx.stopping) throw new Error('service is shutting down'); // keep the effect for restart
+  // keep the effect; the shutdown marks the run abandoned, so a restart drops it as a no-op
+  if (ctx.stopping) throw new Error('service is shutting down');
   return (tx) => applyUnstarted(ctx, tx, runId, signal.result);
 }
 

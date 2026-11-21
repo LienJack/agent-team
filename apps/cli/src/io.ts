@@ -18,6 +18,8 @@ export interface CliIo {
   signal?: AbortSignal;
   /** Client-chosen message id for `team ask` (default: random UUID). */
   newMessageId?: () => string;
+  /** Poll interval of `team ask` while the reply is pending (default 2000 ms; tests). */
+  askPollMs?: number;
 }
 
 /** A usage problem found by a command itself (exit code 2). */

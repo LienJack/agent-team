@@ -1,28 +1,23 @@
 import type { Task } from '@agent-team/client';
-import { RoleNameSchema } from '@agent-team/schema';
 import { useId, useState } from 'react';
 import { useTaskAction } from '../../api/mutations.js';
+import { useRoles } from '../../api/queries.js';
 import {
   ACTION_LABELS,
   actionBlocker,
-  REASSIGN_ROLES,
+  reassignChoices,
   type TaskActionKind,
 } from '../../lib/actions.js';
 import { ConfirmAction, type ConfirmableAction } from '../confirm-action.js';
 import { Button } from '../ui/button.js';
 
-const OTHER = '__other__';
-
+/** Reassign picker: the roles of config/models.json (GET /api/roles), enabled ones only. */
 function ReassignForm({ task, blocker }: { task: Task; blocker: string | undefined }) {
   const mutation = useTaskAction();
+  const roles = useRoles();
   const selectId = useId();
-  const otherId = useId();
-  const [choice, setChoice] = useState<string>(
-    (REASSIGN_ROLES as readonly string[]).includes(task.impl_role) ? task.impl_role : OTHER,
-  );
-  const [other, setOther] = useState(choice === OTHER ? task.impl_role : '');
-  const role = choice === OTHER ? other.trim() : choice;
-  const valid = RoleNameSchema.safeParse(role).success;
+  const [role, setRole] = useState<string>(task.impl_role);
+  const { impl, other } = reassignChoices(roles.data, task.impl_role);
   const unchanged = role === task.impl_role;
 
   return (
@@ -30,8 +25,7 @@ function ReassignForm({ task, blocker }: { task: Task; blocker: string | undefin
       className="flex flex-wrap items-end gap-2"
       onSubmit={(e) => {
         e.preventDefault();
-        if (valid && !unchanged && !blocker)
-          mutation.mutate({ id: task.id, action: 'reassign', role });
+        if (!unchanged && !blocker) mutation.mutate({ id: task.id, action: 'reassign', role });
       }}
     >
       <div className="space-y-0.5">
@@ -40,39 +34,36 @@ function ReassignForm({ task, blocker }: { task: Task; blocker: string | undefin
         </label>
         <select
           id={selectId}
-          value={choice}
-          onChange={(e) => setChoice(e.target.value)}
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
           disabled={blocker !== undefined}
-          className="h-9 rounded-md border border-line bg-surface px-2 text-sm"
+          className="h-9 max-w-full rounded-md border border-line bg-surface px-2 text-sm"
         >
-          {REASSIGN_ROLES.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-          <option value={OTHER}>其他角色…</option>
+          <optgroup label="實作角色">
+            {impl.map((r) => (
+              <option key={r.name} value={r.name}>
+                {r.label}
+              </option>
+            ))}
+          </optgroup>
+          {other.length > 0 ? (
+            <optgroup label="其他角色">
+              {other.map((r) => (
+                <option key={r.name} value={r.name}>
+                  {r.label}
+                </option>
+              ))}
+            </optgroup>
+          ) : null}
         </select>
+        {roles.isError ? (
+          <p className="text-xs text-warn">讀不到角色清單，只列出預設的實作角色。</p>
+        ) : null}
       </div>
-      {choice === OTHER ? (
-        <div className="space-y-0.5">
-          <label htmlFor={otherId} className="block text-xs text-muted">
-            角色名稱
-          </label>
-          <input
-            id={otherId}
-            value={other}
-            onChange={(e) => setOther(e.target.value)}
-            placeholder="例如 impl_B"
-            aria-invalid={(other !== '' && !valid) || undefined}
-            disabled={blocker !== undefined}
-            className="h-9 w-36 rounded-md border border-line bg-bg px-2 font-mono text-sm"
-          />
-        </div>
-      ) : null}
       <Button
         type="submit"
         pending={mutation.isPending}
-        disabled={blocker !== undefined || !valid || unchanged}
+        disabled={blocker !== undefined || unchanged}
         title={blocker ?? (unchanged ? '已是這個角色' : undefined)}
       >
         {ACTION_LABELS.reassign}

@@ -1,10 +1,9 @@
 import { createTeamClient, type TeamClient } from '@agent-team/client';
-import { randomId } from './ids.js';
 
 /**
- * The board's API client: same origin as the page (the LAN listener serves both), the session
- * cookie travels with `same-origin`, and Idempotency-Keys come from `randomId` because the
- * client's default (`crypto.randomUUID`) is missing on plain-HTTP LAN origins.
+ * The board's API client: same origin as the page (the LAN listener serves both) and the session
+ * cookie travels with `same-origin`. Idempotency-Keys use the client's default (`randomId`, from
+ * `crypto.getRandomValues`), which also works on plain-HTTP LAN origins.
  */
 export function createBrowserClient(
   origin: string,
@@ -13,7 +12,6 @@ export function createBrowserClient(
   return createTeamClient({
     baseUrl: origin,
     credentials: 'same-origin',
-    newKey: () => randomId(),
     ...(fetchImpl ? { fetch: fetchImpl } : {}),
   });
 }

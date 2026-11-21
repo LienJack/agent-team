@@ -76,7 +76,8 @@ export const ENV_VARS = [
     source: 'process',
     secret: false,
     required: false,
-    description: '設為 1 時以行程內的假 runner 取代 claude／codex／dsh（端到端測試）',
+    description:
+      '設為 1 時以行程內的假 runner 取代 claude／codex／dsh 的 worker（端到端測試）；leader 另由 service.json 的 leader.enabled 控制',
   },
   {
     name: 'AGENT_TEAM_ACTOR',

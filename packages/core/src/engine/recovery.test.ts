@@ -44,26 +44,68 @@ describe('§14 啟動復原 — startup recovery', () => {
     expect(before.runners.dsh.calls).toHaveLength(1);
   });
 
-  it('shutdown aborts live runs without finalizing them; the next start recovers them', async () => {
+  it('shutdown aborts live runs and marks them abandoned, so the next start has nothing to repair', async () => {
     const store = new InMemoryStore();
     const before = createTestEngine({ store });
     before.runners.dsh.script({ hold: true });
     const task = before.task();
     await before.engine.drain();
     const run = store.runs.list({ task_id: task.id })[0]!;
-    await before.engine.shutdown();
-    expect(before.runners.dsh.held()).toEqual([]); // aborted
-    expect(store.runs.get(run.id)?.state).toBe('running'); // not finalized
-    expect(store.tasks.get(task.id)).toMatchObject({ status: 'running', attempts: 0 });
+    expect(run.state).toBe('running');
+    const stopped = await before.engine.shutdown();
+    expect(before.runners.dsh.held()).toEqual([]); // aborted (the runner killed its group)
+    expect(stopped.abandonedRuns).toEqual([run.id]);
+    // the runner's own result (cancelled) is not applied: the run is abandoned, not failed
+    expect(store.runs.get(run.id)).toMatchObject({
+      state: 'abandoned',
+      error: 'abandoned: service stopped',
+    });
+    const t = store.tasks.get(task.id)!;
+    expect(t).toMatchObject({ status: 'queued', attempts: 0, current_run_id: null });
+    expect(t.recovery_note).toContain(run.dispatch_id);
     const ticked = await before.engine.tick();
-    expect(ticked.dispatched).toEqual([]);
+    expect(ticked.dispatched).toEqual([]); // stopped for good
 
     const after = restart(store);
-    await after.engine.recover();
-    expect(store.runs.get(run.id)?.state).toBe('abandoned');
-    const t = store.tasks.get(task.id)!;
-    expect(t).toMatchObject({ status: 'queued', attempts: 0 });
-    expect(t.recovery_note).toContain(run.dispatch_id);
+    const report = await after.engine.recover();
+    expect(report.abandonedRuns).toEqual([]);
+    expect(report.requeuedTasks).toEqual([]);
+    expect(store.tasks.get(task.id)).toMatchObject({ status: 'queued', attempts: 0 });
+  });
+
+  it('shutdown during a dispatch in progress: the worker never starts, no live run is left', async () => {
+    const store = new InMemoryStore();
+    const h = createTestEngine({ store });
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    let entered!: () => void;
+    const inDispatch = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const ensure = h.git.ensureWorktree.bind(h.git);
+    h.git.ensureWorktree = async (input) => {
+      entered();
+      await gate; // the dispatch is preparing the worktree when the shutdown begins
+      return ensure(input);
+    };
+    const task = h.task();
+    await inDispatch;
+    const stopping = h.engine.shutdown();
+    open();
+    const { abandonedRuns } = await stopping;
+    expect(h.runners.dsh.calls).toHaveLength(0); // never spawned
+    expect(store.runs.list({ states: ['starting', 'running'] })).toEqual([]);
+    expect(abandonedRuns).toHaveLength(store.runs.list({ task_id: task.id }).length);
+    expect(store.tasks.get(task.id)).toMatchObject({ status: 'queued', current_run_id: null });
+    // the leftover run.start (if any) is a no-op on the next start
+    const after = restart(store, h.git);
+    expect((await after.engine.recover()).abandonedRuns).toEqual([]);
+    after.runners.dsh.script(editing(after.git, ['src/feature/a.ts']));
+    await after.engine.runUntilIdle();
+    expect(store.tasks.get(task.id)?.status).toBe('done');
+    expect(after.runners.dsh.calls).toHaveLength(1);
   });
 
   it('a review run interrupted by a restart is re-reviewed, not re-implemented', async () => {
