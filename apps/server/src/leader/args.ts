@@ -26,6 +26,7 @@ export const LEADER_ALLOW_RULES = [
   'Bash(team roles)',
   'Bash(team roles:*)',
   'Bash(team task:*)',
+  'Bash(team research:*)',
   'Bash(team receipt:*)',
   'Bash(team attention:*)',
   'Bash(team --json:*)',

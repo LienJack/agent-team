@@ -21,6 +21,7 @@ import { WORKTREE_INTEGRITY_BLOCK } from './integrity.js';
 import { enqueueEffect } from './effect-queue.js';
 import { completeTask, requestFix } from './outcomes.js';
 import { finishRun, lastRun, requireTask, saveTask } from './records.js';
+import { checkResearchRefs, requireResearchEnabled } from './research.js';
 import { needsHumanRetry, WORKER_UNCONFIRMED_BLOCK } from './start-unknown.js';
 
 // Human/leader commands (spec §11 task actions). Each runs in one transaction and checks the
@@ -99,11 +100,13 @@ export function createProject(
 
 export function createTask(ctx: EngineContext, input: TaskCreateRequest, actor: Actor): Task {
   const req = parse(TaskCreateRequestSchema, input);
+  if (req.research_refs.length > 0) requireResearchEnabled(ctx, 'citing research');
   const task = ctx.transact((tx) => {
     if (!tx.r.projects.get(req.project_id)) throw new NotFoundError('project', req.project_id);
     if (req.parent_id !== undefined && !tx.r.tasks.get(req.parent_id)) {
       throw new NotFoundError('task', req.parent_id);
     }
+    const refs = checkResearchRefs(tx.r, req.project_id, req.research_refs);
     const implRole = req.impl_role ?? `impl_${req.tier}`;
     if (!ctx.config.models.roles[implRole]) {
       throw new ValidationError(`unknown role ${implRole}`, 'see config/models.json roles');
@@ -112,10 +115,12 @@ export function createTask(ctx: EngineContext, input: TaskCreateRequest, actor: 
       id: ctx.newId('task'),
       project_id: req.project_id,
       parent_id: req.parent_id ?? null,
+      kind: 'impl',
       title: req.title,
       tier: req.tier,
       ticket_md: req.ticket_md,
       owned_paths: req.owned_paths,
+      research_refs: refs,
       priority: req.priority,
       status: req.queue ? 'queued' : 'draft',
       impl_role: implRole,
@@ -290,6 +295,12 @@ export function reassignTask(ctx: EngineContext, id: string, role: string, actor
   if (!roleCfg || !roleCfg.enabled) throw new ValidationError(`unknown or disabled role ${role}`);
   const task = ctx.transact((tx) => {
     const current = requireTask(tx, id);
+    if (current.kind === 'research') {
+      throw new ConflictError(
+        `task ${id} is a research task; its role is fixed`,
+        'research runs always use the oss_researcher role (config/models.json)',
+      );
+    }
     if (isTerminalTaskStatus(current.status)) {
       throw new ConflictError(`task ${id} is already ${current.status}`);
     }

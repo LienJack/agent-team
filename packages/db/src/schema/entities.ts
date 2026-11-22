@@ -38,10 +38,16 @@ export const task = sqliteTable(
       .notNull()
       .references(() => project.id),
     parent_id: text().references((): AnySQLiteColumn => task.id),
+    // rows from before the research stage (spec §17) are impl tasks without refs
+    kind: text().$type<Task['kind']>().notNull().default('impl'),
     title: text().notNull(),
     tier: text().$type<Task['tier']>().notNull(),
     ticket_md: text().notNull(),
     owned_paths: text({ mode: 'json' }).$type<Task['owned_paths']>().notNull(),
+    research_refs: text({ mode: 'json' })
+      .$type<Task['research_refs']>()
+      .notNull()
+      .default(sql`'[]'`),
     priority: integer().notNull(),
     status: text().$type<Task['status']>().notNull(),
     impl_role: text().notNull(),
@@ -98,9 +104,8 @@ export const run = sqliteTable(
     task_id: text()
       .notNull()
       .references(() => task.id),
-    workspace_id: text()
-      .notNull()
-      .references(() => workspace.id),
+    // null for research runs (no worktree; spec §17)
+    workspace_id: text().references(() => workspace.id),
     dispatch_id: text().notNull().unique(),
     kind: text().$type<Run['kind']>().notNull(),
     role: text().notNull(),

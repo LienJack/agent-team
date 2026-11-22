@@ -48,7 +48,14 @@ export class InProcessFakeRunner implements ScriptableFakeRunner {
       available: true,
       version: 'in-process-fake',
       credentials: 'not_required',
-      supports: { jsonSchema: true, resume: false, quota: false, effort: true, readOnly: true },
+      supports: {
+        jsonSchema: true,
+        resume: false,
+        quota: false,
+        effort: true,
+        readOnly: true,
+        webSearch: true,
+      },
       flags: [],
       problems: [],
     };
@@ -142,6 +149,26 @@ export class InProcessFakeRunner implements ScriptableFakeRunner {
   }
 
   private defaultResult(spec: RunSpec, files: string[]): RunResult {
+    if (spec.web === true) {
+      const final = {
+        dispatch_id: spec.dispatchId,
+        status: 'done',
+        summary: 'fake 調研完成',
+        candidates: [
+          {
+            name: 'fake-oss',
+            url: 'https://example.com/fake-oss',
+            license: 'MIT',
+            fit: 'medium',
+            borrow: 'fake 參考做法',
+            caveats: '',
+          },
+        ],
+        recommendation: 'reference_only',
+        needs_leader: '',
+      };
+      return { final, usage: { input_tokens: 100, output_tokens: 50 }, costUsd: 0 };
+    }
     const final = spec.writable
       ? {
           dispatch_id: spec.dispatchId,

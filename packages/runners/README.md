@@ -15,6 +15,10 @@ Runner 實作（spec §7）：`claude`（`claude -p` stream-json）、`codex`（
   （`src/codex/sandbox.ts`，不傳 `--sandbox`）；dsh 整個行程與機器檢查以 `sandbox-exec` 執行（`src/dsh/sandbox.ts`、
   `src/checks/sandbox.ts`）。沒有 `sandbox-exec` 時 dsh 不可用、檢查不執行（`refused`），除非 `allowUnsandboxed`。
   拒絕清單在 `src/sandbox-policy.ts`（服務傳入的 DATA／`.env` + 家目錄下的憑證目錄 + repo／worktree 的 `.env`）。
+- 調研 run（`RunSpec.web`，spec §17、ADR 0021）：probe 的 `supports.webSearch` 宣告能不能跑。claude 只給
+  `--tools WebSearch,WebFetch`（`src/claude/sandbox.ts` 的 `claudeResearchSettings`）；codex 關掉 shell 等工具功能、
+  `web_search="live"`、設定檔拒讀整個檔案系統（`src/codex/sandbox.ts`；仍會提供 `apply_patch` 與 collaboration 工具，
+  靠設定檔限制）；dsh 沒有此能力，收到就拒絕。
 - runner 在 spawn 前呼叫 `hooks.onLaunching`、之後以 `hooks.onSpawned` 回報 pid 與 `ps -o lstart` 啟動時間。
 - codex 經 `codexPathOverride` 走 `src/codex/group-wrapper.ts`，讓 codex 自成行程群組，取消時能整群終止；
   wrapper 也在 `exec` 後插入 `--ignore-user-config --ignore-rules`（必要旗標，probe 找不到 → 不可用）與權限設定檔，

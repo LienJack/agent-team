@@ -6,6 +6,7 @@ import {
   type EventType,
   type ModelsConfig,
   type NewEvent,
+  type ResearchSettings,
 } from '@agent-team/schema';
 import type { GitPort } from '../ports/git.js';
 import type { ProcessControl } from '../ports/worker-processes.js';
@@ -28,7 +29,12 @@ export interface EngineConfig {
   models: ModelsConfig;
   /** `service.json` → `engine`. */
   engine: EngineSettings;
-  /** Absolute data directory (`DATA`); run logs go to `DATA/runs/<run_id>`. */
+  /** `service.json` → `research` (spec §17): `mode` gates the entrances, `timeout_ms` the runs. */
+  research: ResearchSettings;
+  /**
+   * Absolute data directory (`DATA`); run logs go to `DATA/runs/<run_id>`, research runs work in
+   * `DATA/research/<run_id>` (created and removed by the server).
+   */
   dataDir: string;
   /** Absolute worktree root (`~` already expanded). */
   worktreeRoot: string;

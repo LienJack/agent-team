@@ -1,5 +1,6 @@
 import type {
   ImplReceipt,
+  ResearchReceipt,
   ReviewReceipt,
   RunnerCapabilities,
   RunnerName,
@@ -34,8 +35,35 @@ export function reviewReceipt(
   };
 }
 
-/** Whether a spec is for a review run (read-only). */
-export const isReviewSpec = (spec: RunSpec) => !spec.writable;
+export function researchReceipt(
+  spec: RunSpec,
+  overrides: Partial<ResearchReceipt> = {},
+): ResearchReceipt {
+  return {
+    dispatch_id: spec.dispatchId,
+    status: 'done',
+    summary: '找到一個可參考的專案',
+    candidates: [
+      {
+        name: 'example-queue',
+        url: 'https://github.com/example/queue',
+        license: 'MIT',
+        fit: 'high',
+        borrow: '重試與退避的做法',
+        caveats: '',
+      },
+    ],
+    recommendation: 'adapt_pattern',
+    needs_leader: '',
+    ...overrides,
+  };
+}
+
+/** Whether a spec is for a research run (web tools only; spec §17). */
+export const isResearchSpec = (spec: RunSpec) => spec.web === true;
+
+/** Whether a spec is for a review run (read-only, not research). */
+export const isReviewSpec = (spec: RunSpec) => !spec.writable && !isResearchSpec(spec);
 
 /**
  * One scripted behaviour of `FakeRunner.run`.
@@ -64,7 +92,11 @@ interface Held {
 
 function defaultResult(spec: RunSpec): RunResult {
   return {
-    final: isReviewSpec(spec) ? reviewReceipt(spec) : implReceipt(spec),
+    final: isResearchSpec(spec)
+      ? researchReceipt(spec)
+      : isReviewSpec(spec)
+        ? reviewReceipt(spec)
+        : implReceipt(spec),
     usage: { input_tokens: 100, output_tokens: 50 },
     costUsd: 0.01,
   };
@@ -87,7 +119,15 @@ export class FakeRunner implements Runner {
       available: true,
       version: 'fake-1',
       credentials: 'not_required',
-      supports: { jsonSchema: true, resume: false, quota: false, effort: true, readOnly: true },
+      supports: {
+        jsonSchema: true,
+        resume: false,
+        quota: false,
+        effort: true,
+        readOnly: true,
+        // like the real runners: claude and codex can run web-only research runs, dsh cannot
+        webSearch: name !== 'dsh',
+      },
       flags: [],
       problems: [],
     };

@@ -234,6 +234,101 @@ export interface operations_part2 {
       500: components['responses']['Error'];
     };
   };
+  createResearch: {
+    parameters: {
+      query?: never;
+      header?: {
+        'Idempotency-Key'?: string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          project_id: string;
+          parent_id?: string;
+          title: string;
+          question: string;
+          /** @default 0 */
+          priority?: number;
+          /** @default false */
+          queue?: boolean;
+        };
+      };
+    };
+    responses: {
+      /** @description The created research task */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            task: components['schemas']['Task'];
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      404: components['responses']['Error'];
+      409: components['responses']['Error'];
+      500: components['responses']['Error'];
+    };
+  };
+  getResearch: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Research result */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            task: components['schemas']['Task'];
+            receipt: {
+              dispatch_id: string;
+              /** @enum {string} */
+              status: 'done' | 'blocked' | 'failed';
+              summary: string;
+              candidates: {
+                name: string;
+                url: string;
+                license: string;
+                /** @enum {string} */
+                fit: 'high' | 'medium' | 'low';
+                borrow: string;
+                caveats: string;
+              }[];
+              /** @enum {string} */
+              recommendation:
+                | 'adopt_dependency'
+                | 'adapt_pattern'
+                | 'reference_only'
+                | 'build_from_scratch';
+              needs_leader: string;
+            } | null;
+            run_id: string | null;
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      404: components['responses']['Error'];
+      500: components['responses']['Error'];
+    };
+  };
   listLeaderMessages: {
     parameters: {
       query?: {
@@ -325,105 +420,6 @@ export interface operations_part2 {
       409: components['responses']['Error'];
       500: components['responses']['Error'];
       501: components['responses']['Error'];
-      503: components['responses']['Error'];
-    };
-  };
-  getLeaderMessage: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The message, its reply, the leader status */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            message: components['schemas']['Message'];
-            reply: components['schemas']['Message'] | null;
-            leader: {
-              /** @enum {string} */
-              state: 'idle' | 'busy' | 'offline';
-              /** Format: date-time */
-              last_activity_at: string | null;
-              available?: boolean;
-              /** @enum {string|null} */
-              reason?: 'disabled' | 'not_installed' | 'auth' | 'rate_limit' | null;
-              hint?: string | null;
-              /** Format: date-time */
-              until?: string | null;
-              queued?: number;
-              context_tokens?: number | null;
-              quota?: {
-                utilization: number | null;
-                /** Format: date-time */
-                resets_at: string | null;
-                exhausted: boolean;
-              } | null;
-            };
-          };
-        };
-      };
-      400: components['responses']['Error'];
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
-      500: components['responses']['Error'];
-    };
-  };
-  resetLeader: {
-    parameters: {
-      query?: never;
-      header?: {
-        'Idempotency-Key'?: string;
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description The new session */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            session_id: string;
-            leader: {
-              /** @enum {string} */
-              state: 'idle' | 'busy' | 'offline';
-              /** Format: date-time */
-              last_activity_at: string | null;
-              available?: boolean;
-              /** @enum {string|null} */
-              reason?: 'disabled' | 'not_installed' | 'auth' | 'rate_limit' | null;
-              hint?: string | null;
-              /** Format: date-time */
-              until?: string | null;
-              queued?: number;
-              context_tokens?: number | null;
-              quota?: {
-                utilization: number | null;
-                /** Format: date-time */
-                resets_at: string | null;
-                exhausted: boolean;
-              } | null;
-            };
-          };
-        };
-      };
-      400: components['responses']['Error'];
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-      500: components['responses']['Error'];
       503: components['responses']['Error'];
     };
   };

@@ -135,7 +135,14 @@ class StubbornRunner implements Runner {
       runner: 'codex' as const,
       available: true,
       credentials: 'not_required' as const,
-      supports: { jsonSchema: true, resume: false, quota: false, effort: true, readOnly: true },
+      supports: {
+        jsonSchema: true,
+        resume: false,
+        quota: false,
+        effort: true,
+        readOnly: true,
+        webSearch: false,
+      },
       flags: [],
       problems: [],
     };

@@ -5,6 +5,7 @@ import {
   redactSecrets,
   type Receipt,
   type ImplReceipt,
+  type ResearchReceipt,
   type ReviewReceipt,
   type Run,
   type RunOutcome,
@@ -20,6 +21,7 @@ import { enqueueEffect } from './effect-queue.js';
 import { notify } from './notify.js';
 import { blockTask, completeTask, requestFix, retryLater } from './outcomes.js';
 import { finishRun, saveTask } from './records.js';
+import { applyResearchReceipt } from './research.js';
 import {
   recordQuota,
   recordRunnerFailure,
@@ -129,7 +131,7 @@ export function applyRunResult(ctx: EngineContext, tx: Tx, runId: string, result
     return;
   }
 
-  const kind = run.kind === 'review' ? 'review' : 'impl';
+  const kind = run.kind === 'review' || run.kind === 'research' ? run.kind : 'impl';
   const parsed = parseReceipt(kind, result.final);
   const problem = !parsed.ok
     ? `invalid_receipt: ${parsed.error}`
@@ -145,9 +147,10 @@ export function applyRunResult(ctx: EngineContext, tx: Tx, runId: string, result
       reject_reason: reason,
     });
     notifyNoReceipt(ctx, tx, run, task, reason);
-    if (run.kind === 'review') {
-      // a reviewer without a usable receipt consumes retry budget; the work itself is unchanged
-      retryLater(ctx, tx, task, 'review', { countAttempt: true, reason });
+    if (run.kind === 'review' || run.kind === 'research') {
+      // a reviewer (or researcher) without a usable receipt consumes retry budget; there is no
+      // work to fix (a fix ticket would turn the next run into a fix run)
+      retryLater(ctx, tx, task, run.kind, { countAttempt: true, reason });
     } else {
       // the fix-round budget bounds this path; runner retries start over
       const cleared = task.attempts === 0 ? task : saveTask(tx, task, { attempts: 0 });
@@ -157,6 +160,12 @@ export function applyRunResult(ctx: EngineContext, tx: Tx, runId: string, result
   }
 
   const cleared = task.attempts === 0 ? task : saveTask(tx, task, { attempts: 0 });
+  if (run.kind === 'research') {
+    // redacted, clipped and validated again inside (spec §17)
+    const fields = resultFields(ctx, run, result);
+    applyResearchReceipt(ctx, tx, run, cleared, parsed.receipt as ResearchReceipt, fields);
+    return;
+  }
   const receipt = redactReceipt(parsed.receipt);
   if (run.kind === 'review') {
     applyReviewReceipt(ctx, tx, run, cleared, receipt as ReviewReceipt, result);

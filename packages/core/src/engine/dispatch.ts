@@ -1,5 +1,7 @@
 import {
+  isImplReceipt,
   receiptJsonSchema,
+  researchWorkdir,
   runLogDir,
   taskBranch,
   taskWorktreePath,
@@ -19,7 +21,9 @@ import { enqueueEffect } from './effect-queue.js';
 import { blockForIntegrity, worktreeRef } from './integrity.js';
 import { retryLater } from './outcomes.js';
 import { buildPrompt, REVIEW_DIFF_MAX_CHARS } from './prompt.js';
+import { buildResearchPrompt } from './prompt-research.js';
 import { saveTask } from './records.js';
+import { researchRefsFor } from './research.js';
 import { nextRunKind, type PlannedDispatch } from './scheduler.js';
 
 export type DispatchReport =
@@ -43,6 +47,15 @@ export async function dispatchPlanned(
   try {
     const project = ctx.store.projects.get(task.project_id);
     if (!project) return reject(ctx, task, `project ${task.project_id} missing`);
+    if (planned.kind === 'research') {
+      // no worktree, no git, no drift check: the run gets an empty directory (spec §17)
+      const runId = ctx.transact((tx) => createResearchRun(ctx, tx, planned));
+      if (runId === undefined) {
+        return { task_id: task.id, outcome: 'deferred', reason: 'task_changed' };
+      }
+      ctx.humanPriority.delete(task.id);
+      return { task_id: task.id, outcome: 'accepted', run_id: runId };
+    }
     let ws: Workspace;
     try {
       ws = await ensureWorkspace(ctx, task, project);
@@ -148,9 +161,46 @@ async function ensureWorkspace(
 }
 
 function lastImplReceipt(tx: Tx, taskId: string): ImplReceipt | null {
-  const runs = tx.r.runs.list({ task_id: taskId }).filter((r) => r.kind !== 'review');
+  const runs = tx.r.runs
+    .list({ task_id: taskId })
+    .filter((r) => r.kind === 'impl' || r.kind === 'fix');
   const receipt = runs[runs.length - 1]?.receipt;
-  return receipt && 'status' in receipt ? receipt : null;
+  return isImplReceipt(receipt) ? receipt : null;
+}
+
+/** The task as it is now, if it still needs the planned run (it may have changed meanwhile). */
+function stillPlanned(tx: Tx, planned: PlannedDispatch): Task | undefined {
+  const task = tx.r.tasks.get(planned.task.id);
+  return task && task.version === planned.task.version && nextRunKind(task) === planned.kind
+    ? task
+    : undefined;
+}
+
+/**
+ * A research run (spec §17): web tools only, cwd an empty `DATA/research/<run_id>` (the server
+ * creates and removes it), no repository path and no network for local commands — the web tools
+ * are the model's own. The prompt is the question and the receipt schema.
+ */
+function createResearchRun(ctx: EngineContext, tx: Tx, planned: PlannedDispatch) {
+  const task = stillPlanned(tx, planned);
+  if (!task) return undefined;
+  const runId = ctx.newId('run');
+  const dispatchId = ctx.newId('dispatch');
+  const receiptSchema = receiptJsonSchema('research');
+  const spec: RunSpec = {
+    dispatchId,
+    cwd: researchWorkdir(ctx.config.dataDir, runId),
+    prompt: buildResearchPrompt({ question: task.ticket_md, dispatchId, receiptSchema }),
+    schema: receiptSchema,
+    model: planned.resolved.model,
+    writable: false,
+    web: true,
+    logDir: runLogDir(ctx.config.dataDir, runId),
+    timeoutMs: ctx.config.research.timeout_ms,
+    sandbox: { allowNetwork: false },
+  };
+  if (planned.resolved.effort !== undefined) spec.effort = planned.resolved.effort;
+  return startRun(ctx, tx, planned, task, { runId, dispatchId, spec, workspaceId: null });
 }
 
 function createRun(
@@ -161,11 +211,9 @@ function createRun(
   ws: Workspace,
   reviewDiff: ReviewDiff | null,
 ): string | undefined {
-  const task = tx.r.tasks.get(planned.task.id);
   // the task may have changed while the worktree was prepared
-  if (!task || task.version !== planned.task.version || nextRunKind(task) !== planned.kind) {
-    return undefined;
-  }
+  const task = stillPlanned(tx, planned);
+  if (!task) return undefined;
   const { resolved, kind } = planned;
   const runId = ctx.newId('run');
   const dispatchId = ctx.newId('dispatch');
@@ -181,6 +229,7 @@ function createRun(
     implReceipt: kind === 'review' ? lastImplReceipt(tx, task.id) : null,
     reviewDiff,
     answers: answersFor(tx, task.id),
+    research: researchRefsFor(tx, task),
   });
   const spec: RunSpec = {
     dispatchId,
@@ -195,10 +244,23 @@ function createRun(
     sandbox: { allowNetwork: project.allow_network, repoPath: project.repo_path },
   };
   if (resolved.effort !== undefined) spec.effort = resolved.effort;
+  return startRun(ctx, tx, planned, task, { runId, dispatchId, spec, workspaceId: ws.id });
+}
+
+/** Insert the run, move the task to its run's stage and store the `run.start` effect. */
+function startRun(
+  ctx: EngineContext,
+  tx: Tx,
+  planned: PlannedDispatch,
+  task: Task,
+  r: { runId: string; dispatchId: string; spec: RunSpec; workspaceId: string | null },
+): string {
+  const { resolved, kind } = planned;
+  const { runId, dispatchId, spec } = r;
   const run: Run = {
     id: runId,
     task_id: task.id,
-    workspace_id: ws.id,
+    workspace_id: r.workspaceId,
     dispatch_id: dispatchId,
     kind,
     role: planned.role,
@@ -214,7 +276,7 @@ function createRun(
     usage: null,
     cost_usd: null,
     cost_estimated: false,
-    log_dir: logDir,
+    log_dir: spec.logDir,
     pid: null,
     pid_started_at: null,
     launched_at: null,

@@ -1,11 +1,18 @@
 import type { StateSnapshot, TaskDetail } from '@agent-team/client';
 import { useState, type ReactNode } from 'react';
 import { useTaskDetail } from '../api/queries.js';
-import { isLiveRun, latestReceiptRun, latestReviewRun, sortRunsNewestFirst } from '../lib/board.js';
+import {
+  isLiveRun,
+  latestReceiptRun,
+  latestResearchRun,
+  latestReviewRun,
+  sortRunsNewestFirst,
+} from '../lib/board.js';
 import { formatTime, RUN_KIND_LABELS, shortSha } from '../lib/format.js';
 import { Markdown } from '../lib/markdown.js';
 import { useUi } from '../store/ui.js';
 import { FindingsList, isReviewReceipt, ReceiptView } from './drawer/receipt-view.js';
+import { CitedResearch } from './drawer/research-view.js';
 import { LogTail } from './drawer/log-tail.js';
 import { RunList } from './drawer/run-list.js';
 import { TaskActions } from './drawer/task-actions.js';
@@ -43,12 +50,23 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function DrawerBody({ detail, projectName }: { detail: TaskDetail; projectName: string }) {
+function DrawerBody({
+  detail,
+  projectName,
+  tasks,
+}: {
+  detail: TaskDetail;
+  projectName: string;
+  /** Board snapshot tasks (titles of cited research). */
+  tasks: StateSnapshot['tasks'] | undefined;
+}) {
   const { task, runs, workspace } = detail;
+  // research tasks (spec §17): no worktree, paths, commit, review or tier
+  const research = task.kind === 'research';
   const [picked, setPicked] = useState<string | undefined>(undefined);
   const newest = sortRunsNewestFirst(runs)[0];
   const selectedRun = runs.find((r) => r.id === picked) ?? newest;
-  const receiptRun = latestReceiptRun(runs);
+  const receiptRun = research ? latestResearchRun(runs) : latestReceiptRun(runs);
   const reviewRun = latestReviewRun(runs);
   const review =
     reviewRun?.receipt && isReviewReceipt(reviewRun.receipt) ? reviewRun.receipt : undefined;
@@ -63,28 +81,37 @@ function DrawerBody({ detail, projectName }: { detail: TaskDetail; projectName: 
       <Section title="概要">
         <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <Field label="專案">{projectName}</Field>
-          <Field label="Tier">{task.tier}</Field>
+          {research ? <Field label="類型">調研</Field> : <Field label="Tier">{task.tier}</Field>}
           <Field label="角色">{task.impl_role}</Field>
-          <Field label="嘗試 / 修正輪">
-            {task.attempts} / {task.fix_rounds}
-          </Field>
-          <Field label="commit">
-            <span className="font-mono" title={workspace?.head_sha ?? undefined}>
-              {shortSha(workspace?.head_sha)}
-            </span>
-          </Field>
+          {research ? (
+            <Field label="嘗試">{task.attempts}</Field>
+          ) : (
+            <Field label="嘗試 / 修正輪">
+              {task.attempts} / {task.fix_rounds}
+            </Field>
+          )}
+          {research ? null : (
+            <Field label="commit">
+              <span className="font-mono" title={workspace?.head_sha ?? undefined}>
+                {shortSha(workspace?.head_sha)}
+              </span>
+            </Field>
+          )}
           <Field label="更新">{formatTime(task.updated_at)}</Field>
         </dl>
-        <div>
-          <p className="text-xs text-muted">owned_paths</p>
-          <ul className="flex flex-wrap gap-1">
-            {task.owned_paths.map((p) => (
-              <li key={p}>
-                <code className="rounded bg-raised px-1 font-mono text-xs break-all">{p}</code>
-              </li>
-            ))}
-          </ul>
-        </div>
+        {research ? null : (
+          <div>
+            <p className="text-xs text-muted">owned_paths</p>
+            <ul className="flex flex-wrap gap-1">
+              {task.owned_paths.map((p) => (
+                <li key={p}>
+                  <code className="rounded bg-raised px-1 font-mono text-xs break-all">{p}</code>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {research ? null : <CitedResearch refs={task.research_refs} tasks={tasks} />}
         {task.blocked_reason ? (
           <p className="rounded-md bg-bad-soft p-2 text-bad break-words">
             <span aria-hidden="true">■ </span>阻塞原因：{task.blocked_reason}
@@ -104,11 +131,11 @@ function DrawerBody({ detail, projectName }: { detail: TaskDetail; projectName: 
         ) : null}
       </Section>
 
-      <Section title="派工單">
+      <Section title={research ? '調研問題' : '派工單'}>
         <Markdown source={task.ticket_md} />
       </Section>
 
-      <Section title="最新回執">
+      <Section title={research ? '調研結果' : '最新回執'}>
         {receiptRun?.receipt ? (
           <>
             <p className="text-xs text-muted">
@@ -118,13 +145,15 @@ function DrawerBody({ detail, projectName }: { detail: TaskDetail; projectName: 
             <ReceiptView receipt={receiptRun.receipt} />
           </>
         ) : (
-          <Empty>還沒有回執</Empty>
+          <Empty>{research ? '還沒有調研結果' : '還沒有回執'}</Empty>
         )}
       </Section>
 
-      <Section title="審查發現">
-        {review ? <FindingsList findings={review.findings} /> : <Empty>還沒有審查</Empty>}
-      </Section>
+      {research ? null : (
+        <Section title="審查發現">
+          {review ? <FindingsList findings={review.findings} /> : <Empty>還沒有審查</Empty>}
+        </Section>
+      )}
 
       <Section title="Run 清單">
         <RunList runs={runs} selected={selectedRun?.id} onSelect={setPicked} />
@@ -137,7 +166,10 @@ function DrawerBody({ detail, projectName }: { detail: TaskDetail; projectName: 
   );
 }
 
-/** Card drawer (spec §13): ticket, receipt, findings, runs, log tail and actions. */
+/**
+ * Card drawer (spec §13): ticket, receipt, findings, runs, log tail and actions. A research task
+ * (spec §17) shows its question and candidates instead of ticket, paths, commit and findings.
+ */
 export function TaskDrawer({ state }: { state: StateSnapshot | undefined }) {
   const taskId = useUi((s) => s.selectedTaskId);
   const openTask = useUi((s) => s.openTask);
@@ -156,7 +188,11 @@ export function TaskDrawer({ state }: { state: StateSnapshot | undefined }) {
         task ? (
           <span className="flex shrink-0 gap-1">
             <StatusBadge status={task.status} />
-            <Badge>Tier {task.tier}</Badge>
+            {task.kind === 'research' ? (
+              <Badge tone="info">調研</Badge>
+            ) : (
+              <Badge>Tier {task.tier}</Badge>
+            )}
           </span>
         ) : null
       }
@@ -167,7 +203,12 @@ export function TaskDrawer({ state }: { state: StateSnapshot | undefined }) {
         <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
       ) : null}
       {detail.data ? (
-        <DrawerBody key={taskId} detail={detail.data} projectName={projectName} />
+        <DrawerBody
+          key={taskId}
+          detail={detail.data}
+          projectName={projectName}
+          tasks={state?.tasks}
+        />
       ) : null}
     </Dialog>
   );

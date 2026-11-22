@@ -49,6 +49,12 @@ export const ModelRulesSchema = z.strictObject({
 });
 export type ModelRules = z.infer<typeof ModelRulesSchema>;
 
+/**
+ * Role of research runs (spec §17). Not required in models.json: without it the research
+ * entrances refuse to create research tasks (validation error naming the role).
+ */
+export const RESEARCH_ROLE = 'oss_researcher';
+
 /** Roles the engine needs: impl and review for every tier. */
 export const REQUIRED_ROLES = ['impl_A', 'impl_B', 'impl_C', 'review_A', 'review_B', 'review_C'];
 

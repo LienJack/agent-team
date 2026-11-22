@@ -55,6 +55,11 @@ const CODEX_JSON_FLAGS = ['--experimental-json', '--json'] as const;
  * Required: a CLI whose `codex exec --help` lacks either makes the runner unavailable.
  */
 export const CODEX_ISOLATION_FLAGS = ['--ignore-user-config', '--ignore-rules'] as const;
+/**
+ * What research runs need on top (spec §17): `--disable <feature>` removes the shell and every
+ * other non-search tool. Without it the probe reports `webSearch: false`.
+ */
+export const CODEX_WEB_FLAGS = ['--disable'] as const;
 /** `--config` overrides for every run: no skill catalogue in the prompt (docs/adr/0011). */
 export const CODEX_CONFIG_OVERRIDES = { skills: { include_instructions: false } } as const;
 
@@ -113,7 +118,14 @@ export class CodexRunner implements Runner, Resumable {
       runner: 'codex',
       available: false,
       credentials: 'unknown',
-      supports: { jsonSchema: true, resume: true, quota: false, effort: true, readOnly: true },
+      supports: {
+        jsonSchema: true,
+        resume: true,
+        quota: false,
+        effort: true,
+        readOnly: true,
+        webSearch: false,
+      },
       flags: [],
       problems: [redactSecrets(problem)],
     });
@@ -150,14 +162,30 @@ export class CodexRunner implements Runner, Resumable {
       problems.push(`${isolation ? 'required ' : ''}codex exec flag ${f} not supported`);
     }
     if (credentials === 'missing') problems.push('codex is not logged in (run `codex login`)');
+    const web = CODEX_WEB_FLAGS.filter((f) => found.has(f));
+    if (web.length < CODEX_WEB_FLAGS.length) {
+      problems.push('codex exec flag --disable not supported: no research runs');
+    }
     this.last = {
       runner: 'codex',
       available: missing.length === 0 && credentials !== 'missing',
       version: version.stdout.split('\n')[0]!.trim(),
       executable: exe,
       credentials,
-      supports: { jsonSchema: true, resume: true, quota: false, effort: true, readOnly: true },
-      flags: [...json, ...CODEX_EXEC_FLAGS.filter((f) => found.has(f)), ...this.isolation].sort(),
+      supports: {
+        jsonSchema: true,
+        resume: true,
+        quota: false,
+        effort: true,
+        readOnly: true,
+        webSearch: web.length === CODEX_WEB_FLAGS.length,
+      },
+      flags: [
+        ...json,
+        ...CODEX_EXEC_FLAGS.filter((f) => found.has(f)),
+        ...this.isolation,
+        ...web,
+      ].sort(),
       problems,
     };
     return this.last;
@@ -172,6 +200,9 @@ export class CodexRunner implements Runner, Resumable {
     if (!caps.available) {
       const kind = caps.credentials === 'missing' ? 'auth' : 'crash';
       return errorResult(kind, `codex unavailable: ${caps.problems.join('; ')}`);
+    }
+    if (spec.web === true && !caps.supports.webSearch) {
+      return errorResult('crash', 'codex cannot run research runs here (no --disable flag)');
     }
 
     let log: RunLog | undefined;

@@ -2,6 +2,7 @@ import type {
   Attention,
   DoctorReport,
   Project,
+  ResearchDetail,
   RoleInfo,
   Run,
   StateSnapshot,
@@ -23,7 +24,9 @@ export function projectLine(p: Project): string {
 }
 
 export function taskLine(t: Task): string {
-  return `${t.id} [${t.status}] ${t.tier} ${t.impl_role} ${clip(t.title, 70)}`;
+  // a research task's tier means nothing (spec §17): its kind is shown instead
+  const kind = t.kind === 'research' ? 'research' : t.tier;
+  return `${t.id} [${t.status}] ${kind} ${t.impl_role} ${clip(t.title, 70)}`;
 }
 
 /** ` $0.0670` reported by the runner, ` ~$0.0012 (estimated)` from usage × models.json price. */
@@ -95,8 +98,11 @@ export function formatTaskDetail(d: TaskDetail): string {
   const lines = [
     taskLine(t),
     `  project ${t.project_id} · priority ${t.priority} · fix_rounds ${t.fix_rounds} · attempts ${t.attempts}`,
-    `  paths ${t.owned_paths.join(', ')}`,
+    t.kind === 'research'
+      ? `  question ${clip(t.ticket_md, 100)}`
+      : `  paths ${t.owned_paths.join(', ')}`,
   ];
+  if (t.research_refs.length > 0) lines.push(`  research ${t.research_refs.join(', ')}`);
   if (t.blocked_reason) lines.push(`  blocked: ${clip(t.blocked_reason, 100)}`);
   if (d.workspace) {
     lines.push(
@@ -123,11 +129,37 @@ export function formatReceipt(d: TaskDetail): string | undefined {
     }
     return lines.join('\n');
   }
+  if ('candidates' in receipt) {
+    return `${head}: ${receipt.status} ${receipt.recommendation}, ${receipt.candidates.length} candidate(s) — see \`team research show ${run.task_id}\`\n  ${clip(receipt.summary, 600)}`;
+  }
   const lines = [`${head}: ${receipt.status}`, `  ${clip(receipt.summary, 600)}`];
   if (receipt.files_changed.length > 0) lines.push(`  files ${receipt.files_changed.join(', ')}`);
   for (const c of receipt.checks)
     lines.push(`  check ${c.result} ${c.cmd}${c.note ? ` (${clip(c.note, 60)})` : ''}`);
   if (receipt.needs_leader) lines.push(`  needs leader: ${clip(receipt.needs_leader, 200)}`);
+  return lines.join('\n');
+}
+
+/** `team research show`: the result of a research task; the links were never fetched. */
+export function formatResearch(d: ResearchDetail): string {
+  const lines = [taskLine(d.task), `  question ${clip(d.task.ticket_md, 200)}`];
+  const r = d.receipt;
+  if (!r) {
+    lines.push('  no result yet');
+    return lines.join('\n');
+  }
+  lines.push(
+    `  ${r.status} · recommendation ${r.recommendation} (run ${d.run_id ?? '-'})`,
+    `  ${clip(r.summary, 600)}`,
+    '  candidates (links not verified by the service):',
+  );
+  if (r.candidates.length === 0) lines.push('    (none)');
+  r.candidates.forEach((c, i) => {
+    lines.push(`    ${i + 1}. ${clip(c.name, 80)} ${c.url} [${c.license}, fit ${c.fit}]`);
+    if (c.borrow.trim()) lines.push(`       borrow: ${clip(c.borrow, 300)}`);
+    if (c.caveats.trim()) lines.push(`       caveats: ${clip(c.caveats, 200)}`);
+  });
+  if (r.needs_leader) lines.push(`  needs leader: ${clip(r.needs_leader, 200)}`);
   return lines.join('\n');
 }
 

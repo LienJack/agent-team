@@ -15,7 +15,14 @@ function unavailable(runner: RunnerName, problem: string): RunnerCapabilities {
     runner,
     available: false,
     credentials: 'unknown',
-    supports: { jsonSchema: false, resume: false, quota: false, effort: false, readOnly: false },
+    supports: {
+      jsonSchema: false,
+      resume: false,
+      quota: false,
+      effort: false,
+      readOnly: false,
+      webSearch: false,
+    },
     flags: [],
     problems: [problem],
   };

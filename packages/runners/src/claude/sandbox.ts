@@ -89,3 +89,63 @@ export function claudeWorkerSettings(
     },
   };
 }
+
+/** The only tools of a research run (spec §17): Anthropic's server-side search and WebFetch. */
+export const CLAUDE_WEB_TOOLS = ['WebSearch', 'WebFetch'] as const;
+
+/**
+ * Built-in tools denied outright in research runs, in case a CLI version offered them anyway:
+ * every file, shell, notebook and agent tool. `--tools` (required for research runs) is what
+ * removes them; these deny rules are the second layer.
+ */
+export const CLAUDE_WEB_DENIED_TOOLS = [
+  'Bash',
+  'Read',
+  'Edit',
+  'Write',
+  'Glob',
+  'Grep',
+  'NotebookEdit',
+  'Task',
+  'Agent',
+] as const;
+
+/**
+ * The `--settings` object of a research run (spec §17; docs/adr/0021). The worker sandbox stays
+ * on — Seatbelt/bubblewrap with `failIfUnavailable`, no unsandboxed commands — although the run
+ * has no shell at all: `--tools WebSearch,WebFetch` removes Bash and every file tool, and the
+ * deny rules below refuse them a second time. The filesystem policy is the strictest one: the
+ * home directory, DATA and the deny list are closed and only the empty cwd is open; the
+ * shell's network allowlist is empty and strict. WebSearch runs on Anthropic's side; WebFetch is
+ * Claude Code's own client (governed by its permission rules — allowed by `--allowedTools`
+ * — and never fetching `localhost` or dot-less hosts), not a sandboxed command.
+ */
+export function claudeResearchSettings(
+  spec: RunSpec,
+  policy: SandboxPolicy,
+): Record<string, unknown> {
+  const home = strip(policy.home ?? homedir());
+  const deny = workerDenyPaths(spec, policy);
+  const cwd = strip(spec.cwd);
+  return {
+    permissions: {
+      blockReadsOutsideWorkingDirectories: true,
+      blockWritesOutsideWorkingDirectories: true,
+      deny: [...CLAUDE_WEB_DENIED_TOOLS],
+    },
+    sandbox: {
+      enabled: true,
+      failIfUnavailable: true,
+      allowUnsandboxedCommands: false,
+      autoAllowBashIfSandboxed: false,
+      excludedCommands: [],
+      filesystem: { denyRead: [...deny, home], allowRead: [cwd], denyWrite: [...deny, home] },
+      network: {
+        allowedDomains: [],
+        strictAllowlist: true,
+        allowLocalBinding: false,
+        allowAllUnixSockets: false,
+      },
+    },
+  };
+}

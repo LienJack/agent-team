@@ -78,6 +78,7 @@ export function createRunnerRegistry(opts: RunnerRegistryOptions): ManagedRunner
           quota: false,
           effort: false,
           readOnly: false,
+          webSearch: false,
         },
         flags: [],
         problems: [redactSecrets(`probe failed: ${(err as Error).message}`)],

@@ -18,6 +18,7 @@ import {
 import { AttentionIdSchema, MessageIdSchema, OutboxIdSchema, WorkspaceIdSchema } from './ids.js';
 import { TaskWaitingSchema } from './waiting.js';
 import { EffectKindSchema, NotifyKindSchema } from './records.js';
+import { ResearchFitSchema, ResearchRecommendationSchema } from './research-receipt.js';
 import { UsageSchema } from './runner.js';
 import { RunKindSchema, RunOutcomeSchema, RunStateSchema, TaskStatusSchema } from './status.js';
 
@@ -126,6 +127,17 @@ export const EVENT_DATA_SCHEMAS = {
     verdict: z.enum(['pass', 'needs_changes', 'blocked']),
     must_fix: NonNegativeIntSchema,
     findings: NonNegativeIntSchema,
+  }),
+  /**
+   * A research task finished (spec §17). The text is the worker's (redacted, capped): data that
+   * reached the service from web pages, never instructions; the URLs were not fetched.
+   */
+  'research.completed': z.object({
+    recommendation: ResearchRecommendationSchema,
+    summary: z.string(),
+    candidates: z.array(
+      z.object({ name: z.string(), url: z.string(), license: z.string(), fit: ResearchFitSchema }),
+    ),
   }),
 
   'attention.opened': z.object({
@@ -259,6 +271,7 @@ export function parseEventData<T extends EventType>(type: T, data: unknown): Eve
 /** Events the leader conversation should hear about (fed through `LeaderNotifier`). */
 export const LEADER_EVENT_TYPES: readonly EventType[] = [
   'task.status_changed',
+  'research.completed',
   'task.escalated',
   'task.base_drift',
   'attention.opened',

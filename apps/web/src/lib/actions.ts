@@ -9,12 +9,19 @@ export type TaskActionKind = 'queue' | 'retry' | 'approve' | 'reject' | 'cancel'
 
 const TERMINAL: ReadonlySet<TaskStatus> = new Set(['done', 'cancelled']);
 
-/** Why an action is unavailable for `task`, or undefined when it may be tried. */
+/**
+ * Why an action is unavailable for `task`, or undefined when it may be tried. A research task
+ * (spec §17) is never reviewed and its role is fixed: queue, retry and cancel only.
+ */
 export function actionBlocker(
-  task: Pick<Task, 'status' | 'current_run_id'>,
+  task: Pick<Task, 'status' | 'current_run_id'> & { kind?: Task['kind'] },
   action: TaskActionKind,
 ): string | undefined {
   const { status } = task;
+  if (task.kind === 'research') {
+    if (action === 'approve' || action === 'reject') return '調研任務沒有驗收，完成後直接結束';
+    if (action === 'reassign') return '調研任務的角色固定（oss_researcher）';
+  }
   switch (action) {
     case 'queue':
       return status === 'draft' ? undefined : '只有草稿可以排入佇列';

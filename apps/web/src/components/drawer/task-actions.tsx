@@ -81,7 +81,10 @@ function ReassignForm({ task, blocker }: { task: Task; blocker: string | undefin
   );
 }
 
-/** Drawer actions; each is enabled by the same rules as the drag targets. */
+/**
+ * Drawer actions; each is enabled by the same rules as the drag targets. A research task gets
+ * queue / retry / cancel only (no review, fixed role).
+ */
 export function TaskActions({ task }: { task: Task }) {
   const mutation = useTaskAction();
   const [confirm, setConfirm] = useState<ConfirmableAction | null>(null);
@@ -134,7 +137,9 @@ export function TaskActions({ task }: { task: Task }) {
         {visible('reject') ? confirmed('reject', 'secondary') : null}
         {confirmed('cancel', 'danger')}
       </div>
-      <ReassignForm task={task} blocker={actionBlocker(task, 'reassign')} />
+      {task.kind === 'research' ? null : (
+        <ReassignForm task={task} blocker={actionBlocker(task, 'reassign')} />
+      )}
       {confirm ? (
         <ConfirmAction task={task} action={confirm} onClose={() => setConfirm(null)} />
       ) : null}

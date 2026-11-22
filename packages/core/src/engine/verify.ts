@@ -101,7 +101,7 @@ async function verifyRun(
   if (!run || !task || run.state !== 'succeeded' || run.outcome !== null) return undefined;
   if (task.status !== 'verifying' || task.current_run_id !== run.id) return undefined;
   const project = ctx.store.projects.get(task.project_id);
-  const ws = ctx.store.workspaces.get(run.workspace_id);
+  const ws = run.workspace_id === null ? undefined : ctx.store.workspaces.get(run.workspace_id);
   if (!project || !ws) {
     return (tx) => rejectRun(ctx, tx, runId, 'workspace_missing', '找不到任務的 worktree 紀錄。');
   }

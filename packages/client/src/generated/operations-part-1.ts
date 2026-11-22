@@ -365,6 +365,8 @@ export interface operations_part1 {
           impl_role?: string;
           /** @default false */
           queue?: boolean;
+          /** @default [] */
+          research_refs?: string[];
         };
       };
     };

@@ -23,6 +23,8 @@ const SPEC_ROUTES = [
   'POST /api/tasks/{id}/approve',
   'POST /api/tasks/{id}/reject',
   'POST /api/tasks/{id}/reassign',
+  'POST /api/research',
+  'GET /api/research/{id}',
   'GET /api/runs/{id}/log',
   'POST /api/leader/messages',
   'GET /api/leader/messages',

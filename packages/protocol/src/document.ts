@@ -17,6 +17,7 @@ import { attentionRoutes } from './routes/attention.js';
 import { authRoutes } from './routes/auth.js';
 import { leaderRoutes } from './routes/leader.js';
 import { projectRoutes } from './routes/projects.js';
+import { researchRoutes } from './routes/research.js';
 import { systemRoutes } from './routes/system.js';
 import { taskRoutes } from './routes/tasks.js';
 
@@ -25,6 +26,7 @@ export const routes = {
   ...systemRoutes,
   ...projectRoutes,
   ...taskRoutes,
+  ...researchRoutes,
   ...leaderRoutes,
   ...attentionRoutes,
   ...authRoutes,

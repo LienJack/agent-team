@@ -152,4 +152,5 @@ export const RUN_KIND_LABELS: Record<Run['kind'], string> = {
   impl: '實作',
   fix: '修正',
   review: '審查',
+  research: '調研',
 };

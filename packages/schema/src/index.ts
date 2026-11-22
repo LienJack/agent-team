@@ -2,6 +2,7 @@ export * from './common.js';
 export * from './ids.js';
 export * from './status.js';
 export * from './receipts.js';
+export * from './research-receipt.js';
 export * from './runner.js';
 export * from './domain.js';
 export * from './records.js';

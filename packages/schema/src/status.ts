@@ -36,10 +36,42 @@ export const TASK_TRANSITIONS: Readonly<Record<TaskStatus, readonly TaskStatus[]
   cancelled: [],
 };
 
+/**
+ * What a task is (spec §17): `impl` = code changes in a worktree, verified and reviewed;
+ * `research` = an open-source survey before planning — no worktree, no owned_paths, no checks,
+ * no review run; its only output is a `ResearchReceipt`.
+ */
+export const TASK_KINDS = ['impl', 'research'] as const;
+export const TaskKindSchema = z.enum(TASK_KINDS);
+export type TaskKind = z.infer<typeof TaskKindSchema>;
+
+/**
+ * Legal transitions of a research task (spec §17): `draft → queued → running → done`, side
+ * branches `blocked`, `failed`, `cancelled`. Never `verifying` or `review`.
+ */
+export const RESEARCH_TASK_TRANSITIONS: Readonly<Record<TaskStatus, readonly TaskStatus[]>> = {
+  draft: ['queued', 'cancelled'],
+  queued: ['running', 'blocked', 'failed', 'cancelled'],
+  running: ['done', 'queued', 'blocked', 'failed', 'cancelled'],
+  verifying: [],
+  review: [],
+  blocked: ['queued', 'cancelled'],
+  failed: ['queued', 'cancelled'],
+  done: [],
+  cancelled: [],
+};
+
+/** The transition table of a task kind. */
+export function transitionsFor(
+  kind: TaskKind,
+): Readonly<Record<TaskStatus, readonly TaskStatus[]>> {
+  return kind === 'research' ? RESEARCH_TASK_TRANSITIONS : TASK_TRANSITIONS;
+}
+
 export const TERMINAL_TASK_STATUSES: readonly TaskStatus[] = ['done', 'cancelled'];
 
-export function canTransition(from: TaskStatus, to: TaskStatus): boolean {
-  return TASK_TRANSITIONS[from].includes(to);
+export function canTransition(from: TaskStatus, to: TaskStatus, kind: TaskKind = 'impl'): boolean {
+  return transitionsFor(kind)[from].includes(to);
 }
 
 export function isTerminalTaskStatus(status: TaskStatus): boolean {
@@ -96,7 +128,8 @@ export function isLiveRunState(state: RunState): boolean {
   return LIVE_RUN_STATES.includes(state);
 }
 
-export const RunKindSchema = z.enum(['impl', 'fix', 'review']);
+/** `research` runs belong to research tasks (spec §17): web tools only, no project access. */
+export const RunKindSchema = z.enum(['impl', 'fix', 'review', 'research']);
 export type RunKind = z.infer<typeof RunKindSchema>;
 
 export const RunOutcomeSchema = z.enum([

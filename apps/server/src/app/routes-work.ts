@@ -1,4 +1,4 @@
-import { NotFoundError, ValidationError } from '@agent-team/core';
+import { NotFoundError, researchReceiptOf, ValidationError } from '@agent-team/core';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import {
   answerAttention,
@@ -6,7 +6,9 @@ import {
   cancelTask,
   createAttention,
   createProject,
+  createResearch,
   createTask,
+  getResearch,
   getTask,
   listAttention,
   listProjects,
@@ -66,6 +68,18 @@ export function registerWorkRoutes(app: OpenAPIHono<AppEnv>, ctx: AppContext): v
       workspace: store.workspaces.findCurrentByTask(id) ?? null,
       attention: store.attention.list({ task_id: id }),
     });
+  });
+
+  // research stage (spec §17): the engine answers 409 while research.mode is off
+  register(app, createResearch, (c) =>
+    created({ task: engine.createResearch(c.req.valid('json'), c.get('actor')) }),
+  );
+  register(app, getResearch, (c) => {
+    const { id } = c.req.valid('param');
+    const task = store.tasks.get(id);
+    if (!task || task.kind !== 'research') throw new NotFoundError('research task', id);
+    const found = researchReceiptOf(store, id, { any: true });
+    return ok({ task, receipt: found?.receipt ?? null, run_id: found?.run.id ?? null });
   });
 
   register(app, queueTask, (c) =>

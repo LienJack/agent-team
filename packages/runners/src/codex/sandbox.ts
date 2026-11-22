@@ -15,8 +15,52 @@ export const CODEX_PROFILE = 'agent-team';
 
 const toml = (v: string) => JSON.stringify(v);
 
+/**
+ * Codex features that give the model tools other than web search (codex-cli 0.171.0
+ * `codex features list`); a research run disables every one of them (spec §17). An unknown name
+ * makes codex refuse to start — fail closed if a later version renames one. The real run of
+ * 2026-11-21 (docs/validation-2026-11-21.md, round 4) showed what stays: code mode's `exec`
+ * (a JS isolate with no fs/network) wrapping `web__run`, `apply_patch`, MCP-resource and clock
+ * helpers, and the model catalog's collaboration tools — no shell. `apply_patch` cannot write
+ * anything under the deny-all profile below; `goals` (added after that run) removes the goal
+ * tools.
+ */
+export const CODEX_WEB_DISABLED_FEATURES = [
+  'shell_tool',
+  'unified_exec',
+  'view_image',
+  'image_generation',
+  'multi_agent',
+  'apps',
+  'plugins',
+  'browser_use',
+  'computer_use',
+  'goals',
+] as const;
+
+/**
+ * Research runs (spec §17; docs/adr/0021): live web search (run by the model provider, not by a
+ * local command), every other tool feature disabled, and a profile that denies the whole
+ * filesystem (`:root` = deny: a command that still ran could not even read `/bin`) with the
+ * network off for local commands. The empty cwd is not opened either: there is nothing in it.
+ */
+function codexResearchArgs(): string[] {
+  return [
+    ...CODEX_WEB_DISABLED_FEATURES.flatMap((f) => ['--disable', f]),
+    '--config',
+    `default_permissions=${toml(CODEX_PROFILE)}`,
+    '--config',
+    `permissions.${CODEX_PROFILE}.filesystem={${toml(':root')}=${toml('deny')}}`,
+    '--config',
+    `permissions.${CODEX_PROFILE}.network={enabled=false}`,
+    '--config',
+    'web_search="live"',
+  ];
+}
+
 /** `--config` arguments selecting and defining the run's permission profile. */
 export function codexSandboxArgs(spec: RunSpec, policy: SandboxPolicy): string[] {
+  if (spec.web === true) return codexResearchArgs();
   const entries: Array<[string, string]> = [[':root', 'read']];
   if (spec.writable) {
     const cwd = strip(spec.cwd);

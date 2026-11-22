@@ -21,7 +21,13 @@ import {
 } from './ids.js';
 import { ReceiptSchema } from './receipts.js';
 import { UsageSchema } from './runner.js';
-import { RunKindSchema, RunOutcomeSchema, RunStateSchema, TaskStatusSchema } from './status.js';
+import {
+  RunKindSchema,
+  RunOutcomeSchema,
+  RunStateSchema,
+  TaskKindSchema,
+  TaskStatusSchema,
+} from './status.js';
 
 // Persisted domain objects (spec §5). Optional columns are `T | null` (always present).
 
@@ -87,14 +93,27 @@ export const OwnedPathSchema = z.string().superRefine((p, ctx) => {
   if (problem !== null) ctx.addIssue({ code: 'custom', message: problem });
 });
 
+/** Research tasks an impl task may cite (spec §17: same project, `kind = research`, done). */
+export const MAX_RESEARCH_REFS = 3;
+
 export const TaskSchema = z.object({
   id: TaskIdSchema,
   project_id: ProjectIdSchema,
   parent_id: TaskIdSchema.nullable(),
+  /** `impl` (default) or `research` (spec §17; no worktree, paths, checks or review). */
+  kind: TaskKindSchema,
   title: z.string().min(1).max(200),
+  /** Research tasks keep `C` (unused: their role is fixed, nothing is reviewed). */
   tier: TierSchema,
+  /** The ticket; for a research task, the question. */
   ticket_md: z.string(),
+  /** Empty for research tasks. */
   owned_paths: z.array(OwnedPathSchema),
+  /**
+   * Done research tasks of the same project whose receipts go into this task's prompts as
+   * reference data (spec §17); at most `MAX_RESEARCH_REFS`.
+   */
+  research_refs: z.array(TaskIdSchema).max(MAX_RESEARCH_REFS),
   /** Higher runs first; ties by created_at. */
   priority: z.number().int(),
   status: TaskStatusSchema,
@@ -150,7 +169,8 @@ export type Workspace = z.infer<typeof WorkspaceSchema>;
 export const RunSchema = z.object({
   id: RunIdSchema,
   task_id: TaskIdSchema,
-  workspace_id: WorkspaceIdSchema,
+  /** null for research runs: they get an empty directory, never the repository (spec §17). */
+  workspace_id: WorkspaceIdSchema.nullable(),
   /** Unique fencing token echoed by the receipt. */
   dispatch_id: DispatchIdSchema,
   kind: RunKindSchema,

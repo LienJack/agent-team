@@ -43,6 +43,13 @@ describe('queriesForEvent — event → query invalidation', () => {
     expect(queriesForEvent(event('workspace.kept'))).toEqual([]);
   });
 
+  it('a finished research task refreshes its drawer and the board (citable research)', () => {
+    const data = { recommendation: 'reference_only', summary: '', candidates: [] };
+    expect(
+      queriesForEvent(event('research.completed', { task_id: 't_r1', run_id: 'r_r1' }, data)),
+    ).toEqual([['state'], ['task', 't_r1']]);
+  });
+
   it('a run log event refreshes only that run’s log tail', () => {
     expect(queriesForEvent(event('run.log_advanced', { run_id: 'r_7' }, { offset: 1024 }))).toEqual(
       [['runLog', 'r_7']],

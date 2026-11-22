@@ -36,15 +36,32 @@ function Meta({
 function CardMeta({ task }: { task: BoardTask }) {
   const now = useNow();
   const s = summarizeTask(task, now);
+  // a research task (spec §17) has no tier, worktree or commit
+  const research = task.kind === 'research';
+  const refs = task.research_refs.length;
   return (
     <>
       <div className="flex min-w-0 flex-wrap items-center gap-1">
         <StatusBadge status={task.status} />
-        <Badge title={`Tier ${task.tier}`}>Tier {task.tier}</Badge>
+        {research ? (
+          <Badge tone="info" title="調研任務：查可參考的開源專案">
+            調研
+          </Badge>
+        ) : (
+          <Badge title={`Tier ${task.tier}`}>Tier {task.tier}</Badge>
+        )}
         <Badge title={s.executorDetail ?? `角色 ${task.impl_role}（尚未執行）`} className="min-w-0">
           <span aria-hidden="true">⚙</span>
           <span className="truncate">{s.executor ?? task.impl_role}</span>
         </Badge>
+        {!research && refs > 0 ? (
+          <span
+            className="text-xs whitespace-nowrap text-muted"
+            title={`參考調研：${task.research_refs.join('、')}`}
+          >
+            參考 {refs}
+          </span>
+        ) : null}
       </div>
       {s.elapsedMs === undefined && s.commit === null ? (
         <p className="text-xs text-muted">尚未執行</p>
@@ -58,7 +75,9 @@ function CardMeta({ task }: { task: BoardTask }) {
           />
           <Meta label="費用" value={formatCost(s.costUsd, s.costEstimated)} />
           <Meta label="用量" value={s.tokens > 0 ? `${formatTokens(s.tokens)} tok` : EMPTY} />
-          <Meta label="commit" value={shortSha(s.commit)} title={s.commit ?? undefined} />
+          {research ? null : (
+            <Meta label="commit" value={shortSha(s.commit)} title={s.commit ?? undefined} />
+          )}
         </div>
       )}
     </>

@@ -103,6 +103,18 @@ describe('§9 leader team shim', () => {
     expect(existsSync(record)).toBe(false);
   });
 
+  it('refuses --question-file (spec §17: a research question from a local file)', async () => {
+    for (const args of [
+      ['research', 'add', 'demo', '--title', 't', '--question-file', '/etc/hosts'],
+      ['research', 'add', 'demo', '--question-file=../../run/listener.json'],
+    ]) {
+      const res = await run(...args);
+      expect(res.code).toBe(2);
+      expect(res.stderr).toMatch(/--question-file is not available to the leader/);
+    }
+    expect(existsSync(record)).toBe(false);
+  });
+
   it('refuses serve, watch and ask (also after --json) without starting node', async () => {
     for (const args of [['serve'], ['--json', 'watch'], ['watch', '--after', '3'], ['ask', 'hi']]) {
       const res = await run(...args);

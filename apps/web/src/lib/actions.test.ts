@@ -94,6 +94,19 @@ describe('actionBlocker — drawer buttons', () => {
     expect(actionBlocker(task('verifying'), 'reassign')).toBeDefined();
     expect(actionBlocker(task('cancelled'), 'reassign')).toBeDefined();
   });
+
+  it('a research task (spec §17) can be queued, retried and cancelled, never reviewed or reassigned', () => {
+    const research = (status: TaskStatus) => ({ ...task(status), kind: 'research' as const });
+    expect(actionBlocker(research('draft'), 'queue')).toBeUndefined();
+    expect(actionBlocker(research('failed'), 'retry')).toBeUndefined();
+    expect(actionBlocker(research('running'), 'cancel')).toBeUndefined();
+    expect(actionBlocker(research('review'), 'approve')).toBe('調研任務沒有驗收，完成後直接結束');
+    expect(actionBlocker(research('review'), 'reject')).toBeDefined();
+    expect(actionBlocker(research('queued'), 'reassign')).toBe(
+      '調研任務的角色固定（oss_researcher）',
+    );
+    expect(actionBlocker({ ...task('queued'), kind: 'impl' }, 'reassign')).toBeUndefined();
+  });
 });
 
 describe('reassignChoices — the picker lists GET /api/roles', () => {

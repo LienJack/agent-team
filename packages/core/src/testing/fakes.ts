@@ -69,6 +69,11 @@ export class InMemoryRunnerRegistry implements RunnerRegistry {
     this.caps.set(capabilities.runner, capabilities);
   }
 
+  /** Forget a runner's probe result (as if it had never been probed). */
+  forgetCapabilities(name: RunnerName): void {
+    this.caps.delete(name);
+  }
+
   get(name: RunnerName): Runner | undefined {
     return this.runners.get(name);
   }

@@ -31,6 +31,9 @@ export type RunnerStatus = Schemas['RunnerStatus'];
 export type RunnerCapabilities = Schemas['RunnerCapabilities'];
 export type StateSnapshot = Json<'getState'>;
 export type TaskDetail = Json<'getTask'>;
+/** GET /api/research/:id: the research task and its last accepted receipt (spec §17). */
+export type ResearchDetail = Json<'getResearch'>;
+export type ResearchReceipt = NonNullable<ResearchDetail['receipt']>;
 export type RunLog = Json<'getRunLog'>;
 export type LeaderReply = Json<'postLeaderMessage'>;
 export type LeaderMessageDetail = Json<'getLeaderMessage'>;
@@ -41,6 +44,7 @@ export type Resume = Json<'getResume'>;
 export type DoctorReport = Json<'getDoctor'>;
 export type ProjectCreateBody = Body<'createProject'>;
 export type TaskCreateBody = Body<'createTask'>;
+export type ResearchCreateBody = Body<'createResearch'>;
 export type LeaderMessageBody = Body<'postLeaderMessage'>;
 export type AttentionCreateBody = Body<'createAttention'>;
 export type AttentionAnswerBody = Body<'answerAttention'>;
@@ -93,6 +97,10 @@ export interface TeamClient {
    */
   createTask(body: TaskCreateBody, options?: { idempotencyKey?: string }): Promise<Task>;
   getTask(id: string): Promise<TaskDetail>;
+  /** A research task (spec §17); 409 while `research.mode` is off. `idempotencyKey` as above. */
+  createResearch(body: ResearchCreateBody, options?: { idempotencyKey?: string }): Promise<Task>;
+  /** A research task and its result (links not verified by the service). */
+  getResearch(id: string): Promise<ResearchDetail>;
   taskAction(id: string, action: SimpleTaskAction, reason?: string): Promise<Task>;
   rejectTask(id: string, note: string): Promise<Task>;
   reassignTask(id: string, role: string): Promise<Task>;
@@ -193,6 +201,12 @@ export function createTeamClient(options: TeamClientOptions): TeamClient {
       return (await call(() => raw.POST('/api/tasks', { body, ...headers }))).task;
     },
     getTask: (id) => call(() => raw.GET('/api/tasks/{id}', byId(id))),
+    createResearch: async (body, callOptions) => {
+      const key = callOptions?.idempotencyKey;
+      const headers = key === undefined ? {} : { headers: { [IDEMPOTENCY_HEADER]: key } };
+      return (await call(() => raw.POST('/api/research', { body, ...headers }))).task;
+    },
+    getResearch: (id) => call(() => raw.GET('/api/research/{id}', byId(id))),
     taskAction: async (id, action, reason) => {
       const init = { ...byId(id), body: reason === undefined ? {} : { reason } };
       const path = `/api/tasks/{id}/${action}` as const;

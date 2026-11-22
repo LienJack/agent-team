@@ -18,6 +18,8 @@ export const DATA_LAYOUT = {
   /** The current leader turn's idempotency seed, read by the leader's `team` shim (0600). */
   leaderTurnKey: 'leader/turn-key',
   runs: 'runs',
+  /** `research/<run_id>/`: the empty working directory of one research run (0700; spec §17). */
+  research: 'research',
 } as const;
 
 /** Files inside `DATA/runs/<run_id>/`. */
@@ -54,6 +56,11 @@ export function joinPosix(...parts: string[]): string {
 /** `DATA/runs/<run_id>` */
 export function runLogDir(dataDir: string, runId: string): string {
   return joinPosix(dataDir, DATA_LAYOUT.runs, runId);
+}
+
+/** `DATA/research/<run_id>`: a research run's empty cwd (created and removed by the server). */
+export function researchWorkdir(dataDir: string, runId: string): string {
+  return joinPosix(dataDir, DATA_LAYOUT.research, runId);
 }
 
 /** Task branch name (spec §4): `team/<task_id>`. */

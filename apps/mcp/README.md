@@ -9,15 +9,18 @@ stdin 關閉或收到 SIGTERM 就結束。
 
 ## 工具
 
-| 工具               | 輸入                             | 說明                                                                                            |
-| ------------------ | -------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `ask_leader`       | `text`                           | 對 leader 說話（`source: "mcp"`），等到回覆為止，只回傳回覆文字（可被呼叫端取消，訊息仍保留）   |
-| `status`           | —                                | 看板摘要：各欄任務數、執行中任務與執行者、未決事項數、runner 與額度、leader 狀態                |
-| `list_attention`   | —                                | 列出未決事項（id、問題、選項）                                                                  |
-| `answer_attention` | `id`, `answer`                   | 回答一筆未決事項（`via: "mcp"`）                                                                |
-| `task_action`      | `id`, `action`, `role?`, `note?` | `queue｜cancel｜retry｜approve｜reject｜reassign`；`reassign` 需要 `role`，`reject` 需要 `note` |
+| 工具               | 輸入                                     | 說明                                                                                            |
+| ------------------ | ---------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `ask_leader`       | `text`                                   | 對 leader 說話（`source: "mcp"`），等到回覆為止，只回傳回覆文字（可被呼叫端取消，訊息仍保留）   |
+| `status`           | —                                        | 看板摘要：各欄任務數、執行中任務與執行者、未決事項數、runner 與額度、leader 狀態                |
+| `list_attention`   | —                                        | 列出未決事項（id、問題、選項）                                                                  |
+| `answer_attention` | `id`, `answer`                           | 回答一筆未決事項（`via: "mcp"`）                                                                |
+| `task_action`      | `id`, `action`, `role?`, `note?`         | `queue｜cancel｜retry｜approve｜reject｜reassign`；`reassign` 需要 `role`，`reject` 需要 `note` |
+| `add_research`     | `project`, `title`, `question`, `queue?` | 建調研任務（spec §17；`research.mode` 為 `off` 時回錯誤）                                       |
+| `show_research`    | `id`                                     | 調研結果：建議、摘要、候選（名稱、連結、授權、適合度）；標明是網頁來的資料、連結未經服務端驗證  |
 
 刻意不提供：執行日誌、對話紀錄、建立專案、任何會回傳大量內容的操作——呼叫端的模型不需要讀 worker 的逐字稿。
+唯一的例外是 `show_research`：調研的結果本身就是要給呼叫端看的，但只有截短後的候選清單，不是 worker 的過程。
 
 ## 建置與執行
 

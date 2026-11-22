@@ -36,7 +36,7 @@ export function parsePaths(value: string): string[] {
 }
 
 /** A project id (`p_…`) or name. */
-async function projectId(client: TeamClient, value: string): Promise<string> {
+export async function projectId(client: TeamClient, value: string): Promise<string> {
   if (/^p_[0-9a-z]+$/.test(value)) return value;
   const found = (await client.listProjects()).find((p) => p.name === value);
   if (!found) {
@@ -95,6 +95,12 @@ export function registerWorkCommands(program: Command, ctx: CommandContext): voi
     .requiredOption('--paths <paths>', 'owned paths, comma or space separated')
     .option('--ticket-file <file>', 'ticket markdown file')
     .option('--queue', 'queue immediately instead of creating a draft')
+    .option(
+      '--research <task_id>',
+      'cite a done research task of the same project (repeatable, at most 3)',
+      collect,
+      [] as string[],
+    )
     .action(
       async (
         stdin: string | undefined,
@@ -105,6 +111,7 @@ export function registerWorkCommands(program: Command, ctx: CommandContext): voi
           paths: string;
           ticketFile?: string;
           queue?: boolean;
+          research: string[];
         },
       ) => {
         if (stdin !== undefined && stdin !== '-') {
@@ -127,6 +134,7 @@ export function registerWorkCommands(program: Command, ctx: CommandContext): voi
           ticket_md: ticket,
           owned_paths: owned,
           queue: options.queue === true,
+          ...(options.research.length > 0 ? { research_refs: options.research } : {}),
         };
         const key = idempotencyKeyFor(ctx.io.env['AGENT_TEAM_IDEMPOTENCY_SEED'], body);
         const created = await client.createTask(body, key ? { idempotencyKey: key } : undefined);

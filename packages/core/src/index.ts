@@ -22,6 +22,7 @@ export {
   type UnresolvedModel,
 } from './engine/resolve-role.js';
 export {
+  holdsPaths,
   nextRunKind,
   planDispatch,
   roleFor,
@@ -34,12 +35,27 @@ export {
 export {
   acceptanceSection,
   buildPrompt,
+  dataBlock,
+  inlineText,
   formatReviewDiff,
   recoveryNoteFor,
   REVIEW_DIFF_MAX_CHARS,
   type PromptInput,
 } from './engine/prompt.js';
 export { formatFindings } from './engine/run-result.js';
+export {
+  buildResearchPrompt,
+  formatResearchRefs,
+  RECOMMENDATION_LABEL,
+  RESEARCH_REF_RULE,
+  researchText,
+  type ResearchRef,
+} from './engine/prompt-research.js';
+export {
+  checkResearchRefs,
+  researchReceiptOf,
+  sanitizeResearchReceipt,
+} from './engine/research.js';
 export { CHECK_TAIL_LINES } from './engine/verify.js';
 export { EFFECT_HANDLERS, EffectExecutor } from './engine/effects.js';
 export {

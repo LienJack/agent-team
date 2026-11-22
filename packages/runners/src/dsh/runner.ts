@@ -68,6 +68,15 @@ export const DSH_KEY_ENV = 'OPENROUTER_API_KEY';
 /** dsh's own home (profiles, sessions); not a credential. */
 const DSH_ENV_NAMES = ['DSH_HOME'];
 const NO_KEY_PROBLEM = `${DSH_KEY_ENV} is not set`;
+/**
+ * Why dsh never runs research runs (spec §17): its only web tool (`dsh-tool-web`) searches through
+ * DeepSeek's API, which needs `DEEPSEEK_API_KEY` in the child (no secret may reach a worker;
+ * docs/adr/0020), and fetches pages from the dsh process itself, which would need outbound
+ * network for the whole Seatbelt-confined process. Bash plus network is no substitute.
+ */
+export const DSH_NO_RESEARCH =
+  'dsh cannot run research runs: its web search needs a DeepSeek API key in the worker and network for the whole process';
+
 const NO_PROXY_PROBLEM = 'the model-key proxy is not running (docs/adr/0020)';
 
 /**
@@ -125,7 +134,14 @@ export class DshRunner implements Runner, Resumable {
       runner: 'dsh',
       available: false,
       credentials,
-      supports: { jsonSchema: false, resume: false, quota: false, effort: false, readOnly: false },
+      supports: {
+        jsonSchema: false,
+        resume: false,
+        quota: false,
+        effort: false,
+        readOnly: false,
+        webSearch: false,
+      },
       flags: [],
       problems: [problem],
     });
@@ -176,6 +192,9 @@ export class DshRunner implements Runner, Resumable {
         quota: false,
         effort: false,
         readOnly: true,
+        // its web tool searches through DeepSeek's API with DEEPSEEK_API_KEY in the child and
+        // fetches from inside the process: no research runs (spec §17; docs/adr/0021)
+        webSearch: false,
       },
       flags: [...this.flags].sort(),
       problems: problems.map((p) => redactSecrets(p)),
@@ -184,6 +203,7 @@ export class DshRunner implements Runner, Resumable {
   }
 
   async run(spec: RunSpec, signal: AbortSignal, hooks?: RunHooks): Promise<RunResult> {
+    if (spec.web === true) return errorResult('crash', DSH_NO_RESEARCH);
     const noCredentials = this.credentialProblem();
     if (noCredentials) return errorResult('auth', noCredentials);
     const caps = this.last ?? (await this.probe());

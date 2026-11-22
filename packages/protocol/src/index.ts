@@ -14,5 +14,6 @@ export * from './routes/attention.js';
 export * from './routes/auth.js';
 export * from './routes/leader.js';
 export * from './routes/projects.js';
+export * from './routes/research.js';
 export * from './routes/system.js';
 export * from './routes/tasks.js';

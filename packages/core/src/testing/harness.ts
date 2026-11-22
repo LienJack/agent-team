@@ -78,7 +78,8 @@ export function createTestEngine(options: TestEngineOptions = {}): TestEngine {
   };
   for (const r of Object.values(runners)) {
     if (options.defaultStep) r.defaultStep = options.defaultStep;
-    registry.register(r);
+    // probed: the engine reads `supports.webSearch` for research runs (spec §17)
+    registry.register(r, r.probeResult);
   }
   const config = testEngineConfig(options.config);
   const engine = new Engine({

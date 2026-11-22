@@ -6,7 +6,7 @@ import { bootLeader, compactSteps, type FakeClaude, turnSteps } from '../testing
 import { local, TEST_LEADER_TOKEN, type Loose, type TestService } from '../testing/harness.js';
 import type { LeaderImpl } from './leader.js';
 import { LEADER_ALLOW_RULES, LEADER_DENY_RULES } from './args.js';
-import { LEADER_SYSTEM_PROMPT } from './prompt/system-v2.js';
+import { leaderSystemPrompt } from './prompt/system-v3.js';
 import { LEADER_EVENT_CURSOR_KEY, LEADER_SESSION_KEY } from './types.js';
 
 // spec §9 with the scripted fake CLI (never the real claude): argv, serial queue, priority,
@@ -78,7 +78,7 @@ describe('§9 leader turns (fake claude)', () => {
       '--effort',
       'medium',
       '--append-system-prompt',
-      LEADER_SYSTEM_PROMPT,
+      leaderSystemPrompt('on_request'),
     ];
     const turns = fake.turns();
     expect(turns.map((t) => t.argv)).toEqual([

@@ -82,6 +82,18 @@ export function entityContract(store: () => Store): void {
       expect(s.tasks.get(task.id)).toEqual(task);
     });
 
+    it('round-trips research tasks: kind and research_refs (spec §17)', () => {
+      const s = store();
+      seedParents(s, 'project');
+      s.tasks.insert(sampleTask({ id: 't_r', kind: 'research', owned_paths: [], status: 'done' }));
+      const impl = sampleTask({ id: 't_i', research_refs: ['t_r'] });
+      s.tasks.insert(impl);
+      expect(s.tasks.get('t_r')).toMatchObject({ kind: 'research', owned_paths: [] });
+      expect(s.tasks.get('t_i')).toEqual(impl);
+      const stored = s.tasks.update({ ...impl, research_refs: [] }, impl.version);
+      expect(stored?.research_refs).toEqual([]);
+    });
+
     it('update is compare-and-set on version (optimistic lock)', () => {
       const s = store();
       seedParents(s, 'project');
@@ -129,6 +141,34 @@ export function entityContract(store: () => Store): void {
       expect(() => s.runs.insert(sampleRun({ id: 'r_2' }))).toThrow(UniqueViolationError);
       expect(() => s.runs.insert(sampleRun({ dispatch_id: 'd_2' }))).toThrow(UniqueViolationError);
       expect(s.runs.list()).toHaveLength(1);
+    });
+
+    it('a research run has no workspace and round-trips its research receipt', () => {
+      const s = store();
+      seedParents(s, 'task');
+      const run = sampleRun({ kind: 'research', workspace_id: null, role: 'oss_researcher' });
+      s.runs.insert(run);
+      expect(s.runs.get(run.id)).toEqual(run);
+      const receipt = {
+        dispatch_id: run.dispatch_id,
+        status: 'done' as const,
+        summary: '兩個候選',
+        candidates: [
+          {
+            name: 'q',
+            url: 'https://example.com/q',
+            license: 'MIT',
+            fit: 'high' as const,
+            borrow: 'x',
+            caveats: '',
+          },
+        ],
+        recommendation: 'reference_only' as const,
+        needs_leader: '',
+      };
+      const done = { ...run, state: 'succeeded' as const, outcome: 'ok' as const, receipt };
+      expect(s.runs.update(done)).toBe(true);
+      expect(s.runs.get(run.id)).toEqual(done);
     });
 
     it('lists by task and state in started_at order; round-trips receipt and usage', () => {

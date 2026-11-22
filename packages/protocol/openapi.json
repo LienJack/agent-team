@@ -45,10 +45,16 @@
           "id": { "type": "string", "pattern": "^t_[0-9a-z]{1,32}$" },
           "project_id": { "type": "string", "pattern": "^p_[0-9a-z]{1,32}$" },
           "parent_id": { "type": ["string", "null"], "pattern": "^t_[0-9a-z]{1,32}$" },
+          "kind": { "type": "string", "enum": ["impl", "research"] },
           "title": { "type": "string", "minLength": 1, "maxLength": 200 },
           "tier": { "type": "string", "enum": ["A", "B", "C"] },
           "ticket_md": { "type": "string" },
           "owned_paths": { "type": "array", "items": { "type": "string" } },
+          "research_refs": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^t_[0-9a-z]{1,32}$" },
+            "maxItems": 3
+          },
           "priority": { "type": "integer" },
           "status": {
             "type": "string",
@@ -81,10 +87,12 @@
           "id",
           "project_id",
           "parent_id",
+          "kind",
           "title",
           "tier",
           "ticket_md",
           "owned_paths",
+          "research_refs",
           "priority",
           "status",
           "impl_role",
@@ -107,10 +115,16 @@
           "id": { "type": "string", "pattern": "^t_[0-9a-z]{1,32}$" },
           "project_id": { "type": "string", "pattern": "^p_[0-9a-z]{1,32}$" },
           "parent_id": { "type": ["string", "null"], "pattern": "^t_[0-9a-z]{1,32}$" },
+          "kind": { "type": "string", "enum": ["impl", "research"] },
           "title": { "type": "string", "minLength": 1, "maxLength": 200 },
           "tier": { "type": "string", "enum": ["A", "B", "C"] },
           "ticket_md": { "type": "string" },
           "owned_paths": { "type": "array", "items": { "type": "string" } },
+          "research_refs": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^t_[0-9a-z]{1,32}$" },
+            "maxItems": 3
+          },
           "priority": { "type": "integer" },
           "status": {
             "type": "string",
@@ -142,7 +156,7 @@
             "type": ["object", "null"],
             "properties": {
               "id": { "type": "string", "pattern": "^r_[0-9a-z]{1,32}$" },
-              "kind": { "type": "string", "enum": ["impl", "fix", "review"] },
+              "kind": { "type": "string", "enum": ["impl", "fix", "review", "research"] },
               "role": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9_]*$" },
               "model_alias": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
               "runner": { "type": "string", "enum": ["claude", "codex", "dsh", "fake"] },
@@ -234,10 +248,12 @@
           "id",
           "project_id",
           "parent_id",
+          "kind",
           "title",
           "tier",
           "ticket_md",
           "owned_paths",
+          "research_refs",
           "priority",
           "status",
           "impl_role",
@@ -290,9 +306,9 @@
         "properties": {
           "id": { "type": "string", "pattern": "^r_[0-9a-z]{1,32}$" },
           "task_id": { "type": "string", "pattern": "^t_[0-9a-z]{1,32}$" },
-          "workspace_id": { "type": "string", "pattern": "^w_[0-9a-z]{1,32}$" },
+          "workspace_id": { "type": ["string", "null"], "pattern": "^w_[0-9a-z]{1,32}$" },
           "dispatch_id": { "type": "string", "pattern": "^d_[0-9a-z]{1,32}$" },
-          "kind": { "type": "string", "enum": ["impl", "fix", "review"] },
+          "kind": { "type": "string", "enum": ["impl", "fix", "review", "research"] },
           "role": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9_]*$" },
           "model_alias": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
           "runner": { "type": "string", "enum": ["claude", "codex", "dsh", "fake"] },
@@ -372,6 +388,48 @@
                   }
                 },
                 "required": ["dispatch_id", "verdict", "summary", "findings"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "dispatch_id": { "type": "string", "minLength": 1 },
+                  "status": { "type": "string", "enum": ["done", "blocked", "failed"] },
+                  "summary": { "type": "string", "maxLength": 600 },
+                  "candidates": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+                        "url": { "type": "string", "minLength": 1, "maxLength": 400 },
+                        "license": { "type": "string", "minLength": 1, "maxLength": 40 },
+                        "fit": { "type": "string", "enum": ["high", "medium", "low"] },
+                        "borrow": { "type": "string", "maxLength": 300 },
+                        "caveats": { "type": "string", "maxLength": 200 }
+                      },
+                      "required": ["name", "url", "license", "fit", "borrow", "caveats"]
+                    },
+                    "maxItems": 8
+                  },
+                  "recommendation": {
+                    "type": "string",
+                    "enum": [
+                      "adopt_dependency",
+                      "adapt_pattern",
+                      "reference_only",
+                      "build_from_scratch"
+                    ]
+                  },
+                  "needs_leader": { "type": "string", "maxLength": 600 }
+                },
+                "required": [
+                  "dispatch_id",
+                  "status",
+                  "summary",
+                  "candidates",
+                  "recommendation",
+                  "needs_leader"
+                ]
               },
               { "type": "null" }
             ]
@@ -529,9 +587,10 @@
               "resume": { "type": "boolean" },
               "quota": { "type": "boolean" },
               "effort": { "type": "boolean" },
-              "readOnly": { "type": "boolean" }
+              "readOnly": { "type": "boolean" },
+              "webSearch": { "type": "boolean" }
             },
-            "required": ["jsonSchema", "resume", "quota", "effort", "readOnly"]
+            "required": ["jsonSchema", "resume", "quota", "effort", "readOnly", "webSearch"]
           },
           "flags": { "type": "array", "items": { "type": "string" } },
           "problems": { "type": "array", "items": { "type": "string" } }
@@ -1070,7 +1129,13 @@
                   "owned_paths": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
                   "priority": { "type": "integer", "default": 0 },
                   "impl_role": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9_]*$" },
-                  "queue": { "type": "boolean", "default": false }
+                  "queue": { "type": "boolean", "default": false },
+                  "research_refs": {
+                    "type": "array",
+                    "items": { "type": "string", "pattern": "^t_[0-9a-z]{1,32}$" },
+                    "maxItems": 3,
+                    "default": []
+                  }
                 },
                 "required": ["project_id", "title", "tier", "ticket_md", "owned_paths"]
               }
@@ -1453,6 +1518,139 @@
           "403": { "$ref": "#/components/responses/Error" },
           "404": { "$ref": "#/components/responses/Error" },
           "409": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/research": {
+      "post": {
+        "operationId": "createResearch",
+        "tags": ["research"],
+        "summary": "Create a research task (draft, or queued with `queue: true`); 409 when research is off",
+        "parameters": [
+          {
+            "schema": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "project_id": { "type": "string", "pattern": "^p_[0-9a-z]{1,32}$" },
+                  "parent_id": { "type": "string", "pattern": "^t_[0-9a-z]{1,32}$" },
+                  "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+                  "question": { "type": "string", "minLength": 1, "maxLength": 8000 },
+                  "priority": { "type": "integer", "default": 0 },
+                  "queue": { "type": "boolean", "default": false }
+                },
+                "required": ["project_id", "title", "question"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The created research task",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "task": { "$ref": "#/components/schemas/Task" } },
+                  "required": ["task"]
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/research/{id}": {
+      "get": {
+        "operationId": "getResearch",
+        "tags": ["research"],
+        "summary": "A research task and the receipt of its last accepted run (links not verified by the service)",
+        "parameters": [
+          {
+            "schema": { "type": "string", "pattern": "^t_[0-9a-z]{1,32}$" },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Research result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task": { "$ref": "#/components/schemas/Task" },
+                    "receipt": {
+                      "type": ["object", "null"],
+                      "properties": {
+                        "dispatch_id": { "type": "string", "minLength": 1 },
+                        "status": { "type": "string", "enum": ["done", "blocked", "failed"] },
+                        "summary": { "type": "string", "maxLength": 600 },
+                        "candidates": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+                              "url": { "type": "string", "minLength": 1, "maxLength": 400 },
+                              "license": { "type": "string", "minLength": 1, "maxLength": 40 },
+                              "fit": { "type": "string", "enum": ["high", "medium", "low"] },
+                              "borrow": { "type": "string", "maxLength": 300 },
+                              "caveats": { "type": "string", "maxLength": 200 }
+                            },
+                            "required": ["name", "url", "license", "fit", "borrow", "caveats"]
+                          },
+                          "maxItems": 8
+                        },
+                        "recommendation": {
+                          "type": "string",
+                          "enum": [
+                            "adopt_dependency",
+                            "adapt_pattern",
+                            "reference_only",
+                            "build_from_scratch"
+                          ]
+                        },
+                        "needs_leader": { "type": "string", "maxLength": 600 }
+                      },
+                      "required": [
+                        "dispatch_id",
+                        "status",
+                        "summary",
+                        "candidates",
+                        "recommendation",
+                        "needs_leader"
+                      ]
+                    },
+                    "run_id": { "type": ["string", "null"], "pattern": "^r_[0-9a-z]{1,32}$" }
+                  },
+                  "required": ["task", "receipt", "run_id"]
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
           "500": { "$ref": "#/components/responses/Error" }
         }
       }

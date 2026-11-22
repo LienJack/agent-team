@@ -22,11 +22,14 @@ export interface components {
       id: string;
       project_id: string;
       parent_id: string | null;
+      /** @enum {string} */
+      kind: 'impl' | 'research';
       title: string;
       /** @enum {string} */
       tier: 'A' | 'B' | 'C';
       ticket_md: string;
       owned_paths: string[];
+      research_refs: string[];
       priority: number;
       /** @enum {string} */
       status:
@@ -59,11 +62,14 @@ export interface components {
       id: string;
       project_id: string;
       parent_id: string | null;
+      /** @enum {string} */
+      kind: 'impl' | 'research';
       title: string;
       /** @enum {string} */
       tier: 'A' | 'B' | 'C';
       ticket_md: string;
       owned_paths: string[];
+      research_refs: string[];
       priority: number;
       /** @enum {string} */
       status:
@@ -94,7 +100,7 @@ export interface components {
       latest_run: {
         id: string;
         /** @enum {string} */
-        kind: 'impl' | 'fix' | 'review';
+        kind: 'impl' | 'fix' | 'review' | 'research';
         role: string;
         model_alias: string;
         /** @enum {string} */
@@ -171,10 +177,10 @@ export interface components {
     Run: {
       id: string;
       task_id: string;
-      workspace_id: string;
+      workspace_id: string | null;
       dispatch_id: string;
       /** @enum {string} */
-      kind: 'impl' | 'fix' | 'review';
+      kind: 'impl' | 'fix' | 'review' | 'research';
       role: string;
       model_alias: string;
       /** @enum {string} */
@@ -221,6 +227,28 @@ export interface components {
               severity: 'must_fix' | 'should_fix' | 'note';
               issue: string;
             }[];
+          }
+        | {
+            dispatch_id: string;
+            /** @enum {string} */
+            status: 'done' | 'blocked' | 'failed';
+            summary: string;
+            candidates: {
+              name: string;
+              url: string;
+              license: string;
+              /** @enum {string} */
+              fit: 'high' | 'medium' | 'low';
+              borrow: string;
+              caveats: string;
+            }[];
+            /** @enum {string} */
+            recommendation:
+              | 'adopt_dependency'
+              | 'adapt_pattern'
+              | 'reference_only'
+              | 'build_from_scratch';
+            needs_leader: string;
           }
         | null;
       usage: {
@@ -311,6 +339,7 @@ export interface components {
         quota: boolean;
         effort: boolean;
         readOnly: boolean;
+        webSearch: boolean;
       };
       flags: string[];
       problems: string[];

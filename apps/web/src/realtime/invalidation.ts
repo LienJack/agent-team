@@ -46,6 +46,9 @@ const EVENT_QUERIES = {
   'run.verified': (e) => [...taskOf(e), ...runLogOf(e)],
   'commit.created': boardAndTask,
   'review.completed': taskOf,
+  // a research task finished: its drawer (receipt) and the board (the new-task form lists the
+  // project's done research tasks from the snapshot)
+  'research.completed': boardAndTask,
 
   // open attention items are part of the snapshot
   'attention.opened': boardAndTask,

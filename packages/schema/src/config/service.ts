@@ -85,6 +85,19 @@ export const ServiceConfigSchema = z.strictObject({
         .prefault({}),
     })
     .prefault({}),
+  /** Research stage (spec §17; docs/adr/0021). */
+  research: z
+    .strictObject({
+      /**
+       * `off`: research entrances answer 409; `on_request` (default): research runs only when a
+       * person asks for it; `auto`: the leader researches first when a task introduces a new
+       * subsystem, library choice, protocol or algorithm design (not for small changes).
+       */
+      mode: z.enum(['off', 'on_request', 'auto']).default('on_request'),
+      /** One research run is stopped after this long (default 10 minutes). */
+      timeout_ms: ms.default(600000),
+    })
+    .prefault({}),
   paths: z
     .strictObject({
       /** `~` is expanded by the server. */
@@ -158,6 +171,8 @@ export const ServiceConfigSchema = z.strictObject({
 });
 export type ServiceConfig = z.infer<typeof ServiceConfigSchema>;
 export type EngineSettings = ServiceConfig['engine'];
+export type ResearchSettings = ServiceConfig['research'];
+export type ResearchMode = ResearchSettings['mode'];
 
 export function parseServiceConfig(json: unknown): ServiceConfig {
   return ServiceConfigSchema.parse(json);

@@ -7,6 +7,7 @@ import {
   type MessageStatus,
   type Project,
   type ProjectCreateRequest,
+  type ResearchCreateRequest,
   type RunnerStatus,
   type Task,
   type TaskCreateRequest,
@@ -30,6 +31,7 @@ import { dispatchPlanned, type DispatchReport } from './dispatch.js';
 import { DRIFT_OPTIONS, openDriftItem } from './drift.js';
 import { EffectExecutor } from './effects.js';
 import { recordMessage, setMessageStatus, type RecordMessageInput } from './messages.js';
+import { createResearch } from './research.js';
 import { blockTask } from './outcomes.js';
 import { abandonLiveRuns, recover, sweepWorkspaces, type RecoveryReport } from './recovery.js';
 import { isHalfOpen, resolveRole, type QuotaState } from './resolve-role.js';
@@ -151,18 +153,24 @@ export class Engine {
       models: ctx.config.models,
       engine: ctx.config.engine,
       now,
-      resolve: (role, excludeAliases) => {
+      resolve: (role, excludeAliases, web) => {
         const resolved = resolveRole(role, quota, {
           models: ctx.config.models,
           now,
           excludeAliases,
           trialBusy,
+          // research runs only go to runners whose probe says they can run web-only (spec §17)
+          ...(web
+            ? { webSearch: (r) => ctx.deps.runners.capabilities(r)?.supports.webSearch === true }
+            : {}),
         });
         if (resolved.ok && halfOpen(resolved.runner)) trialBusy.add(resolved.runner);
         return resolved;
       },
       implAliasOf: (taskId) =>
-        ctx.store.runs.list({ task_id: taskId }).findLast((r) => r.kind !== 'review')?.model_alias,
+        ctx.store.runs
+          .list({ task_id: taskId })
+          .findLast((r) => r.kind === 'impl' || r.kind === 'fix')?.model_alias,
     });
 
     const blocked: TickReport['blocked'] = [];
@@ -282,6 +290,11 @@ export class Engine {
 
   createTask(input: TaskCreateRequest, actor: Actor = HUMAN): Task {
     return createTask(this.ctx, input, actor);
+  }
+
+  /** A research task (spec §17); 409 while `research.mode` is `off`. */
+  createResearch(input: ResearchCreateRequest, actor: Actor = HUMAN): Task {
+    return createResearch(this.ctx, input, actor);
   }
 
   queueTask(id: string, actor: Actor = HUMAN): Task {

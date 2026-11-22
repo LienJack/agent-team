@@ -9,15 +9,19 @@ export const PATH_HOLDING_STATUSES = ['running', 'verifying', 'review'] as const
 /** Which run a task needs next, if it is waiting for one. */
 export function nextRunKind(task: Task): RunKind | undefined {
   if (task.current_run_id !== null) return undefined;
+  if (task.kind === 'research') return task.status === 'queued' ? 'research' : undefined;
   if (task.status === 'review') return 'review';
   if (task.status === 'queued') return task.fix_notes === null ? 'impl' : 'fix';
   return undefined;
 }
 
-/** Role that performs a run of `kind` for `task`. */
+/** Role that performs a run of `kind` for `task` (research: `impl_role` = `oss_researcher`). */
 export function roleFor(task: Task, kind: RunKind): string {
   return kind === 'review' ? `review_${task.tier}` : task.impl_role;
 }
+
+/** Runs that work in the task's worktree and hold its owned_paths (not review, not research). */
+export const holdsPaths = (kind: RunKind) => kind === 'impl' || kind === 'fix';
 
 export interface PlanInput {
   /** Every task in a waiting or path-holding status. */
@@ -36,8 +40,11 @@ export interface PlanInput {
   models: ModelsConfig;
   engine: EngineSettings;
   now: Date;
-  /** Resolve a role, excluding aliases (reviewer ≠ implementer). */
-  resolve(role: string, excludeAliases: readonly string[]): ResolveRoleResult;
+  /**
+   * Resolve a role, excluding aliases (reviewer ≠ implementer); `web` = a research run (only
+   * runners that can run web-only runs).
+   */
+  resolve(role: string, excludeAliases: readonly string[], web: boolean): ResolveRoleResult;
   /** Alias of the most recent impl/fix run of a task (for review exclusion). */
   implAliasOf(taskId: string): string | undefined;
 }
@@ -92,7 +99,7 @@ function byPriority(human: ReadonlySet<string>) {
  * `priority` (higher first), then creation time. Limits: `roles.<role>.slots` per role, the global
  * cap `max_concurrent_runs` minus `reserved_human_slots` for non-human work, and no impl/fix run
  * whose owned_paths may overlap a path-holding task (uncertain = overlap). Review runs are
- * read-only and skip the path check.
+ * read-only and research runs have no worktree: both skip the path check (spec §17).
  */
 export function planDispatch(input: PlanInput): PlanResult {
   const { engine, models, now } = input;
@@ -104,8 +111,12 @@ export function planDispatch(input: PlanInput): PlanResult {
   let total = input.liveRuns.length + input.dispatching.size;
 
   const ignoreCaseOf = input.ignoreCaseOf ?? (() => true);
+  // research tasks have no worktree and no paths (an empty list would count as "overlaps all")
   const held: Array<{ id: string; project: string | null; paths: readonly string[] }> = input.tasks
-    .filter((t) => (PATH_HOLDING_STATUSES as readonly string[]).includes(t.status))
+    .filter(
+      (t) =>
+        t.kind !== 'research' && (PATH_HOLDING_STATUSES as readonly string[]).includes(t.status),
+    )
     .map((t) => ({ id: t.id, project: t.project_id, paths: t.owned_paths }));
   for (const paths of input.dispatchingPaths) held.push({ id: '', project: null, paths });
   const overlaps = (h: (typeof held)[number], task: Task) =>
@@ -150,8 +161,9 @@ export function planDispatch(input: PlanInput): PlanResult {
       defer('role_slots', null, { detail: `${role}: ${roleCfg.slots} slot(s) in use` });
       continue;
     }
-    const blocker =
-      kind === 'review' ? undefined : held.find((h) => h.id !== task.id && overlaps(h, task));
+    const blocker = !holdsPaths(kind)
+      ? undefined
+      : held.find((h) => h.id !== task.id && overlaps(h, task));
     if (blocker) {
       defer('path_overlap', null, { blocking_task_id: blocker.id });
       continue;
@@ -160,9 +172,14 @@ export function planDispatch(input: PlanInput): PlanResult {
       kind === 'review' && models.rules.reviewer_must_differ_from_implementer
         ? [input.implAliasOf(task.id)].filter((a): a is string => a !== undefined)
         : [];
-    const resolved = input.resolve(role, exclude);
+    const resolved = input.resolve(role, exclude, kind === 'research');
     if (!resolved.ok) {
-      if (resolved.reason === 'no_candidate') {
+      if (resolved.reason === 'no_web_search') {
+        result.invalid.push({
+          task,
+          reason: `沒有能做網頁調研的模型（角色 ${role} 的別名都不是 webSearch 能力的 runner）`,
+        });
+      } else if (resolved.reason === 'no_candidate') {
         defer('no_model', resolved.retryAt, { detail: `no usable model for ${role}` });
       } else result.invalid.push({ task, reason: `${resolved.reason} ${role}` });
       continue;
@@ -170,7 +187,7 @@ export function planDispatch(input: PlanInput): PlanResult {
     result.dispatch.push({ task, kind, role, human, resolved });
     total++;
     bump(role);
-    if (kind !== 'review') {
+    if (holdsPaths(kind)) {
       held.push({ id: task.id, project: task.project_id, paths: task.owned_paths });
     }
   }

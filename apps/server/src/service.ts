@@ -12,7 +12,7 @@ import {
   type RunnerRegistry,
   type Store,
 } from '@agent-team/core';
-import { DATA_LAYOUT } from '@agent-team/schema';
+import { DATA_LAYOUT, isLiveRunState } from '@agent-team/schema';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import type { Context } from 'hono';
 import { createApp } from './app/app.js';
@@ -36,6 +36,7 @@ import {
   writeListenerFile,
   type Listening,
 } from './listeners.js';
+import { sweepResearchDirs, withResearchWorkdirs } from './research-workdir.js';
 import { watchRunLogs, type RunLogWatcher } from './run-log-watch.js';
 
 /** Ports and settings; `main.ts` supplies the real adapters, tests supply fakes. */
@@ -101,6 +102,8 @@ export function createService(deps: ServiceDeps): Service {
   const { service, dataDir } = config;
   const print = deps.print ?? ((text: string) => void process.stdout.write(text));
   const events = new EventHub();
+  // research runs get an empty DATA/research/<run_id>, created and removed here (spec §17)
+  const runners = withResearchWorkdirs(deps.runners, dataDir, logger);
   // the engine needs the hub (notifier) and the leader's event feed; both need the engine
   const late: { engine?: Engine; leader?: Leader } = {};
   // set when the leader's API socket cannot be bound: its `team` has no other way in
@@ -116,7 +119,7 @@ export function createService(deps: ServiceDeps): Service {
     summarize:
       deps.summarize ??
       roleSummarizer({
-        runners: deps.runners,
+        runners,
         models: config.models,
         quota: () => late.engine!.quotaState(),
         clock,
@@ -125,7 +128,7 @@ export function createService(deps: ServiceDeps): Service {
   });
   const engine = new Engine({
     store,
-    runners: deps.runners,
+    runners,
     git: deps.git,
     checks: deps.checks,
     clock,
@@ -133,6 +136,7 @@ export function createService(deps: ServiceDeps): Service {
     config: {
       models: config.models,
       engine: service.engine,
+      research: service.research,
       dataDir,
       worktreeRoot: config.worktreeRoot,
       notifications: hub.delivering,
@@ -174,7 +178,7 @@ export function createService(deps: ServiceDeps): Service {
     leader,
     events,
     webDist: config.webDist,
-    doctor: () => runDoctor({ runners: deps.runners, env: deps.env, store, dataDir }),
+    doctor: () => runDoctor({ runners, env: deps.env, store, dataDir }),
     checkRepo: async (repoPath, baseBranch) => {
       await deps.git.resolveRef({ repoPath, ref: baseBranch });
     },
@@ -222,6 +226,14 @@ export function createService(deps: ServiceDeps): Service {
       // an existing DATA keeps its mode otherwise (database, run logs: owner only)
       await chmod(dataDir, 0o700);
       const report = await engine.recover();
+      // research directories of runs that were not finished (crash): nothing in them is kept.
+      // Checked per directory at removal time: recovery has already woken the scheduler, so a
+      // new research run may be preparing its directory meanwhile.
+      const live = (id: string) => {
+        const run = store.runs.get(id);
+        return run !== undefined && isLiveRunState(run.state);
+      };
+      await sweepResearchDirs(dataDir, live, logger);
       logger.info('recovery completed', {
         abandoned_runs: report.abandonedRuns.length,
         requeued_tasks: report.requeuedTasks.length,

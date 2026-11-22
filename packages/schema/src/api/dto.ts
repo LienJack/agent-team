@@ -15,6 +15,7 @@ import {
   AttentionKindSchema,
   AttentionSchema,
   AttentionStatusSchema,
+  MAX_RESEARCH_REFS,
   MessageSchema,
   OwnedPathSchema,
   ProjectCheckSchema,
@@ -26,6 +27,7 @@ import {
 } from '../domain.js';
 import { MessageIdSchema, ProjectIdSchema, RunIdSchema, TaskIdSchema } from '../ids.js';
 import { RunnerStatusSchema } from '../records.js';
+import { ResearchReceiptSchema } from '../research-receipt.js';
 import { RunnerCapabilitiesSchema, UsageSchema } from '../runner.js';
 import { RunKindSchema, RunStateSchema, TaskStatusSchema } from '../status.js';
 import { TaskWaitingSchema } from '../waiting.js';
@@ -181,8 +183,39 @@ export const TaskCreateRequestSchema = z.object({
   priority: z.number().int().default(0),
   impl_role: RoleNameSchema.optional(),
   queue: z.boolean().default(false),
+  /**
+   * Done research tasks of the same project to cite (spec §17): their receipts go into this
+   * task's impl/fix/review prompts as reference data. 409 while `research.mode` is `off`.
+   */
+  research_refs: z.array(TaskIdSchema).max(MAX_RESEARCH_REFS).default([]),
 });
 export type TaskCreateRequest = z.input<typeof TaskCreateRequestSchema>;
+
+/**
+ * POST /research (`team research add`, spec §17): a research task — the question is the whole
+ * ticket; no tier, paths or checks. 409 while `research.mode` is `off`.
+ */
+export const ResearchCreateRequestSchema = z.object({
+  project_id: ProjectIdSchema,
+  parent_id: TaskIdSchema.optional(),
+  title: z.string().min(1).max(200),
+  question: z.string().trim().min(1).max(8000),
+  priority: z.number().int().default(0),
+  queue: z.boolean().default(false),
+});
+export type ResearchCreateRequest = z.input<typeof ResearchCreateRequestSchema>;
+
+/**
+ * GET /research/:id (`team research show`): the research task and the receipt of its last
+ * accepted run (null until one finished). The candidate links were NOT checked by the service
+ * (only that they are https without credentials).
+ */
+export const ResearchDetailResponseSchema = z.object({
+  task: TaskSchema,
+  receipt: ResearchReceiptSchema.nullable(),
+  run_id: RunIdSchema.nullable(),
+});
+export type ResearchDetailResponse = z.infer<typeof ResearchDetailResponseSchema>;
 
 /** GET /tasks?project_id=&status=queued,running */
 export const TaskListQuerySchema = z.object({

@@ -39,6 +39,18 @@ describe('config/models.json', () => {
     expect(cfg.rules.quota.codex_low_utilization).toBe(0.8);
   });
 
+  it('oss_researcher (spec §17) uses only runners that can run web-only research runs', () => {
+    const cfg = parseModelsConfig(repoFile('config/models.json'));
+    const role = cfg.roles['oss_researcher']!;
+    expect(role).toMatchObject({ use: 'sonnet', slots: 2, enabled: true });
+    expect(role.fallback[0]).toBe('gpt-sol');
+    for (const alias of [role.use, ...role.fallback]) {
+      expect(['claude', 'codex']).toContain(cfg.models[alias]?.runner);
+    }
+    // the older code-reading role is untouched
+    expect(cfg.roles['researcher']).toMatchObject({ use: 'deepseek-flash', slots: 4 });
+  });
+
   it('fills defaults for a minimal config', () => {
     const cfg = parseModelsConfig(minimalModels());
     expect(cfg.rules.quota.when_claude_high).toEqual({});

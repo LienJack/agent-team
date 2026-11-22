@@ -3,13 +3,23 @@ import { Markdown } from '../../lib/markdown.js';
 import type { Tone } from '../../lib/format.js';
 import { Badge } from '../ui/badge.js';
 import { Empty } from '../ui/states.js';
+import { ResearchReceiptView } from './research-view.js';
 
-type Receipt = NonNullable<Run['receipt']>;
-type ReviewReceipt = Extract<Receipt, { verdict: unknown }>;
-type ImplReceipt = Exclude<Receipt, ReviewReceipt>;
+// The three receipt shapes, told apart by a field only they have (a research receipt also has
+// `status`, so `'status' in r` does not mean "impl"; same rule as @agent-team/schema's guards).
+export type Receipt = NonNullable<Run['receipt']>;
+export type ImplReceipt = Extract<Receipt, { files_changed: unknown }>;
+export type ReviewReceipt = Extract<Receipt, { verdict: unknown }>;
+export type ResearchReceipt = Extract<Receipt, { candidates: unknown }>;
 
+export function isImplReceipt(r: Receipt): r is ImplReceipt {
+  return 'files_changed' in r;
+}
 export function isReviewReceipt(r: Receipt): r is ReviewReceipt {
   return 'verdict' in r;
+}
+export function isResearchReceipt(r: Receipt): r is ResearchReceipt {
+  return 'candidates' in r;
 }
 
 const IMPL_STATUS: Record<ImplReceipt['status'], [string, Tone]> = {
@@ -108,7 +118,8 @@ export function FindingsList({ findings }: { findings: ReviewReceipt['findings']
 }
 
 export function ReceiptView({ receipt }: { receipt: Receipt }) {
-  if (!isReviewReceipt(receipt)) return <ImplReceiptView receipt={receipt} />;
+  if (isResearchReceipt(receipt)) return <ResearchReceiptView receipt={receipt} />;
+  if (isImplReceipt(receipt)) return <ImplReceiptView receipt={receipt} />;
   const [label, tone] = VERDICT[receipt.verdict];
   return (
     <div className="space-y-2">

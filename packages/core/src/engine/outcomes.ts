@@ -6,7 +6,7 @@ import { saveTask } from './records.js';
 
 // Task-level consequences of run outcomes. All run inside the caller's transaction.
 
-/** Stage a task returns to for another run of `kind`. */
+/** Stage a task returns to for another run of `kind` (research: `queued`). */
 export function stageFor(kind: RunKind): TaskStatus {
   return kind === 'review' ? 'review' : 'queued';
 }

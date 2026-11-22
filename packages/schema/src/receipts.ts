@@ -1,5 +1,11 @@
 import { z } from 'zod';
 import type { JsonSchema } from './common.js';
+import {
+  normalizeResearchReceipt,
+  ResearchReceiptOutputSchema,
+  ResearchReceiptSchema,
+  type ResearchReceipt,
+} from './research-receipt.js';
 
 /** Max length of a receipt summary (spec §6: ≤600 字). */
 export const RECEIPT_SUMMARY_MAX = 600;
@@ -47,13 +53,41 @@ export const ReviewReceiptSchema = z.object({
 });
 export type ReviewReceipt = z.infer<typeof ReviewReceiptSchema>;
 
-export const ReceiptSchema = z.union([ImplReceiptSchema, ReviewReceiptSchema]);
-export type Receipt = ImplReceipt | ReviewReceipt;
+export const ReceiptSchema = z.union([
+  ImplReceiptSchema,
+  ReviewReceiptSchema,
+  ResearchReceiptSchema,
+]);
+export type Receipt = ImplReceipt | ReviewReceipt | ResearchReceipt;
 
-export type ReceiptKind = 'impl' | 'review';
+export type ReceiptKind = 'impl' | 'review' | 'research';
+
+type ReceiptOf<K extends ReceiptKind> = K extends 'impl'
+  ? ImplReceipt
+  : K extends 'review'
+    ? ReviewReceipt
+    : ResearchReceipt;
 
 export function receiptSchemaFor(kind: ReceiptKind) {
-  return kind === 'impl' ? ImplReceiptSchema : ReviewReceiptSchema;
+  return kind === 'impl'
+    ? ImplReceiptSchema
+    : kind === 'review'
+      ? ReviewReceiptSchema
+      : ResearchReceiptSchema;
+}
+
+/**
+ * Which receipt a stored value is. A research receipt also has `status`, so `'status' in r` does
+ * not tell impl from research: research receipts are the ones with `candidates`.
+ */
+export function isResearchReceipt(receipt: Receipt | null | undefined): receipt is ResearchReceipt {
+  return receipt != null && 'candidates' in receipt;
+}
+export function isImplReceipt(receipt: Receipt | null | undefined): receipt is ImplReceipt {
+  return receipt != null && 'files_changed' in receipt;
+}
+export function isReviewReceipt(receipt: Receipt | null | undefined): receipt is ReviewReceipt {
+  return receipt != null && 'verdict' in receipt;
 }
 
 /**
@@ -80,12 +114,14 @@ function strictify(node: unknown): unknown {
  * every object has all properties required and `additionalProperties: false`.
  */
 export function receiptJsonSchema(kind: ReceiptKind): JsonSchema {
-  const raw = z.toJSONSchema(receiptSchemaFor(kind), { target: 'draft-2020-12', io: 'input' });
+  // research: the plain shape (the URL rule is checked by the service, not the model's dialect)
+  const schema = kind === 'research' ? ResearchReceiptOutputSchema : receiptSchemaFor(kind);
+  const raw = z.toJSONSchema(schema, { target: 'draft-2020-12', io: 'input' });
   return strictify(raw) as JsonSchema;
 }
 
 export type ParsedReceipt<K extends ReceiptKind> =
-  | { ok: true; receipt: K extends 'impl' ? ImplReceipt : ReviewReceipt }
+  | { ok: true; receipt: ReceiptOf<K> }
   | { ok: false; error: string };
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -100,6 +136,7 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
  * files are verified against git anyway.
  */
 export function normalizeReceipt(kind: ReceiptKind, value: unknown): unknown {
+  if (kind === 'research') return normalizeResearchReceipt(value);
   if (!isObject(value)) return value;
   const out: Record<string, unknown> = { ...value };
   const summary = out['summary'];

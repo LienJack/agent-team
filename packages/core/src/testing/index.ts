@@ -9,6 +9,8 @@ export {
   FakeRunner,
   implReceipt,
   reviewReceipt,
+  researchReceipt,
+  isResearchSpec,
   isReviewSpec,
   type FakeStep,
 } from './fake-runner.js';

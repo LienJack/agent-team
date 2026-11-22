@@ -6,7 +6,12 @@ import { runCli } from '../cli-driver.js';
 import { capture, parseHelpFlags } from '../process/capture.js';
 import { childEnv, findExecutable } from '../process/env.js';
 import { redactSecrets } from '../redact.js';
-import { CLAUDE_OPTIONAL_FLAGS, CLAUDE_REQUIRED_FLAGS, claudeArgs } from './args.js';
+import {
+  CLAUDE_OPTIONAL_FLAGS,
+  CLAUDE_REQUIRED_FLAGS,
+  CLAUDE_WEB_REQUIRED_FLAGS,
+  claudeArgs,
+} from './args.js';
 import { WORKER_GIT_ENV, type SandboxPolicy } from './sandbox.js';
 import { ClaudeStream } from './stream.js';
 
@@ -54,7 +59,14 @@ export class ClaudeRunner implements Runner, Resumable {
       runner: 'claude',
       available: false,
       credentials: 'unknown',
-      supports: { jsonSchema: false, resume: false, quota: false, effort: false, readOnly: false },
+      supports: {
+        jsonSchema: false,
+        resume: false,
+        quota: false,
+        effort: false,
+        readOnly: false,
+        webSearch: false,
+      },
       flags: [],
       problems: [problem],
     });
@@ -70,6 +82,7 @@ export class ClaudeRunner implements Runner, Resumable {
     const help = await capture(exe, [...prefix, '--help'], io);
     const found = parseHelpFlags(`${help.stdout}\n${help.stderr}`);
     if (found.has('--allowed-tools')) found.add('--allowedTools');
+    if (found.has('--disallowed-tools')) found.add('--disallowedTools');
     if (found.has('-p')) found.add('--print');
     const missing = CLAUDE_REQUIRED_FLAGS.filter((f) => !found.has(f));
     for (const f of missing) problems.push(`required flag ${f} not supported`);
@@ -105,6 +118,8 @@ export class ClaudeRunner implements Runner, Resumable {
         quota: true,
         effort: found.has('--effort'),
         readOnly: found.has('--allowedTools'),
+        // research runs (spec §17): WebSearch/WebFetch only, which needs `--tools`
+        webSearch: CLAUDE_WEB_REQUIRED_FLAGS.every((f) => found.has(f)),
       },
       flags: [...this.flags].sort(),
       problems: problems.map((p) => redactSecrets(p)),
@@ -118,6 +133,9 @@ export class ClaudeRunner implements Runner, Resumable {
     if (!caps.available || !cmd) {
       const kind = caps.credentials === 'missing' ? 'auth' : 'crash';
       return errorResult(kind, `claude unavailable: ${caps.problems.join('; ')}`);
+    }
+    if (spec.web === true && !caps.supports.webSearch) {
+      return errorResult('crash', 'claude cannot run research runs here (no --tools flag)');
     }
     const [exe, prefix] = cmd;
     let args: string[];

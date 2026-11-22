@@ -120,6 +120,38 @@ team receipt <task_id> # 最新回執
 任務的流程：`draft → queued → running → verifying → review → done`（旁支 `blocked`、`failed`、`cancelled`）。
 worktree 在 `~/RanoLabs/worktrees/<project>/<task_id>/`，分支 `team/<task_id>`；分支永遠保留，不會自動合併回主幹。
 
+## 調研（可選）
+
+規劃前先查有沒有可參考的開源專案（spec §17、ADR 0021）。調研是一種任務，不是每張單都跑的步驟：
+
+```sh
+# 建調研任務並排入（題目也可用 --question-file F 或 - 從 stdin）
+team research add demo --title "調研：SQLite 工作佇列" --queue \
+  --question "有哪些以 SQLite 為後端的 TypeScript 持久化工作佇列函式庫？"
+
+team research show <task_id>     # 建議、摘要、候選（名稱、連結、授權、適合度）
+
+# 實作單引用已完成的調研（可重複，最多 3 個、同專案）：回執會附在實作、修正、審查的提示裡
+team task add --project demo --title "加入工作佇列" --tier B --paths "src/queue/" \
+  --research <調研任務 id> --queue - <<'EOF'
+…
+EOF
+```
+
+- 調研 run 讀的是不可信的網頁，所以**拿不到專案**：工作目錄是空的 `DATA/research/<run_id>/`（run 結束即刪），沒有檔案或
+  shell 工具，只有網頁搜尋與抓取；提示只有題目。結果是一份有長度上限的回執，連結只檢查是 `https:` 且不含帳密，服務端
+  **不會**去連，看板與 CLI 都標「連結未經服務端驗證」。
+- 授權不是寬鬆授權（MIT、Apache-2.0、BSD、ISC）或不明的候選，worker 只能參考做法、不可複製程式碼（提示裡的規則）。
+- 角色 `oss_researcher`（預設 `sonnet`，替補 `gpt-sol`、`haiku`）。只有 probe 宣告 `webSearch` 的 runner 能跑：claude
+  （`--tools WebSearch,WebFetch`）、codex（`web_search="live"`、關掉 shell 等工具功能、拒讀整個檔案系統；實測仍會提供
+  `apply_patch` 與 collaboration 工具，見 ADR 0021）；dsh 不行（它的搜尋要
+  `DEEPSEEK_API_KEY` 進 worker），別名是 dsh 就跳過，全都不行時任務阻塞並說明。`team doctor --json` 看 `supports.webSearch`。
+- `config/service.json` 的 `research.mode`：`off`（調研入口與 `--research` 回 409）、`on_request`（預設：人要求才跑）、
+  `auto`（leader 遇到新子系統、選函式庫、協定或演算法設計時先調研）；`research.timeout_ms` 預設 10 分鐘。改了 mode，
+  leader 下次啟動會開新對話（系統提示帶入對應的一句）。
+- 看板：新增任務時可選「調研」；新增實作任務時可勾選同專案已完成的調研；抽屜顯示候選清單。MCP：`add_research`、
+  `show_research`。
+
 ## CLI 速查
 
 | 指令                                                                                              | 說明                                                                                       |
@@ -133,6 +165,9 @@ worktree 在 `~/RanoLabs/worktrees/<project>/<task_id>/`，分支 `team/<task_id
 | `team task list [--project P] [--status queued,running]` / `team task show <id>`                  | 列出／詳情                                                                                 |
 | `team task queue\|cancel\|retry <id>`                                                             | 排入／停止並取消／重試                                                                     |
 | `team task reassign <id> <role>`                                                                  | 改派角色（先檢查角色存在且啟用）                                                           |
+| `team task add … --research <task_id>`                                                            | 引用已完成的調研（可重複，最多 3 個）                                                      |
+| `team research add <project> --title T (--question Q \| --question-file F \| -) [--queue]`        | 建調研任務（`research.mode` 為 `off` 時 409）                                              |
+| `team research show <task_id>`                                                                    | 調研結果（連結未經服務端驗證）                                                             |
 | `team receipt <task_id>`                                                                          | 最新回執                                                                                   |
 | `team ask "<text>"`                                                                               | 對 leader 說話，等到回覆為止；Ctrl-C 只停止等待（訊息保留，回覆會出現在看板聊天）          |
 | `team leader reset`                                                                               | 開新的 leader 對話（例如換了 Claude 登入）                                                 |
@@ -142,7 +177,8 @@ worktree 在 `~/RanoLabs/worktrees/<project>/<task_id>/`，分支 `team/<task_id
 
 ## MCP（Claude／Codex 桌面版）
 
-工具：`ask_leader`、`status`、`list_attention`、`answer_attention`、`task_action`（細節見
+工具：`ask_leader`、`status`、`list_attention`、`answer_attention`、`task_action`、`add_research`、
+`show_research`（細節見
 [`apps/mcp/README.md`](apps/mcp/README.md)）。`/ABS/PATH/agent-team` 換成本 repo 的絕對路徑；資料目錄不在預設位置時
 加上 `AGENT_TEAM_HOME`。
 

@@ -153,6 +153,7 @@ describe('runners: codex argv', () => {
     expect(caps.problems).toEqual([
       'required codex exec flag --ignore-user-config not supported',
       'required codex exec flag --ignore-rules not supported',
+      'codex exec flag --disable not supported: no research runs',
     ]);
     const r = await runner.run(
       makeSpec(tmp.dir, { model: 'gpt-6.1-terra', dispatchId: 'd_fixture0003', writable: false }),

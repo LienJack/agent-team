@@ -1,6 +1,6 @@
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { makeBoardTask, makeState } from '../test/fixtures.js';
+import { makeBoardTask, makeResearchBoardTask, makeState } from '../test/fixtures.js';
 import { fakeClient, renderWithClient } from '../test/render.js';
 import { Board } from './board.js';
 
@@ -57,5 +57,29 @@ describe('TaskCard — estimated cost and waiting reason (validation 2026-11-21)
     renderWithClient(<Board state={makeState({ tasks: [task] })} />, fakeClient({}));
     expect(await screen.findByText('等待：與 t_alpha1 的 owned_paths 重疊')).toBeTruthy();
     expect(screen.getByText('≈<$0.01 估算')).toBeTruthy();
+  });
+});
+
+describe('TaskCard — research (spec §17)', () => {
+  it('badges a research task 調研 instead of its (unused) tier and shows no commit', async () => {
+    const research = makeResearchBoardTask({
+      status: 'running',
+      run_totals: { runs: 1, cost_usd: 0.02, cost_estimated: false, usage: {}, finished_ms: 0 },
+    });
+    renderWithClient(<Board state={makeState({ tasks: [research] })} />, fakeClient({}));
+    const card = (await screen.findByRole('button', { name: research.title })).closest('li')!;
+    expect(within(card).getByText('調研')).toBeTruthy();
+    expect(within(card).queryByText(/^Tier/)).toBeNull();
+    expect(within(card).queryByText('commit')).toBeNull();
+  });
+
+  it('an impl task citing research shows a subtle 參考 N hint next to its tier', async () => {
+    const task = makeBoardTask({ research_refs: ['t_r1', 't_r2'] });
+    renderWithClient(<Board state={makeState({ tasks: [task] })} />, fakeClient({}));
+    const card = (await screen.findByRole('button', { name: task.title })).closest('li')!;
+    expect(within(card).getByText('Tier C')).toBeTruthy();
+    const hint = within(card).getByText('參考 2');
+    expect(hint.getAttribute('title')).toBe('參考調研：t_r1、t_r2');
+    expect(within(card).queryByText('調研')).toBeNull();
   });
 });

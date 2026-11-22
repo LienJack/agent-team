@@ -91,6 +91,22 @@ export function latestReviewRun(runs: readonly Run[]): Run | undefined {
   return latest(runs.filter((r) => r.kind === 'review' && r.receipt !== null));
 }
 
+/**
+ * The research run whose receipt a research task shows: the latest accepted one (outcome ok,
+ * any reported status), the same rule as GET /api/research/:id (core `researchReceiptOf`).
+ */
+export function latestResearchRun(runs: readonly Run[]): Run | undefined {
+  return latest(
+    runs.filter(
+      (r) =>
+        r.kind === 'research' &&
+        r.outcome === 'ok' &&
+        r.receipt !== null &&
+        'candidates' in r.receipt,
+    ),
+  );
+}
+
 export function sortRunsNewestFirst(runs: readonly Run[]): Run[] {
   return [...runs].sort((a, b) => b.started_at.localeCompare(a.started_at));
 }

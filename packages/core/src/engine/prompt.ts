@@ -7,6 +7,10 @@ import type {
   Workspace,
 } from '@agent-team/schema';
 import type { ReviewDiff } from '../ports/git.js';
+import { bullet, dataBlock, inlineText } from './prompt-blocks.js';
+import { formatResearchRefs, RESEARCH_REF_RULE, type ResearchRef } from './prompt-research.js';
+
+export { dataBlock, inlineText } from './prompt-blocks.js';
 
 // Dispatch prompt (spec §7): fixed worker rules + ticket + receipt schema + dispatch_id
 // (+ recovery note after a restart, + fix notes for fix runs, + the diff for review runs).
@@ -30,32 +34,12 @@ export interface PromptInput {
   reviewDiff?: ReviewDiff | null;
   /** The person's answers to this task's attention items (worker questions), oldest first. */
   answers?: ReadonlyArray<{ question: string; answer: string }>;
+  /** Receipts of the done research tasks the task cites (`research_refs`; spec §17). */
+  research?: readonly ResearchRef[];
 }
 
 const code = (s: string) => `\`${s}\``;
 const paths = (task: Task) => task.owned_paths.map(code).join('、');
-
-/**
- * A delimited data block (M8): `<<<DATA name#dispatch>>>` … `<<<END name#dispatch>>>`. The tag
- * carries this run's dispatch id, which did not exist when the text was written (tickets,
- * receipts and diffs come from earlier steps), and any `<<<`/`>>>` inside the text is replaced,
- * so the payload can neither close its block early nor open a new one.
- */
-export function dataBlock(name: string, dispatchId: string, text: string): string {
-  const tag = `${name}#${dispatchId}`;
-  return `<<<DATA ${tag}>>>\n${defuse(text).replace(/\n+$/, '')}\n<<<END ${tag}>>>`;
-}
-
-/** Block markers in a payload become look-alikes that open or close nothing. */
-const defuse = (text: string) => text.replace(/<<</g, '‹‹‹').replace(/>>>/g, '›››');
-
-/**
- * Text that has to sit outside a data block (the task title on the header line): one line,
- * markers defused, so it can neither start a section of its own nor open or close a block.
- */
-export function inlineText(text: string): string {
-  return defuse(text.replace(/\s+/g, ' ').trim());
-}
 
 /** Rules every worker gets, writable or not (spec §7). */
 function commonRules(dispatchId: string): string[] {
@@ -90,10 +74,6 @@ function reviewRules(dispatchId: string): string[] {
     '沒有 must_fix 時 verdict 用 "pass"；有 must_fix 用 "needs_changes"；無法審查用 "blocked" 並在 summary 說明原因。',
     ...commonRules(dispatchId),
   ];
-}
-
-function bullet(lines: string[]): string {
-  return lines.map((l) => `- ${l}`).join('\n');
 }
 
 /** A code fence longer than any backtick run inside `text`. */
@@ -199,10 +179,13 @@ export function formatAnswers(
 /** Build the full prompt text handed to the runner. Pure. */
 export function buildPrompt(input: PromptInput): string {
   const { kind, task, project, workspace, dispatchId } = input;
+  const research = input.research ?? [];
+  const rules = kind === 'review' ? reviewRules(dispatchId) : implRules(task, dispatchId);
+  if (research.length > 0) rules.push(RESEARCH_REF_RULE);
   const sections: string[] = [
     `# 派工單 ${dispatchId}`,
     `任務 ${task.id}：${inlineText(task.title)}（tier ${task.tier}，專案 ${inlineText(project.name)}，類型 ${kind}）`,
-    `## 工作規則\n${bullet(kind === 'review' ? reviewRules(dispatchId) : implRules(task, dispatchId))}`,
+    `## 工作規則\n${bullet(rules)}`,
   ];
   if (task.recovery_note) {
     sections.push(`## 復原說明\n${task.recovery_note}`);
@@ -217,6 +200,7 @@ export function buildPrompt(input: PromptInput): string {
   }
   if (kind === 'review') sections.push(reviewScope(input));
   sections.push(`## 派工單原文\n\n${dataBlock('ticket', dispatchId, task.ticket_md.trim())}`);
+  if (research.length > 0) sections.push(formatResearchRefs(research, dispatchId));
   if (kind === 'review') {
     sections.push(acceptance(task, dispatchId));
     sections.push(formatReviewDiff(workspace, input.reviewDiff, dispatchId));

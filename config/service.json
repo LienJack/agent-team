@@ -19,6 +19,7 @@
   "checks": { "allow_unsandboxed": false },
   "runners": { "dsh": { "allow_unsandboxed": false } },
   "git": { "author": { "name": "agent-team", "email": "agent-team@localhost" } },
+  "research": { "mode": "on_request", "timeout_ms": 600000 },
   "paths": { "worktree_root": "~/RanoLabs/worktrees" },
   "engine": {
     "tick_ms": 5000,

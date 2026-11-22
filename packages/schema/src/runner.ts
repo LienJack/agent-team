@@ -39,6 +39,12 @@ export const RunSpecSchema = z.object({
   effort: EffortSchema.optional(),
   /** false = read-only tools only (review runs). */
   writable: z.boolean(),
+  /**
+   * Research run (spec §17): web search and fetch tools only — no file or shell tool, `cwd` is an
+   * empty directory, never the repository. Only runners whose probe reports
+   * `supports.webSearch` accept it; others refuse. Missing (older specs) = false.
+   */
+  web: z.boolean().optional(),
   /** Absolute `DATA/runs/<run_id>` directory for events.jsonl, stderr.log, prompt.md. */
   logDir: z.string().min(1),
   timeoutMs: PositiveIntSchema,
@@ -132,6 +138,13 @@ export const RunnerCapabilitiesSchema = z.object({
     quota: z.boolean(),
     effort: z.boolean(),
     readOnly: z.boolean(),
+    /**
+     * Can run `RunSpec.web` (research) runs (spec §17): web search/fetch without a shell, and
+     * every remaining tool confined to an empty, unreadable filesystem (claude: no file tool at
+     * all; codex: `apply_patch` remains, under a deny-all profile — docs/adr/0021). Unknown
+     * (never probed) counts as false.
+     */
+    webSearch: z.boolean(),
   }),
   /** CLI flags detected as supported; runners must not pass unsupported ones. */
   flags: z.array(z.string()),

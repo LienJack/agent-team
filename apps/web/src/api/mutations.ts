@@ -1,6 +1,7 @@
 import type { Task, TeamClient } from '@agent-team/client';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ACTION_LABELS, type TaskActionKind } from '../lib/actions.js';
+import type { NewTaskRequest } from '../lib/new-task.js';
 import { STATUS_LABELS } from '../lib/format.js';
 import { useUi } from '../store/ui.js';
 import { useClient } from './context.js';
@@ -51,5 +52,28 @@ export function useTaskAction() {
         qc.invalidateQueries({ queryKey: keys.state() }),
         qc.invalidateQueries({ queryKey: keys.task(req.id) }),
       ]),
+  });
+}
+
+/** POST /tasks or POST /research (spec §17), by the kind picked in the dialog. */
+export function createNewTask(client: TeamClient, req: NewTaskRequest): Promise<Task> {
+  return req.kind === 'research' ? client.createResearch(req.body) : client.createTask(req.body);
+}
+
+/**
+ * The new-task dialog's create call: success toasts what the server created and refetches the
+ * board; failure is left to the dialog (it stays open and shows the server's reason).
+ */
+export function useCreateTask() {
+  const client = useClient();
+  const qc = useQueryClient();
+  const toast = useUi((s) => s.toast);
+  return useMutation({
+    mutationFn: (req: NewTaskRequest) => createNewTask(client, req),
+    onSuccess: async (task, req) => {
+      const what = req.kind === 'research' ? '調研' : '';
+      toast('ok', `已建立${what}「${task.title}」（${STATUS_LABELS[task.status]}）`);
+      await qc.invalidateQueries({ queryKey: keys.state() });
+    },
   });
 }

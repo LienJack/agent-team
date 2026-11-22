@@ -9,9 +9,14 @@ import {
   type ClaudeProbe,
   type ClaudeTextResult,
 } from '@agent-team/runners';
-import { DATA_LAYOUT, MAX_SOCKET_PATH_BYTES, type ModelsConfig } from '@agent-team/schema';
+import {
+  DATA_LAYOUT,
+  MAX_SOCKET_PATH_BYTES,
+  type ModelsConfig,
+  type ResearchMode,
+} from '@agent-team/schema';
 import { LEADER_OPTIONAL_FLAGS, LEADER_REQUIRED_FLAGS, leaderArgs } from './args.js';
-import { LEADER_SYSTEM_PROMPT } from './prompt/system-v2.js';
+import { leaderSystemPrompt } from './prompt/system-v3.js';
 import { leaderSandboxSettings, leaderSocketPath } from './sandbox.js';
 import type { LeaderRuntime } from './types.js';
 
@@ -58,6 +63,11 @@ export function teamShim(dataDir: string, nodePath: string, teamEntry: string): 
     '    --ticket-file|--ticket-file=*)',
     '      echo "error: --ticket-file is not available to the leader" >&2',
     `      echo "hint: give the ticket on stdin: team task add ... - <<'EOF'" >&2`,
+    '      exit 2 ;;',
+    // the same for the research question: reading a local file is not the leader's to do
+    '    --question-file|--question-file=*)',
+    '      echo "error: --question-file is not available to the leader" >&2',
+    `      echo "hint: give the question with --question or on stdin: team research add ... - <<'EOF'" >&2`,
     '      exit 2 ;;',
     '    -*) ;;',
     '    *) if [ -z "$cmd" ]; then cmd="$arg"; fi ;;',
@@ -132,6 +142,8 @@ export class LeaderProcess {
   constructor(
     private readonly runtime: LeaderRuntime,
     private readonly dataDir: string,
+    /** `service.json` research.mode: one sentence of the system prompt (spec §17). */
+    private readonly researchMode: ResearchMode = 'on_request',
   ) {
     this.paths = leaderPaths(dataDir);
   }
@@ -210,7 +222,7 @@ export class LeaderProcess {
       effort: input.model.effort,
       sessionId: input.sessionId,
       resume: input.resume,
-      systemPrompt: LEADER_SYSTEM_PROMPT,
+      systemPrompt: leaderSystemPrompt(this.researchMode),
       flags: probe.flags,
       settings: this.settings,
     });

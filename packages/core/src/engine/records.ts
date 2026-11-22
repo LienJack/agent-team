@@ -23,7 +23,7 @@ export function saveTask(
   reason: string | null = null,
 ): Task {
   const to = patch.status ?? task.status;
-  if (to !== task.status && !canTransition(task.status, to)) {
+  if (to !== task.status && !canTransition(task.status, to, task.kind)) {
     throw new InvalidTransitionError(task.id, task.status, to);
   }
   const next: Task = { ...task, ...patch, updated_at: tx.now };

@@ -26,7 +26,7 @@ import {
 import { markDelivered, persistReply, storedAnswer, unansweredMessages } from './persist.js';
 import { clearStarted, inputKey, markStarted, turnSeed, wasStarted } from './replay.js';
 import { LeaderProcess, leaderModel } from './process.js';
-import { LEADER_PROMPT_VERSION } from './prompt/system-v2.js';
+import { leaderPromptVersion } from './prompt/system-v3.js';
 import { resumeBrief } from './resume.js';
 import {
   leaderStatus,
@@ -60,9 +60,11 @@ interface Running {
 export function createLeader(deps: LeaderDeps): LeaderImpl {
   const { engine, store, clock, logger, service } = deps;
   const runtime = deps.runtime ?? { enabled: false };
-  const proc = runtime.enabled ? new LeaderProcess(runtime, deps.dataDir) : undefined;
+  const mode = service.research.mode;
+  const proc = runtime.enabled ? new LeaderProcess(runtime, deps.dataDir, mode) : undefined;
+  const promptVersion = leaderPromptVersion(mode);
 
-  let conv: ConversationState = freshConversation(randomUUID(), LEADER_PROMPT_VERSION);
+  let conv: ConversationState = freshConversation(randomUUID(), promptVersion);
   let offline: Offline | undefined = proc
     ? undefined
     : {
@@ -195,7 +197,7 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
   }
 
   function newSession(): void {
-    conv = freshConversation(randomUUID(), LEADER_PROMPT_VERSION, { quota: conv.quota });
+    conv = freshConversation(randomUUID(), promptVersion, { quota: conv.quota });
     save();
   }
 
@@ -422,7 +424,7 @@ export function createLeader(deps: LeaderDeps): LeaderImpl {
     },
 
     start: async () => {
-      const loaded = loadConversation(store.kv, LEADER_PROMPT_VERSION, randomUUID);
+      const loaded = loadConversation(store.kv, promptVersion, randomUUID);
       conv = loaded.state;
       // a login problem is retried on every start; a rate limit keeps its reset time
       if (conv.unavailable?.reason === 'auth') conv.unavailable = null;

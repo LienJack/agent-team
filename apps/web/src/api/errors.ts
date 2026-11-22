@@ -50,6 +50,19 @@ export function describeError(err: unknown): ErrorView {
   };
 }
 
+/**
+ * A failed create in the new-task dialog. The only 409 of POST /research (and of POST /tasks
+ * with `research_refs`) is the research stage being off (spec §17), so say that first; the
+ * server's message and hint stay.
+ */
+export function describeCreateError(err: unknown, research: boolean): ErrorView {
+  const view = describeError(err);
+  if (research && err instanceof TeamApiError && err.code === 'conflict') {
+    return { ...view, title: '調研階段已關閉（service.json 的 research.mode 為 off）' };
+  }
+  return view;
+}
+
 /** One line for toasts: title plus the server message. */
 export function errorLine(err: unknown): string {
   const view = describeError(err);

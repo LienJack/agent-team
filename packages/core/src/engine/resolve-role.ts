@@ -23,6 +23,12 @@ export interface ResolveRoleOptions {
    * until the trial closes or re-opens the circuit.
    */
   trialBusy?: ReadonlySet<string>;
+  /**
+   * Research runs (spec §17): only aliases whose runner can run web-only runs qualify
+   * (`supports.webSearch` of its last probe; unknown = no). Without this option every runner
+   * qualifies.
+   */
+  webSearch?: (runner: RunnerName) => boolean;
 }
 
 /** Whether a runner's circuit is half-open (opened once, the open window has passed). */
@@ -49,7 +55,11 @@ export interface ResolvedModel {
 export interface UnresolvedModel {
   ok: false;
   role: string;
-  reason: 'unknown_role' | 'role_disabled' | 'no_candidate';
+  /**
+   * `no_candidate`: every alias is cooling down/unavailable right now (retry later);
+   * `no_web_search`: no alias of the role can run research runs at all (spec §17).
+   */
+  reason: 'unknown_role' | 'role_disabled' | 'no_candidate' | 'no_web_search';
   /** Earliest time a skipped candidate becomes available again, if known. */
   retryAt: string | null;
   skipped: Array<{ alias: string; reason: string }>;
@@ -121,6 +131,7 @@ export function resolveRole(
 
   const exclude = new Set(options.excludeAliases ?? []);
   let retryAt: string | null = null;
+  let webCapable = 0;
   for (const { alias, via } of candidates) {
     const model = models.models[alias];
     if (!model) {
@@ -136,6 +147,11 @@ export function resolveRole(
       skipped.push({ alias, reason: 'not_a_text_runner' });
       continue;
     }
+    if (options.webSearch && !options.webSearch(runner.data)) {
+      skipped.push({ alias, reason: 'no_web_search' });
+      continue;
+    }
+    webCapable++;
     const blocked = blockedUntil(quotaState[runner.data], now, options.trialBusy ?? new Set());
     if (blocked) {
       skipped.push({ alias, reason: blocked.reason });
@@ -154,5 +170,7 @@ export function resolveRole(
     if (model.effort !== undefined) resolved.effort = model.effort;
     return resolved;
   }
-  return { ok: false, role, reason: 'no_candidate', retryAt, skipped };
+  // research: nothing to wait for when no alias of the role has a web-capable runner
+  const reason = options.webSearch && webCapable === 0 ? 'no_web_search' : 'no_candidate';
+  return { ok: false, role, reason, retryAt, skipped };
 }

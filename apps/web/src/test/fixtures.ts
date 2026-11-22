@@ -31,10 +31,12 @@ export function makeTask(over: Partial<Task> = {}): Task {
     id: 't_1',
     project_id: 'p_demo',
     parent_id: null,
+    kind: 'impl',
     title: '加入 a 功能',
     tier: 'C',
     ticket_md: '# 派工單',
     owned_paths: ['src/a/'],
+    research_refs: [],
     priority: 0,
     status: 'draft',
     impl_role: 'impl_C',
@@ -93,6 +95,60 @@ export function makeRun(over: Partial<Run> = {}): Run {
     ended_at: '2026-11-20T08:02:00.000Z',
     ...over,
   };
+}
+
+/** A research task (spec §17): no paths, role oss_researcher, the question is the ticket. */
+export function makeResearchTask(over: Partial<Task> = {}): Task {
+  return makeTask({
+    id: 't_r1',
+    kind: 'research',
+    title: '調研：CRDT 函式庫',
+    ticket_md: '有哪些適合瀏覽器的 CRDT 函式庫？',
+    owned_paths: [],
+    impl_role: 'oss_researcher',
+    ...over,
+  });
+}
+
+export function makeResearchBoardTask(over: Partial<BoardTask> = {}): BoardTask {
+  return makeBoardTask({ ...makeResearchTask(over), ...over });
+}
+
+export type ResearchReceipt = Extract<NonNullable<Run['receipt']>, { candidates: unknown }>;
+
+export function makeResearchReceipt(over: Partial<ResearchReceipt> = {}): ResearchReceipt {
+  return {
+    dispatch_id: 'd_r1',
+    status: 'done',
+    summary: '比較了兩個函式庫。<b>粗體</b>',
+    candidates: [
+      {
+        name: 'yjs',
+        url: 'https://github.com/yjs/yjs',
+        license: 'MIT',
+        fit: 'high',
+        borrow: '共享型別與更新編碼',
+        caveats: '文件分散',
+      },
+    ],
+    recommendation: 'adopt_dependency',
+    needs_leader: '',
+    ...over,
+  };
+}
+
+/** A finished research run (no workspace) carrying `receipt`. */
+export function makeResearchRun(over: Partial<Run> = {}): Run {
+  return makeRun({
+    id: 'r_r1',
+    task_id: 't_r1',
+    workspace_id: null,
+    dispatch_id: 'd_r1',
+    kind: 'research',
+    role: 'oss_researcher',
+    receipt: makeResearchReceipt(),
+    ...over,
+  });
 }
 
 export function makeAttention(over: Partial<Attention> = {}): Attention {

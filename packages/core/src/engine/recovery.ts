@@ -63,7 +63,8 @@ export function abandonLiveRuns(
   const blockedTasks: string[] = [];
   const error = why === 'restart' ? 'abandoned: service restarted' : 'abandoned: service stopped';
   for (const run of tx.r.runs.list({ states: ['starting', 'running'] })) {
-    const unconfirmed = fates.get(run.id) === 'unconfirmed';
+    // a research run has no worktree a leftover worker could still change: simply requeued
+    const unconfirmed = fates.get(run.id) === 'unconfirmed' && run.kind !== 'research';
     const pid = run.pid === null ? 'pid unknown' : `pid ${run.pid}`;
     finishRun(tx, run, {
       state: 'abandoned',
@@ -98,7 +99,9 @@ export function abandonLiveRuns(
         status: run.kind === 'review' ? task.status : 'queued',
         current_run_id: null,
         retry_at: null,
-        recovery_note: recoveryNoteFor(run.id, run.dispatch_id, run.kind),
+        // the research prompt is the question alone: nothing in a worktree to resume from
+        recovery_note:
+          run.kind === 'research' ? null : recoveryNoteFor(run.id, run.dispatch_id, run.kind),
       },
       why === 'restart'
         ? `recovered after restart (run ${run.id} abandoned)`
@@ -135,7 +138,7 @@ export async function recover(ctx: EngineContext): Promise<RecoveryReport> {
     if (!task || isTerminalTaskStatus(task.status)) continue;
     const fate = await workerFate(ctx, run);
     fates.set(run.id, fate);
-    if (fate === 'unconfirmed') stoppedUnconfirmed.push(run);
+    if (fate === 'unconfirmed' && run.kind !== 'research') stoppedUnconfirmed.push(run);
   }
   const terminatedRuns = [...fates].filter(([, f]) => f === 'terminated').map(([id]) => id);
   const report = ctx.transact((tx) => {

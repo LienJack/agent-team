@@ -4,7 +4,8 @@
     "要換模型版本：改 models 裡該別名的 model 欄位，所有用到它的角色一起生效。",
     "runner: claude = claude -p（訂閱額度）；codex = Codex SDK（訂閱額度）；dsh = dsh headless 經 OpenRouter（按量計費）；jev = 判定端點，不產生文字。",
     "price 為 OpenRouter 公開牌價（美元／百萬 token，輸入／輸出），抓取日 2026-11-21；claude 與 codex 走訂閱時不按此計費，僅供比較。",
-    "evidence 是排名依據的摘要；TB4 = Terminal-Bench 4.0，Arena = Code Arena WebDev，AA = Artificial Analysis 指數，Req = Requesty 129 題私有測試。"
+    "evidence 是排名依據的摘要；TB4 = Terminal-Bench 4.0，Arena = Code Arena WebDev，AA = Artificial Analysis 指數，Req = Requesty 129 題私有測試。",
+    "oss_researcher 跑調研任務（spec §17）：只用網頁搜尋與抓取、拿不到專案，只能用 webSearch 能力的 runner（claude、codex）；dsh 的別名會被跳過，所以不要把 dsh 放進它的 use／fallback。"
   ],
   "updated": "2026-11-21",
 
@@ -47,6 +48,7 @@
 
     "hub_summarizer": { "use": "deepseek-flash", "fallback": ["glm-flash", "haiku"],           "slots": 2, "desc": "把 leader 的輸出整理成手機短訊息" },
     "researcher":     { "use": "deepseek-flash", "fallback": ["glm-flash", "haiku"],           "slots": 4, "desc": "查找程式碼、讀文件、彙整資料" },
+    "oss_researcher": { "use": "sonnet",         "fallback": ["gpt-sol", "haiku"],             "slots": 2, "desc": "規劃前調研可參考的開源專案：只用網頁搜尋與抓取，不碰專案的程式碼" },
 
     "gate":           { "use": "jev", "enabled": false, "fallback": ["deepseek-flash"],        "slots": 4, "desc": "是非／選項類判定：任務分級複核、回執與變更是否相符、重試或停止" }
   },

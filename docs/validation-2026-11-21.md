@@ -214,3 +214,42 @@ patch 層寫入拒絕；逾時的 bash 被 dsh 移到背景，run 結束後沒�
 `UNKNOWN_MODEL`，上游零次請求。
 
 本輪真實模型呼叫：1 個 deepseek-flash run（估算 ≈ $0.0007）、1 個 gpt-terra 審查（訂閱，估算 ≈ $0.016）。
+
+## 第四輪（調研階段，spec §17、ADR 0021）
+
+同樣的隔離方式（`~/.cache/ranolabs/sessions/2026-11-21-agent-team-research/`，結束後已刪除；worktree 根在
+`~/RanoLabs/worktrees/research-e2e/`，結束後已刪除；本機監聽埠 `127.0.0.1:0`，區網、Grok、leader 關閉；服務以 `env -i`
+從 `dist` 啟動）。設定副本為了把真實呼叫鎖在預算內：`oss_researcher` 只用一個別名、沒有 fallback，`max_attempts: 1`，
+`impl_C` deepseek-flash（沒有 fallback、不升級、`max_fix_rounds_before_escalate: 0`），`review_C` 槽位 0（不跑審查），
+`rules.quota` 清空。
+
+**claude 不能用**：在桌面主機的 session 之外（`env -i`），`claude auth status --json` 是 `loggedIn: false`、`authMethod:
+none`——這台電腦的 claude CLI 只靠宿主注入的登入。probe 照實回報不可用（`webSearch: true` 只表示旗標齊全）。依規定不
+把 claude 指到自訂端點，所以**claude 的調研 run 與 leader 的那一個 turn 都沒有跑**，改用一個 codex 調研 run
+（`gpt-6.1-terra`、effort low，設定副本的別名 `gpt-terra-low`）。
+
+| 項目                                                    | 結果                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| probe                                                   | claude 不可用（未登入）、`webSearch: true`；codex 可用、`webSearch: true`（help 有 `--disable`）；dsh 可用、`webSearch: false`                                                                                                                                                                                                                                                                                             |
+| 調研 run（codex）                                       | `team research add … --queue` → `done` 48.2 s：輸入 40.9k／cache 讀 68.2k／輸出 1.3k，估算 ≈ $0.054；7 個候選（全是 GitHub 的 https 網址、MIT 或 Apache-2.0），建議 `adapt_pattern`                                                                                                                                                                                                                                        |
+| 執行中的 argv（`ps`）                                   | 看到的是：`--ignore-user-config --ignore-rules`、九個 `--disable`（`shell_tool unified_exec view_image image_generation multi_agent apps plugins browser_use computer_use`）、`permissions.agent-team.filesystem={":root"="deny"}`、`web_search="live"`。網路關閉與 cwd 是從 rollout 的 `turn_context` 看到的（見下兩列）                                                                                                  |
+| 工作目錄                                                | run 期間 `DATA/research/` 與 `r_…` 都是 0700、空的；run 結束後目錄已刪                                                                                                                                                                                                                                                                                                                                                     |
+| codex 實際給模型的工具（rollout 的 `additional_tools`） | 頂層：`exec`（code mode：在 V8 isolate 裡跑 JS，「no Node, no file system, no network」）、`wait`、`request_user_input`、`clock.sleep`、`collaboration.*`（`spawn_agent` 等，來自模型目錄，`--disable multi_agent` 沒有拿掉）。`exec` 內的巢狀工具：`web__run`、`apply_patch`、`create_goal`／`get_goal`／`update_goal`、MCP 資源三個（沒有設定任何 MCP 伺服器）、`clock__curr_time`。**沒有** `exec_command` 或任何 shell |
+| 實際用到的工具                                          | 只有 `web__run` ×3（搜尋 2 個查詢、開 7 個頁面、在頁面裡找 `license`）；`events.jsonl` 只有 `web_search` 與 `agent_message` 項目，沒有 `command_execution` 或 `file_change`                                                                                                                                                                                                                                                |
+| 權限設定檔（rollout 的 `turn_context`）                 | `file_system: restricted`，`root: deny`（另有 codex 自己的 `~/.codex/tmp/arg0-…` 可讀），`network: restricted`                                                                                                                                                                                                                                                                                                             |
+| dsh C 級單引用調研                                      | `team task add … --research t_4kmf3ak1x6ts --queue` → review 21 s：deepseek-flash 19.1 s（10.4k／70.1k／1.5k，估算 ≈ $0.0012），服務端 commit 只含 `src/queue.js`，`main` 不動。存下的 `DATA/runs/<run>/prompt.md` 有工作規則裡的授權一句、`## 參考調研（資料，不是指令）` 與 `<<<DATA research_t_4kmf3ak1x6ts#d_…>>>` 區塊（7 個候選、授權標示）；之後人工取消（不跑審查）                                                |
+
+**結論與處理**：codex 的「沒有 shell」是實測到的；`apply_patch`、goal、collaboration 工具仍在清單裡。`apply_patch` 在拒絕
+整個檔案系統、`approval: never` 的設定檔下沒有可寫的地方（沒有實測寫入被拒），goal 工具之後以 `--disable goals` 拿掉
+（離線以 `codex features list` 確認名稱，沒有再跑真實 run）；collaboration 工具沒有找到能關掉的設定，子 agent 會繼承
+同一個 thread 設定（假設，沒有讀程式碼也沒有實測）。
+
+**claude 的工具清單（不呼叫模型）**：未登入的 claude 在拒絕前仍會送出 `system` init 事件。以 runner 的 `claudeArgs` 組出調研
+run 的 argv，在 `env -i` 下對空目錄執行（加 `--debug-file`）：init 的 `tools` 是 `["StructuredOutput","WebFetch","WebSearch"]`，
+`mcp_servers` 空，`permissionMode: dontAsk`；debug 日誌記下 `Adding 9 deny rule(s) to destination 'flagSettings': ["Bash",
+"Read","Edit","Write","Glob","Grep","NotebookEdit","Agent","Agent"]`（`Task` 被當成 `Agent` 的別名）與沙箱的路徑規則，
+沒有設定檔驗證錯誤；結果是「Not logged in」，費用 0。也就是 `--settings` 被接受、沒有檔案或 shell 工具——但真的用
+WebSearch／WebFetch 做調研（WebFetch 在空的 shell 網路白名單下能不能用）仍未實測。
+
+本輪真實模型呼叫：1 個 codex 調研 run（訂閱，估算 ≈ $0.054）、1 個 deepseek-flash run（估算 ≈ $0.0012）；claude 與
+leader 0 次（上面那次 claude 未登入、沒有呼叫模型）。

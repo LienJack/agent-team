@@ -6,6 +6,105 @@
 import type { components } from './components.js';
 
 export interface operations_part3 {
+  getLeaderMessage: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The message, its reply, the leader status */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            message: components['schemas']['Message'];
+            reply: components['schemas']['Message'] | null;
+            leader: {
+              /** @enum {string} */
+              state: 'idle' | 'busy' | 'offline';
+              /** Format: date-time */
+              last_activity_at: string | null;
+              available?: boolean;
+              /** @enum {string|null} */
+              reason?: 'disabled' | 'not_installed' | 'auth' | 'rate_limit' | null;
+              hint?: string | null;
+              /** Format: date-time */
+              until?: string | null;
+              queued?: number;
+              context_tokens?: number | null;
+              quota?: {
+                utilization: number | null;
+                /** Format: date-time */
+                resets_at: string | null;
+                exhausted: boolean;
+              } | null;
+            };
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      404: components['responses']['Error'];
+      500: components['responses']['Error'];
+    };
+  };
+  resetLeader: {
+    parameters: {
+      query?: never;
+      header?: {
+        'Idempotency-Key'?: string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The new session */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            session_id: string;
+            leader: {
+              /** @enum {string} */
+              state: 'idle' | 'busy' | 'offline';
+              /** Format: date-time */
+              last_activity_at: string | null;
+              available?: boolean;
+              /** @enum {string|null} */
+              reason?: 'disabled' | 'not_installed' | 'auth' | 'rate_limit' | null;
+              hint?: string | null;
+              /** Format: date-time */
+              until?: string | null;
+              queued?: number;
+              context_tokens?: number | null;
+              quota?: {
+                utilization: number | null;
+                /** Format: date-time */
+                resets_at: string | null;
+                exhausted: boolean;
+              } | null;
+            };
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      500: components['responses']['Error'];
+      503: components['responses']['Error'];
+    };
+  };
   listAttention: {
     parameters: {
       query?: {

@@ -100,7 +100,8 @@ export function createTestService(options: TestServiceOptions = {}): TestService
     codex: new FakeRunner('codex'),
     dsh: new FakeRunner('dsh'),
   };
-  for (const runner of Object.values(runners)) registry.register(runner);
+  // probed (like the real registry after startup): research runs need `supports.webSearch`
+  for (const runner of Object.values(runners)) registry.register(runner, runner.probeResult);
   const printed: string[] = [];
   const logger = options.logger ?? noopLogger;
   const env = createEnvReader({ file: envPath, processEnv: {} });

@@ -1,5 +1,11 @@
 import type { Clock, Store } from '@agent-team/core';
-import type { Attention, ImplReceipt, ReviewReceipt, Run, Task } from '@agent-team/schema';
+import {
+  isResearchReceipt,
+  isReviewReceipt,
+  type Attention,
+  type Run,
+  type Task,
+} from '@agent-team/schema';
 import { LEADER_RECEIPTS_CURSOR_KEY } from './types.js';
 
 // GET /api/resume (spec §9): a status summary built without any model, for a new leader
@@ -22,20 +28,20 @@ function quoted(text: string, max = 160): string {
   return `「${clip(text.replace(/[「」[\]]/g, ' '), max)}」`;
 }
 
-function isReview(receipt: ImplReceipt | ReviewReceipt): receipt is ReviewReceipt {
-  return 'verdict' in receipt;
-}
-
 function taskLine(task: Task, run: Run | undefined): string {
   const runPart = run
     ? ` — ${run.kind} run \`${run.id}\`（${run.role}／${run.model_alias}，${run.state}，開始 ${run.started_at}）`
     : '';
-  return `- \`${task.id}\` [${task.status}] ${clip(task.title, 80)}（${task.impl_role}）${runPart}`;
+  const kind = task.kind === 'research' ? '調研 ' : '';
+  return `- \`${task.id}\` [${task.status}] ${kind}${clip(task.title, 80)}（${task.impl_role}）${runPart}`;
 }
 
 function receiptLine(run: Run): string {
   const receipt = run.receipt!;
-  if (isReview(receipt)) {
+  if (isResearchReceipt(receipt)) {
+    return `- \`${run.task_id}\` \`${run.id}\` research：${receipt.status}（${receipt.recommendation}，${receipt.candidates.length} 個候選；詳見 \`team research show ${run.task_id}\`）— worker 摘要 ${quoted(receipt.summary)}`;
+  }
+  if (isReviewReceipt(receipt)) {
     const mustFix = receipt.findings.filter((f) => f.severity === 'must_fix').length;
     return `- \`${run.task_id}\` \`${run.id}\` review：${receipt.verdict}（must_fix ${mustFix}）— worker 摘要 ${quoted(receipt.summary)}`;
   }

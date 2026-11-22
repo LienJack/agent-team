@@ -51,6 +51,7 @@ export function testModelsInput(): ModelsConfigInput {
       review_B: { use: 'sonnet', fallback: ['gpt-astra', 'kimi-pro'], slots: 2 },
       review_C: { use: 'gpt-sol', fallback: ['kimi-pro', 'sonnet'], slots: 2 },
       gate: { use: 'jev', enabled: false, fallback: ['deepseek-flash'], slots: 1 },
+      oss_researcher: { use: 'sonnet', fallback: ['deepseek-flash', 'gpt-sol'], slots: 2 },
     },
     rules: {
       max_fix_rounds_before_escalate: 2,
@@ -75,6 +76,7 @@ export function testEngineConfig(overrides: Partial<EngineConfig> = {}): EngineC
   return {
     models: testModelsConfig(),
     engine: defaultServiceConfig().engine,
+    research: defaultServiceConfig().research,
     dataDir: '/data',
     worktreeRoot: '/worktrees',
     notifications: true,
@@ -102,10 +104,12 @@ export function sampleTask(overrides: Partial<Task> = {}): Task {
     id: 't_000001',
     project_id: 'p_000001',
     parent_id: null,
+    kind: 'impl',
     title: '加一個功能',
     tier: 'C',
     ticket_md: '# 派工單\n做一件事',
     owned_paths: ['src/feature/'],
+    research_refs: [],
     priority: 0,
     status: 'queued',
     impl_role: 'impl_C',

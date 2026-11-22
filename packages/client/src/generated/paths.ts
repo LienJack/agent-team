@@ -283,6 +283,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/research': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Create a research task (draft, or queued with `queue: true`); 409 when research is off */
+    post: operations['createResearch'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/research/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** A research task and the receipt of its last accepted run (links not verified by the service) */
+    get: operations['getResearch'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/leader/messages': {
     parameters: {
       query?: never;
