@@ -43,6 +43,7 @@ function researchLines(event: ResearchEvent, title: string): string {
   const body = [
     `建議：${d.recommendation}（${RECOMMENDATION_LABEL[d.recommendation]}）`,
     `摘要：${clip(d.summary, 300)}`,
+    ...(d.note ? [`備註：${clip(d.note, 300)}`] : []),
     ...d.candidates.map(
       (c, i) =>
         `${i + 1}. ${clip(c.name, 80)} — ${clip(c.url, 200)}（授權 ${clip(c.license, 40)}，適合度 ${c.fit}）`,

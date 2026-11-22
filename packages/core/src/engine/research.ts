@@ -216,15 +216,13 @@ export function applyResearchReceipt(
     return;
   }
   finishRun(tx, run, { ...fields, state: 'succeeded', outcome: 'ok', receipt });
-  if (receipt.needs_leader.trim() !== '') {
-    openAttention(ctx, tx, {
-      task_id: task.id,
-      kind: 'question',
-      question: receipt.needs_leader.trim(),
-      options: [],
-    });
-  }
+  const note = receipt.needs_leader.trim();
   if (receipt.status !== 'done') {
+    // only a run that stopped asks a question; a finished run's remark rides on the event below
+    // (an attention item on a done task would be superseded at once)
+    if (note !== '') {
+      openAttention(ctx, tx, { task_id: task.id, kind: 'question', question: note, options: [] });
+    }
     blockTask(ctx, tx, task, `${WORKER_REPORT_BLOCK}${receipt.status}：${receipt.summary}`);
     return;
   }
@@ -239,6 +237,7 @@ export function applyResearchReceipt(
         license,
         fit,
       })),
+      ...(note === '' ? {} : { note }),
     },
     { task_id: task.id, run_id: run.id },
   );

@@ -138,6 +138,8 @@ export const EVENT_DATA_SCHEMAS = {
     candidates: z.array(
       z.object({ name: z.string(), url: z.string(), license: z.string(), fit: ResearchFitSchema }),
     ),
+    /** The worker's `needs_leader` on a finished run: a remark, not a question that blocks. */
+    note: z.string().optional(),
   }),
 
   'attention.opened': z.object({

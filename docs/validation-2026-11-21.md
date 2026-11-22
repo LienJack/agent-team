@@ -267,4 +267,4 @@ leader 0 次（上面那次 claude 未登入、沒有呼叫模型）。
 
 未觀察：`research.completed` 進 leader 摘要（為了不超過兩個 leader 回合，摘要視窗設成 1 小時後停止服務）。
 提示規則是否就是第二次成功的原因只有一個樣本，且同時換了新的資料目錄。
-已知小問題：`done` 的調研回執若 `needs_leader` 非空，會開一筆待決事項並立刻被標為 superseded。
+已修正：`done` 的調研回執若 `needs_leader` 非空，不再開待決事項，改以 `research.completed` 的 `note` 帶給 leader 與看板。

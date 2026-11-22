@@ -314,6 +314,23 @@ describe('§17 research tasks: receipt and completion', () => {
     expect(h.store.runs.list({ task_id: task.id })).toHaveLength(2);
   });
 
+  it('done with needs_leader → no attention item; the note rides on research.completed', async () => {
+    const h = createTestEngine();
+    h.runners.claude.script({
+      result: (spec) => ({
+        final: researchReceipt(spec, { needs_leader: '兩個候選都停止維護了' }),
+      }),
+    });
+    const task = research(h);
+    await h.engine.runUntilIdle();
+    expect(h.get(task.id).status).toBe('done');
+    expect(h.store.attention.list({ task_id: task.id })).toHaveLength(0);
+    const done = h.store.events
+      .listAfter(0)
+      .find((e) => e.type === 'research.completed' && e.task_id === task.id);
+    expect(done?.data).toMatchObject({ note: '兩個候選都停止維護了' });
+  });
+
   it('a rate limit cools the runner down and requeues without using an attempt', async () => {
     const h = createTestEngine();
     h.runners.claude.script({
