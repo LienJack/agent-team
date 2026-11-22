@@ -92,6 +92,13 @@ export class RequestInProgressError extends TeamError {
   }
 }
 
+/** An external service the request needs is unreachable or failed (e.g. MemOS; HTTP 503). */
+export class UnavailableError extends TeamError {
+  constructor(message: string, hint?: string) {
+    super('unavailable', message, hint);
+  }
+}
+
 export function errorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return typeof err === 'string' ? err : JSON.stringify(err);

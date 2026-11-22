@@ -6,7 +6,14 @@ import {
   PositiveIntSchema,
   RunnerNameSchema,
 } from './common.js';
-import { OutboxIdSchema, RunIdSchema, TaskIdSchema, WorkspaceIdSchema } from './ids.js';
+import {
+  OutboxIdSchema,
+  ProjectIdSchema,
+  RunIdSchema,
+  TaskIdSchema,
+  WorkspaceIdSchema,
+} from './ids.js';
+import { MemorySourceSchema } from './memory.js';
 import { RunSpecSchema } from './runner.js';
 
 // ------------------------------------------------------------------ effects
@@ -19,6 +26,7 @@ export const EFFECT_KINDS = [
   'workspace.remove',
   'workspace.rebuild',
   'outbox.send',
+  'memory.write',
 ] as const;
 export const EffectKindSchema = z.enum(EFFECT_KINDS);
 export type EffectKind = z.infer<typeof EffectKindSchema>;
@@ -51,6 +59,19 @@ export const EffectPayloadSchemas = {
     outbox_id: OutboxIdSchema,
     task_id: TaskIdSchema.nullable(),
     lane: z.string().min(1).max(300).optional(),
+  }),
+  /**
+   * Store one item in the project's memory (spec §18); key = the source id (task, attention item
+   * or note), so a source is written at most once. All of them share the lane `memory`. The text
+   * is composed, redacted and capped when the effect is stored.
+   */
+  'memory.write': z.object({
+    project_id: ProjectIdSchema,
+    source: MemorySourceSchema,
+    source_id: z.string().min(1),
+    task_id: TaskIdSchema.nullable(),
+    text: z.string().min(1),
+    at: IsoDateTimeSchema,
   }),
 } as const satisfies Record<EffectKind, z.ZodType>;
 export type EffectPayload<K extends EffectKind> = z.infer<(typeof EffectPayloadSchemas)[K]>;

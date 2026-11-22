@@ -74,6 +74,7 @@ export function TopBar({ state }: { state: StateSnapshot | undefined }) {
   const now = useNow();
   const setView = useUi((s) => s.setView);
   const setNewTaskOpen = useUi((s) => s.setNewTaskOpen);
+  const setMemoryOpen = useUi((s) => s.setMemoryOpen);
   const projectFilter = useUi((s) => s.projectFilter);
   const setProjectFilter = useUi((s) => s.setProjectFilter);
   const leader = state ? LEADER_LABELS[state.leader.state] : undefined;
@@ -119,6 +120,11 @@ export function TopBar({ state }: { state: StateSnapshot | undefined }) {
             </select>
           ) : null}
           <ThemeToggle />
+          {state?.memory_enabled ? (
+            <Button size="sm" onClick={() => setMemoryOpen(true)}>
+              專案記憶
+            </Button>
+          ) : null}
           <Button size="sm" variant="primary" onClick={() => setNewTaskOpen(true)}>
             ＋ 新增任務
           </Button>

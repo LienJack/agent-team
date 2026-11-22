@@ -16,6 +16,9 @@ export const LEADER_TOOLS = 'Bash';
  * `ask` (never end; the shim refuses them too), `leader`, `project` (owner actions; the server
  * also answers 403 to the leader actor).
  */
+/** With project memory on (spec §18) the leader may search it — and nothing else of it. */
+export const LEADER_MEMORY_ALLOW_RULE = 'Bash(team memory search:*)';
+
 export const LEADER_ALLOW_RULES = [
   'Bash(team status)',
   'Bash(team status:*)',
@@ -159,6 +162,8 @@ export interface LeaderArgsInput {
   flags: ReadonlySet<string>;
   /** The `--settings` object (the leader's sandbox, sandbox.ts). */
   settings: Record<string, unknown>;
+  /** Project memory is on: allow `team memory search` (spec §18). */
+  memory?: boolean;
 }
 
 export function leaderArgs(input: LeaderArgsInput): string[] {
@@ -172,7 +177,9 @@ export function leaderArgs(input: LeaderArgsInput): string[] {
   if (has('--strict-mcp-config')) args.push('--strict-mcp-config');
   if (has('--mcp-config')) args.push('--mcp-config', EMPTY_MCP);
   args.push('--restricted', '--settings', JSON.stringify(input.settings));
-  args.push('--tools', LEADER_TOOLS, '--allowedTools', ...LEADER_ALLOW_RULES);
+  const allow =
+    input.memory === true ? [...LEADER_ALLOW_RULES, LEADER_MEMORY_ALLOW_RULE] : LEADER_ALLOW_RULES;
+  args.push('--tools', LEADER_TOOLS, '--allowedTools', ...allow);
   args.push('--disallowedTools', ...LEADER_DENY_RULES);
   args.push('--permission-mode', 'dontAsk', '--permission-prompts', 'none');
   if (input.effort !== undefined && has('--effort')) args.push('--effort', input.effort);

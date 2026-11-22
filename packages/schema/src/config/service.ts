@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MEMORY_CUBE_PREFIX_RE } from '../memory.js';
 
 /** 0 = let the OS pick a free port (tests, ephemeral instances). */
 const port = z.number().int().min(0).max(65535);
@@ -112,6 +113,66 @@ export const ServiceConfigSchema = z.strictObject({
       timeout_ms: ms.default(600000),
     })
     .prefault({}),
+  /**
+   * Project memory in an existing MemOS server (spec §18; docs/adr/0023). Off by default; while
+   * off nothing ever contacts `base_url`.
+   */
+  memory: z
+    .strictObject({
+      enabled: z.boolean().default(false),
+      /**
+       * MemOS REST root (no path, no credentials, an explicit port): its API is under `/product`.
+       * The port is required because the sandboxes refuse it on every host (docs/adr/0023): an
+       * implied 80/443 would cut workers and checks off the web.
+       */
+      base_url: z
+        .string()
+        .regex(
+          /^https?:\/\/[A-Za-z0-9.-]+:\d{1,5}\/?$/,
+          'a URL with a port, like "http://host:8000"',
+        )
+        .default('http://greennas.local:8000'),
+      /** Fixed `user_id` of every request (MemOS has no authentication). */
+      user_id: z
+        .string()
+        .regex(/^[A-Za-z0-9_.-]{1,64}$/)
+        .default('agent-team'),
+      /**
+       * Cube id prefix: a project's cube is `<cube_prefix><project_id>`; the service never reads
+       * or writes a cube without it. Lowercase, ending in `-`, at least 4 characters.
+       */
+      cube_prefix: z
+        .string()
+        .regex(MEMORY_CUBE_PREFIX_RE, 'lowercase letters, digits and dashes, ending in "-"')
+        .default('agent-team-'),
+      /** Items per search (MemOS `top_k`). */
+      top_k: z.number().int().min(1).max(20).default(6),
+      /** Minimum relevance of a search hit (MemOS `relativity`). */
+      relativity: z.number().min(0).max(1).default(0.45),
+      /** One read (search before a dispatch, list, delete); a timeout means "unavailable". */
+      timeout_ms: ms.max(60000).default(6000),
+      /** Cap of one written item (MemOS stores longer content without a vector: issue #2461). */
+      max_item_chars: z.number().int().min(100).max(8000).default(1200),
+      /** Cap of the 專案記憶 block in a worker prompt. */
+      max_prompt_chars: z.number().int().min(100).max(20000).default(1500),
+      /**
+       * How MemOS ingests a write: `sync_fast` (the default) stores the text as given with an
+       * embedding only, no chat model; `async` answers at once and lets the MemOS scheduler
+       * re-extract the item with its chat model, replacing it (new id, paraphrase, `team_*`
+       * metadata dropped). Live-verified: docs/adr/0023.
+       */
+      add_mode: z.enum(['async', 'sync_fast']).default('sync_fast'),
+      /** Switch individual write sources off. */
+      write_sources: z
+        .strictObject({
+          task: z.boolean().default(true),
+          decision: z.boolean().default(true),
+          human: z.boolean().default(true),
+          research: z.boolean().default(true),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
   paths: z
     .strictObject({
       /** `~` is expanded by the server. */
@@ -193,6 +254,7 @@ export type ServiceConfig = z.infer<typeof ServiceConfigSchema>;
 export type EngineSettings = ServiceConfig['engine'];
 export type ResearchSettings = ServiceConfig['research'];
 export type ResearchMode = ResearchSettings['mode'];
+export type MemorySettings = ServiceConfig['memory'];
 
 export function parseServiceConfig(json: unknown): ServiceConfig {
   return ServiceConfigSchema.parse(json);

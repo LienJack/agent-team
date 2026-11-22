@@ -18,6 +18,7 @@ import { ERROR_RESPONSE, LOCAL_ONLY_EXTENSION, SESSION_COOKIE_NAME } from './con
 import { attentionRoutes } from './routes/attention.js';
 import { authRoutes } from './routes/auth.js';
 import { leaderRoutes } from './routes/leader.js';
+import { memoryRoutes } from './routes/memory.js';
 import { projectRoutes } from './routes/projects.js';
 import { researchRoutes } from './routes/research.js';
 import { systemRoutes } from './routes/system.js';
@@ -29,6 +30,7 @@ export const routes = {
   ...projectRoutes,
   ...taskRoutes,
   ...researchRoutes,
+  ...memoryRoutes,
   ...leaderRoutes,
   ...attentionRoutes,
   ...authRoutes,

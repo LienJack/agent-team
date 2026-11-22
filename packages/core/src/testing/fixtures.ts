@@ -77,6 +77,7 @@ export function testEngineConfig(overrides: Partial<EngineConfig> = {}): EngineC
     models: testModelsConfig(),
     engine: defaultServiceConfig().engine,
     research: defaultServiceConfig().research,
+    memory: defaultServiceConfig().memory,
     dataDir: '/data',
     worktreeRoot: '/worktrees',
     notifications: true,
@@ -170,6 +171,7 @@ export function sampleRun(overrides: Partial<Run> = {}): Run {
     launched_at: null,
     started_at: T0,
     ended_at: null,
+    memory_ids: [],
     ...overrides,
   };
 }

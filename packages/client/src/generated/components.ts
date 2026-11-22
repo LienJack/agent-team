@@ -269,6 +269,7 @@ export interface components {
       started_at: string;
       /** Format: date-time */
       ended_at: string | null;
+      memory_ids: string[];
     };
     Attention: {
       id: string;

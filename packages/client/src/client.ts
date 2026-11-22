@@ -58,6 +58,13 @@ export type TaskListQuery = Query<'listTasks'>;
 export type AttentionListQuery = Query<'listAttention'>;
 export type LeaderMessagesQuery = Query<'listLeaderMessages'>;
 export type SimpleTaskAction = 'queue' | 'cancel' | 'retry' | 'approve';
+/** Project memory (spec §18): search hits and list pages. */
+export type MemorySearchResult = Json<'searchMemory'>;
+export type MemoryItem = MemorySearchResult['memories'][number];
+export type MemoryPage = Json<'listMemory'>;
+export type MemoryAddResult = Json<'addMemory', 202>;
+export type MemoryRemoveResult = Json<'removeMemory'>;
+export type MemoryListQuery = Query<'listMemory'>;
 
 export interface TeamClientOptions {
   /** Listener base URL, e.g. `http://127.0.0.1:4517` (no trailing slash needed). */
@@ -145,6 +152,14 @@ export interface TeamClient {
   resume(): Promise<Resume>;
   quota(): Promise<RunnerStatus[]>;
   doctor(): Promise<DoctorReport>;
+  /** Search a project's memory (spec §18; the leader may). 409 while memory is off. */
+  searchMemory(projectId: string, query: string, limit?: number): Promise<MemorySearchResult>;
+  /** One page of a project's memory, newest first (humans only). */
+  listMemory(projectId: string, query?: MemoryListQuery): Promise<MemoryPage>;
+  /** Queue a note for a project's memory (humans only). */
+  addMemory(projectId: string, text: string): Promise<MemoryAddResult>;
+  /** Delete one item of a project's memory (humans only). */
+  removeMemory(projectId: string, memoryId: string): Promise<MemoryRemoveResult>;
   /** LAN listener: exchange the password for the session cookie. */
   login(password: string): Promise<void>;
   /** SSE: replay after `after`, then live; reconnects with the last seq. */
@@ -276,6 +291,29 @@ export function createTeamClient(options: TeamClientOptions): TeamClient {
     resume: () => call(() => raw.GET('/api/resume')),
     quota: async () => (await call(() => raw.GET('/api/quota'))).runners,
     doctor: () => call(() => raw.GET('/api/doctor')),
+    searchMemory: (projectId, q, limit) =>
+      call(() =>
+        raw.GET('/api/projects/{id}/memory/search', {
+          params: { path: { id: projectId }, query: limit === undefined ? { q } : { q, limit } },
+        }),
+      ),
+    listMemory: (projectId, query = {}) =>
+      call(() =>
+        raw.GET('/api/projects/{id}/memory', { params: { path: { id: projectId }, query } }),
+      ),
+    addMemory: (projectId, text) =>
+      call(() =>
+        raw.POST('/api/projects/{id}/memory', {
+          params: { path: { id: projectId } },
+          body: { text },
+        }),
+      ),
+    removeMemory: (projectId, memoryId) =>
+      call(() =>
+        raw.POST('/api/projects/{id}/memory/{memory_id}/delete', {
+          params: { path: { id: projectId, memory_id: memoryId } },
+        }),
+      ),
     login: async (password) => {
       await call(() => raw.POST('/auth/login', { body: { password } }));
     },

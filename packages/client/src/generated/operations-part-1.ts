@@ -51,6 +51,7 @@ export interface operations_part1 {
               } | null;
             };
             summary: components['schemas']['BoardSummary'];
+            memory_enabled: boolean;
           };
         };
       };

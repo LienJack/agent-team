@@ -144,6 +144,8 @@ export const StateResponseSchema = z.object({
   leader: LeaderStatusSchema,
   /** Counts per board column that sum to `total`, and the generated line (`team status`). */
   summary: BoardSummarySchema,
+  /** Project memory is on (spec §18): the board offers each project's memory list. */
+  memory_enabled: z.boolean(),
 });
 export type StateResponse = z.infer<typeof StateResponseSchema>;
 

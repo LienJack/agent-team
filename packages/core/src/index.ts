@@ -56,6 +56,19 @@ export {
   researchReceiptOf,
   sanitizeResearchReceipt,
 } from './engine/research.js';
+export {
+  decisionMemoryText,
+  memoryWrittenKey,
+  researchMemoryText,
+  taskMemoryText,
+} from './engine/project-memory.js';
+export {
+  MEMORY_QUERY_TICKET_CHARS,
+  MEMORY_READ_COOLOFF_MS,
+  MEMORY_UNAVAILABLE_EVENT_INTERVAL_MS,
+  memoryQuery,
+} from './engine/memory-read.js';
+export { formatProjectMemory, MEMORY_RULE, memoryBlock } from './engine/prompt-memory.js';
 export { CHECK_TAIL_LINES } from './engine/verify.js';
 export { EFFECT_HANDLERS, EffectExecutor } from './engine/effects.js';
 export {

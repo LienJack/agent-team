@@ -4,12 +4,14 @@ import {
   type EventData,
   type EventRecord,
   type EventType,
+  type MemorySettings,
   type ModelsConfig,
   type NewEvent,
   type ResearchSettings,
 } from '@agent-team/schema';
 import type { GitPort } from '../ports/git.js';
 import type { ProcessControl } from '../ports/worker-processes.js';
+import type { MemoryPort } from '../ports/project-memory.js';
 import type { Repositories, Store } from '../ports/repositories.js';
 import type { RunnerRegistry } from '../ports/runner.js';
 import type {
@@ -31,6 +33,11 @@ export interface EngineConfig {
   engine: EngineSettings;
   /** `service.json` → `research` (spec §17): `mode` gates the entrances, `timeout_ms` the runs. */
   research: ResearchSettings;
+  /**
+   * `service.json` → `memory` (spec §18): `enabled`, the per-source write switches and the caps
+   * of written items and of the prompt block. The address and cube settings are the adapter's.
+   */
+  memory: MemorySettings;
   /**
    * Absolute data directory (`DATA`); run logs go to `DATA/runs/<run_id>`, research runs work in
    * `DATA/research/<run_id>` (created and removed by the server).
@@ -61,6 +68,11 @@ export interface EngineDeps {
    * requeued (docs/adr/0015).
    */
   processes?: ProcessControl;
+  /**
+   * Project memory in MemOS (spec §18). Without it (or with `memory.enabled` false) nothing is
+   * read before dispatches and `memory.write` effects finish without writing.
+   */
+  memory?: MemoryPort;
 }
 
 type EventRefs = { task_id?: string | null; run_id?: string | null };
@@ -126,6 +138,11 @@ export class EngineContext {
    * runs stay live in the store and the next startup's recovery marks them abandoned.
    */
   stopping = false;
+  /**
+   * Last failed project-memory read (ms since epoch): reads are skipped for a short cool-off
+   * after a failure so an unreachable MemOS does not delay every dispatch (in memory only).
+   */
+  memoryReadFailedAt: number | undefined;
   /** Called after a dirty transaction commits (the engine schedules a tick). */
   onCommit: (() => void) | undefined;
 

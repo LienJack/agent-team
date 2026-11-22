@@ -127,6 +127,11 @@ export const run = sqliteTable(
     launched_at: text(),
     started_at: text().notNull(),
     ended_at: text(),
+    // project memory items put into the prompt (spec §18); runs from before it have none
+    memory_ids: text({ mode: 'json' })
+      .$type<Run['memory_ids']>()
+      .notNull()
+      .default(sql`'[]'`),
   },
   (t) => [index('run_task_idx').on(t.task_id), index('run_state_idx').on(t.state)],
 );

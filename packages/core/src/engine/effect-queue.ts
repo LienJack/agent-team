@@ -44,5 +44,7 @@ export function effectLane(effect: EffectRecord): string {
     if (typeof payload?.lane === 'string') return `outbox:${payload.lane}`;
     return `outbox:${payload?.task_id ?? '-'}`; // effects stored before lanes existed
   }
+  // project memory writes (spec §18) go one at a time, in the order they were stored
+  if (effect.kind === 'memory.write') return 'memory';
   return `${effect.kind}:${effect.key}`;
 }

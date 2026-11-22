@@ -45,6 +45,18 @@ export function useRunLog(runId: string | undefined, live: boolean) {
   });
 }
 
+/** GET /api/projects/:id/memory (spec §18): one page, newest first. */
+export function useProjectMemory(projectId: string | undefined, page: number) {
+  const client = useClient();
+  return useQuery({
+    queryKey: [...keys.memory(projectId ?? ''), page],
+    queryFn: () => client.listMemory(projectId!, { page, page_size: MEMORY_PAGE_SIZE }),
+    enabled: projectId !== undefined,
+  });
+}
+
+export const MEMORY_PAGE_SIZE = 20;
+
 /** GET /api/roles (config/models.json; static while the server runs). */
 export function useRoles() {
   const client = useClient();

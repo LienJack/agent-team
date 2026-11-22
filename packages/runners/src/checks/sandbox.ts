@@ -2,7 +2,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { HOME_READ } from '../claude/sandbox.js';
-import { denyPathsFor, strip, type SandboxPolicy } from '../sandbox-policy.js';
+import { denyPathsFor, refusedPorts, strip, type SandboxPolicy } from '../sandbox-policy.js';
 
 // Machine checks run worker-authored code (tests, build scripts) as the service user. On macOS
 // they run under Seatbelt (`sandbox-exec`, the mechanism Claude Code's sandbox uses) with a
@@ -120,9 +120,8 @@ export function checkSandboxProfile(
   // the worktree, package caches and (confinedWrites) the temp directories
   const writable = [cwd, ...HOME_READ.map((p) => real(join(home, p)))];
   const repoGit = input.repoPath ? real(join(input.repoPath, '.git')) : undefined;
-  const ports = [...new Set(policy.servicePorts?.() ?? [])].filter(
-    (p) => Number.isInteger(p) && p > 0 && p < 65536,
-  );
+  // the service's own ports and the project memory's MemOS port, on every address
+  const ports = refusedPorts(policy);
   return [
     '(version 1)',
     '(allow default)',

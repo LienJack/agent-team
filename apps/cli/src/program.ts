@@ -1,6 +1,7 @@
 import { TeamApiError, type TeamClient } from '@agent-team/client';
 import { EXIT_CODES, exitCodeFor } from '@agent-team/schema';
 import { Command, CommanderError } from 'commander';
+import { registerMemoryCommands } from './commands/memory.js';
 import { registerResearchCommands } from './commands/research.js';
 import { registerSystemCommands } from './commands/system.js';
 import { registerTalkCommands } from './commands/talk.js';
@@ -32,6 +33,7 @@ export function buildProgram(ctx: CommandContext): Command {
   registerSystemCommands(program, ctx);
   registerWorkCommands(program, ctx);
   registerResearchCommands(program, ctx);
+  registerMemoryCommands(program, ctx);
   registerTalkCommands(program, ctx);
   return program;
 }

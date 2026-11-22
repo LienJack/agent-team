@@ -22,6 +22,7 @@ import { createEnvReader } from '../env.js';
 import type { Summarize } from '../hub/summarizer.js';
 import type { HubRuntime } from '../hub/types.js';
 import type { LeaderRuntime } from '../leader/types.js';
+import type { MemosMemory } from '../memory/memos.js';
 import { createService, type Service } from '../service.js';
 
 export const TEST_TOKEN = 'test-token-0123456789abcdef';
@@ -49,6 +50,8 @@ export interface TestServiceOptions {
   hub?: HubRuntime;
   /** Hub condenser (default: none → truncated with 「（未整理）」). */
   summarize?: Summarize;
+  /** Project memory adapter (used only when the test enables memory; a fake MemOS on loopback). */
+  memory?: (store: InMemoryStore, config: ServiceConfig) => MemosMemory;
 }
 
 export interface TestService {
@@ -126,6 +129,7 @@ export function createTestService(options: TestServiceOptions = {}): TestService
     sourceOf: (c) => c.req.header(SOURCE_HEADER) ?? 'test-source',
     ...(options.leader ? { leader: options.leader(root) } : {}),
     ...(options.hub ? { hub: options.hub } : {}),
+    ...(options.memory ? { memory: options.memory(store, config) } : {}),
     // never the real hub_summarizer in tests
     summarize:
       options.summarize ??

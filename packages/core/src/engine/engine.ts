@@ -3,6 +3,7 @@ import {
   type AnswerVia,
   type Attention,
   type AttentionCreateRequest,
+  type MemoryItem,
   type Message,
   type MessageStatus,
   type Project,
@@ -30,6 +31,12 @@ import { EngineContext, type EngineDeps } from './context.js';
 import { dispatchPlanned, type DispatchReport } from './dispatch.js';
 import { DRIFT_OPTIONS, openDriftItem } from './drift.js';
 import { EffectExecutor } from './effects.js';
+import {
+  addMemoryNote,
+  listProjectMemory,
+  removeProjectMemory,
+  searchProjectMemory,
+} from './memory-commands.js';
 import { recordMessage, setMessageStatus, type RecordMessageInput } from './messages.js';
 import { createResearch } from './research.js';
 import { blockTask } from './outcomes.js';
@@ -349,6 +356,33 @@ export class Engine {
   acceptNewBase(taskId: string, via: AnswerVia = 'cli', actor: Actor = HUMAN): Attention {
     const item = this.ctx.transact((tx) => openDriftItem(tx, taskId));
     return answer(this.ctx, item.id, DRIFT_OPTIONS[1], via, actor);
+  }
+
+  // ------------------------------------------------------- project memory (spec §18)
+  // 409 while memory is off; MemOS failures are 503 `unavailable`.
+
+  /** Search a project's memory (human or leader). */
+  searchMemory(projectId: string, query: string, limit?: number): Promise<MemoryItem[]> {
+    return searchProjectMemory(this.ctx, projectId, query, limit);
+  }
+
+  /** One page of a project's memory, newest first (human only). */
+  listMemory(
+    projectId: string,
+    page: { page: number; pageSize: number },
+    actor: Actor = HUMAN,
+  ): Promise<{ items: MemoryItem[]; total: number }> {
+    return listProjectMemory(this.ctx, projectId, page, actor);
+  }
+
+  /** Queue a person's note for the project's memory (human only); returns the note id. */
+  addMemory(projectId: string, text: string, actor: Actor = HUMAN): string {
+    return addMemoryNote(this.ctx, projectId, text, actor);
+  }
+
+  /** Delete one item of a project's memory (human only; 404 when not in that project). */
+  removeMemory(projectId: string, memoryId: string, actor: Actor = HUMAN): Promise<void> {
+    return removeProjectMemory(this.ctx, projectId, memoryId, actor);
   }
 
   recordMessage(input: RecordMessageInput): { message: Message; duplicate: boolean } {

@@ -26,6 +26,19 @@
   "runners": { "dsh": { "allow_unsandboxed": false } },
   "git": { "author": { "name": "agent-team", "email": "agent-team@localhost" } },
   "research": { "mode": "on_request", "timeout_ms": 600000 },
+  "memory": {
+    "enabled": false,
+    "base_url": "http://greennas.local:8000",
+    "user_id": "agent-team",
+    "cube_prefix": "agent-team-",
+    "top_k": 6,
+    "relativity": 0.45,
+    "timeout_ms": 6000,
+    "max_item_chars": 1200,
+    "max_prompt_chars": 1500,
+    "add_mode": "sync_fast",
+    "write_sources": { "task": true, "decision": true, "human": true, "research": true }
+  },
   "paths": { "worktree_root": "~/RanoLabs/worktrees" },
   "engine": {
     "tick_ms": 5000,

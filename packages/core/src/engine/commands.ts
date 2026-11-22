@@ -25,6 +25,7 @@ import { finishRun, lastRun, requireTask, saveTask } from './records.js';
 import { checkResearchRefs, requireResearchEnabled } from './research.js';
 import { haltedRunnerOf, rearmRunner } from './runner-health.js';
 import { needsHumanRetry, WORKER_UNCONFIRMED_BLOCK } from './start-unknown.js';
+import { rememberAnswer } from './project-memory.js';
 
 // Human/leader commands (spec §11 task actions). Each runs in one transaction and checks the
 // task's current status first (a clear 409 instead of a stranded task). A `human` actor marks
@@ -386,6 +387,8 @@ export function answer(
       );
     }
     const item = answerAttention(tx, id, text, via);
+    // a person's decision becomes project memory (spec §18; decisions and worker questions only)
+    rememberAnswer(ctx, tx, item);
     applyAttentionAction(ctx, tx, item);
     resumeAfterAnswer(ctx, tx, item);
     // any answer to the loop guard's item re-arms its runner

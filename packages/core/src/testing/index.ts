@@ -15,6 +15,7 @@ export {
   type FakeStep,
 } from './fake-runner.js';
 export { FakeGit } from './fake-git.js';
+export { FakeMemory, type FakeMemoryEntry } from './fake-memory.js';
 export {
   FakeCheckExecutor,
   FakeNotifier,

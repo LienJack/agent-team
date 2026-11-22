@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { EventRecord, ResearchMode, RunSpec } from '@agent-team/schema';
 import { afterEach, describe, expect, it } from 'vitest';
 import { formatDigest } from './leader/digest.js';
-import { leaderPromptVersion, leaderSystemPrompt } from './leader/prompt/system-v5.js';
+import { leaderPromptVersion, leaderSystemPrompt } from './leader/prompt/system-v6.js';
 import { LEADER_ALLOW_RULES } from './leader/args.js';
 import {
   createTestService,

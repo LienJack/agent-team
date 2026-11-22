@@ -15,6 +15,8 @@ Runner 實作（spec §7）：`claude`（`claude -p` stream-json）、`codex`（
   （`src/codex/sandbox.ts`，不傳 `--sandbox`）；dsh 整個行程與機器檢查以 `sandbox-exec` 執行（`src/dsh/sandbox.ts`、
   `src/checks/sandbox.ts`）。沒有 `sandbox-exec` 時 dsh 不可用、檢查不執行（`refused`），除非 `allowUnsandboxed`。
   拒絕清單在 `src/sandbox-policy.ts`（服務傳入的 DATA／`.env` + 家目錄下的憑證目錄 + repo／worktree 的 `.env`）。
+  專案記憶開啟時（spec §18、ADR 0023），`deniedEndpoints` 帶 MemOS 的 `host:port`：dsh 與檢查在所有位址拒絕那個埠，
+  claude worker 開網路時加 `deniedDomains`，調研 run 加 `WebFetch(domain:<host>)` 拒絕規則。
 - 調研 run（`RunSpec.web`，spec §17、ADR 0021）：probe 的 `supports.webSearch` 宣告能不能跑。claude 只給
   `--tools WebSearch,WebFetch`（`src/claude/sandbox.ts` 的 `claudeResearchSettings`）；codex 關掉 shell 等工具功能、
   `web_search="live"`、設定檔拒讀整個檔案系統（`src/codex/sandbox.ts`；仍會提供 `apply_patch` 與 collaboration 工具，

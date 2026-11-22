@@ -18,6 +18,27 @@ export interface SandboxPolicy {
    * test servers but never these ports. (Claude workers get no loopback at all.)
    */
   servicePorts?: () => readonly number[];
+  /**
+   * Services on other machines no worker may reach: the project memory's MemOS (spec §18;
+   * docs/adr/0023), when memory is on. Seatbelt can only name `localhost` or `*` as a remote
+   * host, so checks and dsh refuse the port on every address (like the service ports); claude
+   * workers with network get it in `deniedDomains`, research runs a WebFetch deny rule.
+   */
+  deniedEndpoints?: () => readonly DeniedEndpoint[];
+}
+
+export interface DeniedEndpoint {
+  host: string;
+  port: number;
+}
+
+/** Ports refused to checks and dsh: the service's own and the denied endpoints'. */
+export function refusedPorts(policy: SandboxPolicy): number[] {
+  const ports = [
+    ...(policy.servicePorts?.() ?? []),
+    ...(policy.deniedEndpoints?.() ?? []).map((e) => e.port),
+  ];
+  return [...new Set(ports)].filter((p) => Number.isInteger(p) && p > 0 && p < 65536);
 }
 
 /** Credential and agent state under the home directory, always denied. */

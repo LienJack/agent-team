@@ -24,6 +24,7 @@ import { DATA_LAYOUT } from '@agent-team/schema';
 import { ConfigError, loadConfig, type LoadedConfig } from './config.js';
 import { createEnvReader, envFilePath, secretsInProcessEnv, type EnvReader } from './env.js';
 import { createLogger } from './logger.js';
+import { createMemosMemory } from './memory/memos.js';
 import { createModelKeyProxy, type ModelKeyProxy } from './model-proxy.js';
 import { createService, type Service } from './service.js';
 
@@ -80,6 +81,17 @@ export function warnProcessSecrets(processEnv: NodeJS.ProcessEnv, logger: Logger
   return names;
 }
 
+/**
+ * The project memory's MemOS as `host:port` (spec §18): no worker or check may reach it while
+ * memory is on (the sandboxes refuse it; docs/adr/0023). [] while memory is off.
+ */
+export function memoryEndpoints(memory: LoadedConfig['service']['memory']) {
+  if (!memory.enabled) return [];
+  // the schema requires an explicit port (an implied 80/443 would be refused on every host)
+  const url = new URL(memory.base_url);
+  return [{ host: url.hostname, port: Number(url.port) }];
+}
+
 /** The model-key proxy, listening; undefined (dsh unavailable) when it cannot bind. */
 async function startModelProxy(env: EnvReader, logger: Logger): Promise<ModelKeyProxy | undefined> {
   const proxy = createModelKeyProxy({ key: () => env.get('OPENROUTER_API_KEY'), logger });
@@ -113,10 +125,13 @@ export async function main(
   const servicePorts = new Set<number>(
     [config.service.local.port, config.service.lan.port].filter((p) => p > 0),
   );
-  // workers never see the service's state or secrets (docs/adr/0014, 0019)
+  // workers never see the service's state or secrets (docs/adr/0014, 0019), nor the project
+  // memory's server (spec §18)
+  const endpoints = memoryEndpoints(config.service.memory);
   const sandbox = {
     denyPaths: serviceDenyPaths(config, envFile),
     servicePorts: () => [...servicePorts],
+    deniedEndpoints: () => endpoints,
   };
   // the OpenRouter key stays in this process: dsh runs get per-run tokens for this proxy
   // (docs/adr/0020); its port is denied to checks like the service's own ports (dsh is exempt)
@@ -159,6 +174,10 @@ export async function main(
       store.close();
     },
     processes: createProcessControl(),
+    // project memory over HTTP to MemOS; never built (nothing contacts it) while memory is off
+    ...(config.service.memory.enabled
+      ? { memory: createMemosMemory({ settings: config.service.memory, kv: store.kv, logger }) }
+      : {}),
     // the leader's `team` is this checkout's built CLI; `leader.enabled` is independent of
     // AGENT_TEAM_FAKE_RUNNERS (fake workers + the real leader is a supported setup)
     leader: {

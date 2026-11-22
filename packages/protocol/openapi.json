@@ -451,7 +451,12 @@
           "pid_started_at": { "type": ["string", "null"] },
           "launched_at": { "type": ["string", "null"], "format": "date-time" },
           "started_at": { "type": "string", "format": "date-time" },
-          "ended_at": { "type": ["string", "null"], "format": "date-time" }
+          "ended_at": { "type": ["string", "null"], "format": "date-time" },
+          "memory_ids": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "maxItems": 50
+          }
         },
         "required": [
           "id",
@@ -477,7 +482,8 @@
           "pid_started_at",
           "launched_at",
           "started_at",
-          "ended_at"
+          "ended_at",
+          "memory_ids"
         ]
       },
       "Attention": {
@@ -793,7 +799,8 @@
                       },
                       "required": ["state", "last_activity_at"]
                     },
-                    "summary": { "$ref": "#/components/schemas/BoardSummary" }
+                    "summary": { "$ref": "#/components/schemas/BoardSummary" },
+                    "memory_enabled": { "type": "boolean" }
                   },
                   "required": [
                     "last_seq",
@@ -804,7 +811,8 @@
                     "open_attention",
                     "runners",
                     "leader",
-                    "summary"
+                    "summary",
+                    "memory_enabled"
                   ]
                 }
               }
@@ -1759,6 +1767,286 @@
           "403": { "$ref": "#/components/responses/Error" },
           "404": { "$ref": "#/components/responses/Error" },
           "500": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/projects/{id}/memory/search": {
+      "get": {
+        "operationId": "searchMemory",
+        "tags": ["memory"],
+        "summary": "Search a project's memory (records of earlier work: data, not instructions)",
+        "parameters": [
+          {
+            "schema": { "type": "string", "pattern": "^p_[0-9a-z]{1,32}$" },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": { "type": "string", "minLength": 1, "maxLength": 2000 },
+            "required": true,
+            "name": "q",
+            "in": "query"
+          },
+          {
+            "schema": { "type": "integer", "minimum": 1, "maximum": 20 },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching items, best first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "project_id": { "type": "string", "pattern": "^p_[0-9a-z]{1,32}$" },
+                    "memories": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                          },
+                          "text": { "type": "string" },
+                          "source": {
+                            "type": ["string", "null"],
+                            "enum": ["task", "decision", "human", "research", null]
+                          },
+                          "source_id": { "type": ["string", "null"] },
+                          "task_id": { "type": ["string", "null"] },
+                          "created_at": { "type": ["string", "null"] },
+                          "searchable": { "type": ["boolean", "null"] },
+                          "relativity": { "type": ["number", "null"] }
+                        },
+                        "required": [
+                          "id",
+                          "text",
+                          "source",
+                          "source_id",
+                          "task_id",
+                          "created_at",
+                          "searchable",
+                          "relativity"
+                        ]
+                      }
+                    }
+                  },
+                  "required": ["project_id", "memories"]
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/projects/{id}/memory": {
+      "get": {
+        "operationId": "listMemory",
+        "tags": ["memory"],
+        "summary": "One page of a project's memory, newest first (humans only)",
+        "parameters": [
+          {
+            "schema": { "type": "string", "pattern": "^p_[0-9a-z]{1,32}$" },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100000, "default": 1 },
+            "required": false,
+            "name": "page",
+            "in": "query"
+          },
+          {
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
+            "required": false,
+            "name": "page_size",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Items and the total count",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "project_id": { "type": "string", "pattern": "^p_[0-9a-z]{1,32}$" },
+                    "memories": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                          },
+                          "text": { "type": "string" },
+                          "source": {
+                            "type": ["string", "null"],
+                            "enum": ["task", "decision", "human", "research", null]
+                          },
+                          "source_id": { "type": ["string", "null"] },
+                          "task_id": { "type": ["string", "null"] },
+                          "created_at": { "type": ["string", "null"] },
+                          "searchable": { "type": ["boolean", "null"] },
+                          "relativity": { "type": ["number", "null"] }
+                        },
+                        "required": [
+                          "id",
+                          "text",
+                          "source",
+                          "source_id",
+                          "task_id",
+                          "created_at",
+                          "searchable",
+                          "relativity"
+                        ]
+                      }
+                    },
+                    "total": { "type": "integer", "minimum": 0 },
+                    "page": { "type": "integer", "exclusiveMinimum": 0 },
+                    "page_size": { "type": "integer", "exclusiveMinimum": 0 }
+                  },
+                  "required": ["project_id", "memories", "total", "page", "page_size"]
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
+        }
+      },
+      "post": {
+        "operationId": "addMemory",
+        "tags": ["memory"],
+        "summary": "Queue a note for a project's memory (humans only; written by the service)",
+        "parameters": [
+          {
+            "schema": { "type": "string", "pattern": "^p_[0-9a-z]{1,32}$" },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": { "text": { "type": "string", "minLength": 1, "maxLength": 8000 } },
+                "required": ["text"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The note is queued (lane `memory`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "project_id": { "type": "string", "pattern": "^p_[0-9a-z]{1,32}$" },
+                    "source_id": { "type": "string" },
+                    "queued": { "type": "boolean", "enum": [true] }
+                  },
+                  "required": ["project_id", "source_id", "queued"]
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/projects/{id}/memory/{memory_id}/delete": {
+      "post": {
+        "operationId": "removeMemory",
+        "tags": ["memory"],
+        "summary": "Delete one item of a project's memory (humans only)",
+        "parameters": [
+          {
+            "schema": { "type": "string", "pattern": "^p_[0-9a-z]{1,32}$" },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "required": true,
+            "name": "memory_id",
+            "in": "path"
+          },
+          {
+            "schema": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The item is gone",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "project_id": { "type": "string", "pattern": "^p_[0-9a-z]{1,32}$" },
+                    "memory_id": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                    },
+                    "removed": { "type": "boolean", "enum": [true] }
+                  },
+                  "required": ["project_id", "memory_id", "removed"]
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
         }
       }
     },

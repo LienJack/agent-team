@@ -8,6 +8,7 @@ import { AttentionPanel } from './attention-panel.js';
 import { Board } from './board.js';
 import { ChatPanel } from './chat-panel.js';
 import { LoginPage } from './login-page.js';
+import { MemoryPanel } from './memory-panel.js';
 import { NewTaskForm } from './new-task-form.js';
 import { TaskDrawer } from './task-drawer.js';
 import { useApplyTheme } from './theme.js';
@@ -52,6 +53,7 @@ function Shell() {
   const setAuth = useUi((s) => s.setAuth);
   const view = useUi((s) => s.view);
   const newTaskOpen = useUi((s) => s.newTaskOpen);
+  const memoryOpen = useUi((s) => s.memoryOpen);
   const state = useBoardState(auth !== 'required');
   const data = state.data;
   useApplyTheme();
@@ -112,6 +114,7 @@ function Shell() {
       </div>
       <TaskDrawer state={data} />
       {newTaskOpen ? <NewTaskForm state={data} /> : null}
+      {memoryOpen && data.memory_enabled ? <MemoryPanel state={data} /> : null}
       <Toasts />
     </div>
   );

@@ -76,6 +76,11 @@ const EVENT_QUERIES = {
   'runner.circuit_closed': board,
   'runner.halted': board,
 
+  // project memory (spec §18): that project's memory list; an outage shows nowhere on the board
+  'memory.written': (e) => (e.type === 'memory.written' ? [keys.memory(e.data.project_id)] : []),
+  'memory.removed': (e) => (e.type === 'memory.removed' ? [keys.memory(e.data.project_id)] : []),
+  'memory.unavailable': none,
+
   // internal bookkeeping: nothing on the board shows it
   'effect.failed': none,
   'effect.dead': none,

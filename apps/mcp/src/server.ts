@@ -2,6 +2,7 @@ import type { TeamClient } from '@agent-team/client';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { describeError } from './errors.js';
+import { MEMORY_TOOLS } from './memory-tools.js';
 import { InputError, TOOLS, type ToolContext, type ToolDef } from './tools.js';
 
 export type ClientProvider = () => Promise<TeamClient>;
@@ -25,10 +26,10 @@ export async function runTool(
   }
 }
 
-/** The MCP server: five thin tools over `@agent-team/client`. */
+/** The MCP server: thin tools over `@agent-team/client` (spec §12, §17, §18). */
 export function createServer(getClient: ClientProvider): McpServer {
   const server = new McpServer({ name: 'agent-team', version: '0.0.0' });
-  for (const def of TOOLS) {
+  for (const def of [...TOOLS, ...MEMORY_TOOLS]) {
     server.registerTool(
       def.name,
       {

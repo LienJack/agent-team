@@ -55,6 +55,19 @@ export function useTaskAction() {
   });
 }
 
+/** Delete one item of a project's memory (spec §18); the list refetches either way. */
+export function useRemoveMemory() {
+  const client = useClient();
+  const qc = useQueryClient();
+  const toast = useUi((s) => s.toast);
+  return useMutation({
+    mutationFn: (req: { projectId: string; memoryId: string }) =>
+      client.removeMemory(req.projectId, req.memoryId),
+    onSuccess: () => toast('ok', '已刪除這筆專案記憶'),
+    onSettled: (_r, _e, req) => qc.invalidateQueries({ queryKey: keys.memory(req.projectId) }),
+  });
+}
+
 /** POST /tasks or POST /research (spec §17), by the kind picked in the dialog. */
 export function createNewTask(client: TeamClient, req: NewTaskRequest): Promise<Task> {
   return req.kind === 'research' ? client.createResearch(req.body) : client.createTask(req.body);

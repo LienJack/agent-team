@@ -5,6 +5,7 @@ import type { EngineContext } from './context.js';
 import { openAttention } from './attention.js';
 import { effectLane, effectPayload, type EffectHandler } from './effect-queue.js';
 import { rebuildHandler } from './drift.js';
+import { memoryWriteHandler } from './project-memory.js';
 import { saveWorkspace } from './records.js';
 import { runStartHandler } from './run-start.js';
 import { verifyHandler } from './verify.js';
@@ -105,6 +106,7 @@ export const EFFECT_HANDLERS: Readonly<Record<EffectKind, EffectHandler>> = {
   'workspace.remove': workspaceRemove,
   'workspace.rebuild': rebuildHandler,
   'outbox.send': outboxSend,
+  'memory.write': memoryWriteHandler,
 };
 
 const effectId = (e: EffectRecord) => `${e.kind}\u0000${e.key}`;

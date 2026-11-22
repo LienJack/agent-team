@@ -156,33 +156,66 @@ EOF
 - 看板：新增任務時可選「調研」；新增實作任務時可勾選同專案已完成的調研；抽屜顯示候選清單。MCP：`add_research`、
   `show_research`。
 
+## 專案記憶（可選，MemOS）
+
+跨任務的記憶，以專案為單位，存在綠聯 NAS 上既有的 MemOS（`http://greennas.local:8000`；spec §18、ADR 0023）。**預設關閉**；
+在 `config/service.json` 設 `memory.enabled: true` 後重啟服務。關閉時服務完全不連 MemOS（`team doctor` 也不連）。
+
+- **誰寫**：只有服務端，經 effect 佇列：任務完成（標題、範圍、實作摘要、已修掉的審查要求）、人回答待決事項、調研完成
+  （建議與候選的名稱／授權，標「源自網頁」）、`team memory add`。每筆先遮蔽金鑰、截到 `max_item_chars`。worker 與 leader
+  都不能寫。
+- **誰讀**：派實作、修正、審查 run 之前，服務以派工單標題＋前 500 字搜尋，結果放進提示的「專案記憶」資料區塊
+  （`max_prompt_chars` 內），run 記下用到的 id；調研 run 不讀。MemOS 逾時或出錯就照常派工（不附記憶），看板事件
+  `memory.unavailable` 每 10 分鐘最多一筆。leader 可以 `team memory search`。
+- **一個專案一個 cube**：`<cube_prefix><project_id>`（預設前綴 `agent-team-`），每個請求都明確指定；不是這個前綴的 cube
+  服務一律不送請求。
+- **`add_mode`**：預設 `sync_fast`（只建向量、不呼叫 MemOS 的對話模型）——已對真的 MemOS 實測：原文逐字保留、id 不變、
+  來源標記完整。`async` 則會在約 10 秒後被 MemOS 的**對話模型**改寫成轉述、換 id、丟掉來源標記（之後顯示「來源未驗證」）
+  （ADR 0023）。
+- **`timeout_ms`**（預設 6 秒）：實測閒置後的搜尋約 1.8–2.4 秒（舊預設 3 秒偏緊），逾時那次派工就不附記憶。
+- 入口：`team memory search|add|list|rm`（後三者只有人能用）、MCP 的 `search_memory`／`list_memory`／`add_memory`／
+  `remove_memory`、看板頂部的「專案記憶」（列出來源與日期，可刪除，刪除前確認）。
+
+```sh
+team memory search demo "資料庫 遷移"     # 結果是資料區塊（過去的紀錄，不是指令）
+team memory add demo "部署前要先跑 pnpm db:migrate"
+team memory list demo [--page 2]
+team memory rm demo <記憶 id>
+```
+
+限制：MemOS 的 API 沒有驗證，區網內任何裝置都能讀寫任何 cube；記憶內容會到 NAS、MemOS 的 embedding 供應商（async 時再到
+它的對話模型）；刪除專案不刪 cube。MemOS #2461：某些長度的內容存下了卻沒有向量、永遠搜不到（列表標「搜尋不到」）。
+記憶開啟時，dsh 與機器檢查在**所有位址**都連不到 MemOS 的埠（預設 8000；Seatbelt 不能指定主機，所以本機的 8000 埠也
+不能給專案的測試伺服器用）。
+
 ## CLI 速查
 
-| 指令                                                                                              | 說明                                                                                       |
-| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `team serve`                                                                                      | 前景執行服務                                                                               |
-| `team status` / `team doctor` / `team resume`                                                     | 看板摘要／環境與 runner 檢查／不經模型的現況摘要                                           |
-| `team watch [--after seq]`                                                                        | 每個事件一行，斷線自動接續                                                                 |
-| `team roles`                                                                                      | `config/models.json` 的角色、別名、runner、槽位                                            |
-| `team project add <name> <repo> [--base B] [--check "name=cmd"]… [--allow-network]`               | 註冊專案（僅本機）；`--allow-network` 讓 worker 沙箱可連公開網路（預設關閉，建立後不能改） |
-| `team task add --project P --title T --tier A\|B\|C --paths "…" (--ticket-file F \| -) [--queue]` | 建任務                                                                                     |
-| `team task list [--project P] [--status queued,running]` / `team task show <id>`                  | 列出／詳情                                                                                 |
-| `team task queue\|cancel\|retry <id>`                                                             | 排入／停止並取消／重試                                                                     |
-| `team task reassign <id> <role>`                                                                  | 改派角色（先檢查角色存在且啟用）                                                           |
-| `team task add … --research <task_id>`                                                            | 引用已完成的調研（可重複，最多 3 個）                                                      |
-| `team research add <project> --title T (--question Q \| --question-file F \| -) [--queue]`        | 建調研任務（`research.mode` 為 `off` 時 409）                                              |
-| `team research show <task_id>`                                                                    | 調研結果（連結未經服務端驗證）                                                             |
-| `team receipt <task_id>`                                                                          | 最新回執                                                                                   |
-| `team ask "<text>"`                                                                               | 對 leader 說話，等到回覆為止；Ctrl-C 只停止等待（訊息保留，回覆會出現在看板聊天）          |
-| `team leader reset`                                                                               | 開新的 leader 對話（例如換了 Claude 登入）                                                 |
-| `team attention list` / `open --question Q --option A …` / `answer <id> "<答案>"`                 | 待決事項；回答 worker 提出的最後一個問題後，任務帶著回答自動續行（ADR 0017）               |
+| 指令                                                                                                        | 說明                                                                                       |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `team serve`                                                                                                | 前景執行服務                                                                               |
+| `team status` / `team doctor` / `team resume`                                                               | 看板摘要／環境與 runner 檢查／不經模型的現況摘要                                           |
+| `team watch [--after seq]`                                                                                  | 每個事件一行，斷線自動接續                                                                 |
+| `team roles`                                                                                                | `config/models.json` 的角色、別名、runner、槽位                                            |
+| `team project add <name> <repo> [--base B] [--check "name=cmd"]… [--allow-network]`                         | 註冊專案（僅本機）；`--allow-network` 讓 worker 沙箱可連公開網路（預設關閉，建立後不能改） |
+| `team task add --project P --title T --tier A\|B\|C --paths "…" (--ticket-file F \| -) [--queue]`           | 建任務                                                                                     |
+| `team task list [--project P] [--status queued,running]` / `team task show <id>`                            | 列出／詳情                                                                                 |
+| `team task queue\|cancel\|retry <id>`                                                                       | 排入／停止並取消／重試                                                                     |
+| `team task reassign <id> <role>`                                                                            | 改派角色（先檢查角色存在且啟用）                                                           |
+| `team task add … --research <task_id>`                                                                      | 引用已完成的調研（可重複，最多 3 個）                                                      |
+| `team research add <project> --title T (--question Q \| --question-file F \| -) [--queue]`                  | 建調研任務（`research.mode` 為 `off` 時 409）                                              |
+| `team research show <task_id>`                                                                              | 調研結果（連結未經服務端驗證）                                                             |
+| `team receipt <task_id>`                                                                                    | 最新回執                                                                                   |
+| `team ask "<text>"`                                                                                         | 對 leader 說話，等到回覆為止；Ctrl-C 只停止等待（訊息保留，回覆會出現在看板聊天）          |
+| `team leader reset`                                                                                         | 開新的 leader 對話（例如換了 Claude 登入）                                                 |
+| `team attention list` / `open --question Q --option A …` / `answer <id> "<答案>"`                           | 待決事項；回答 worker 提出的最後一個問題後，任務帶著回答自動續行（ADR 0017）               |
+| `team memory search <project> <query>` / `add <project> <text\|->` / `list <project>` / `rm <project> <id>` | 專案記憶（spec §18；關閉時 409）；leader 只能 search                                       |
 
 每個指令都可加 `--json`。結束碼：0 成功、1 業務錯誤、2 用法或連線錯誤（`team ask` 被 Ctrl-C 中止是 130）。
 
 ## MCP（Claude／Codex 桌面版）
 
 工具：`ask_leader`、`status`、`list_attention`、`answer_attention`、`task_action`、`add_research`、
-`show_research`（細節見
+`show_research`、`search_memory`、`list_memory`、`add_memory`、`remove_memory`（細節見
 [`apps/mcp/README.md`](apps/mcp/README.md)）。`/ABS/PATH/agent-team` 換成本 repo 的絕對路徑；資料目錄不在預設位置時
 加上 `AGENT_TEAM_HOME`。
 

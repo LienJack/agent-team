@@ -15,7 +15,14 @@ import {
   MessageChannelSchema,
   MessageStatusSchema,
 } from './domain.js';
-import { AttentionIdSchema, MessageIdSchema, OutboxIdSchema, WorkspaceIdSchema } from './ids.js';
+import {
+  AttentionIdSchema,
+  MessageIdSchema,
+  OutboxIdSchema,
+  ProjectIdSchema,
+  WorkspaceIdSchema,
+} from './ids.js';
+import { MemorySourceSchema } from './memory.js';
 import { TaskWaitingSchema } from './waiting.js';
 import { EffectKindSchema, NotifyKindSchema } from './records.js';
 import { ResearchFitSchema, ResearchRecommendationSchema } from './research-receipt.js';
@@ -141,6 +148,20 @@ export const EVENT_DATA_SCHEMAS = {
     /** The worker's `needs_leader` on a finished run: a remark, not a question that blocks. */
     note: z.string().optional(),
   }),
+
+  /**
+   * Project memory (spec §18) could not be read before a dispatch: the run went out without the
+   * 專案記憶 block. At most one every 10 minutes; `reason` never contains the MemOS address.
+   */
+  'memory.unavailable': z.object({ reason: z.string() }),
+  /** A `memory.write` effect stored one item (MemOS item ids are not kept: they can change). */
+  'memory.written': z.object({
+    project_id: ProjectIdSchema,
+    source: MemorySourceSchema,
+    source_id: z.string(),
+  }),
+  /** A person deleted one item of a project's memory. */
+  'memory.removed': z.object({ project_id: ProjectIdSchema, memory_id: z.string() }),
 
   'attention.opened': z.object({
     attention_id: AttentionIdSchema,

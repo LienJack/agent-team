@@ -51,10 +51,14 @@ describe('MCP server over stdio against the real HTTP server', () => {
   it('lists tools, reports status, and answers an attention item', async () => {
     const { tools } = await mcp.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
+      'add_memory',
       'add_research',
       'answer_attention',
       'ask_leader',
       'list_attention',
+      'list_memory',
+      'remove_memory',
+      'search_memory',
       'show_research',
       'status',
       'task_action',

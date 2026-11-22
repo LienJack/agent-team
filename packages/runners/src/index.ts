@@ -12,7 +12,13 @@ export type {
 } from './types.js';
 export { redactSecrets } from './redact.js';
 export { createProcessControl, readProcessStart } from './process/control.js';
-export { HOME_DENY, workerDenyPaths, type SandboxPolicy } from './sandbox-policy.js';
+export {
+  HOME_DENY,
+  refusedPorts,
+  workerDenyPaths,
+  type DeniedEndpoint,
+  type SandboxPolicy,
+} from './sandbox-policy.js';
 export { claudeWorkerSettings } from './claude/sandbox.js';
 export { codexSandboxArgs } from './codex/sandbox.js';
 

@@ -343,97 +343,96 @@ export interface operations_part2 {
       500: components['responses']['Error'];
     };
   };
-  listLeaderMessages: {
+  searchMemory: {
     parameters: {
-      query?: {
-        after?: number | null;
+      query: {
+        q: string;
         limit?: number;
       };
       header?: never;
-      path?: never;
+      path: {
+        id: string;
+      };
       cookie?: never;
     };
     requestBody?: never;
     responses: {
-      /** @description Messages ordered by seq */
+      /** @description Matching items, best first */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
           'application/json': {
-            messages: components['schemas']['Message'][];
-          };
-        };
-      };
-      400: components['responses']['Error'];
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-      500: components['responses']['Error'];
-    };
-  };
-  postLeaderMessage: {
-    parameters: {
-      query?: never;
-      header?: {
-        'Idempotency-Key'?: string;
-      };
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          text: string;
-          /** @enum {string} */
-          source?: 'web' | 'cli' | 'mcp' | 'grok' | 'service';
-          client_msg_id: string;
-          /** @default true */
-          wait?: boolean;
-        };
-      };
-    };
-    responses: {
-      /** @description The leader’s reply */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            message_id: string;
-            pending: boolean;
-            reply: string | null;
-            reply_message_id: string | null;
-            leader: {
-              /** @enum {string} */
-              state: 'idle' | 'busy' | 'offline';
-              /** Format: date-time */
-              last_activity_at: string | null;
-              available?: boolean;
+            project_id: string;
+            memories: {
+              id: string;
+              text: string;
               /** @enum {string|null} */
-              reason?: 'disabled' | 'not_installed' | 'auth' | 'rate_limit' | null;
-              hint?: string | null;
-              /** Format: date-time */
-              until?: string | null;
-              queued?: number;
-              context_tokens?: number | null;
-              quota?: {
-                utilization: number | null;
-                /** Format: date-time */
-                resets_at: string | null;
-                exhausted: boolean;
-              } | null;
-            };
+              source: 'task' | 'decision' | 'human' | 'research' | null;
+              source_id: string | null;
+              task_id: string | null;
+              created_at: string | null;
+              searchable: boolean | null;
+              relativity: number | null;
+            }[];
           };
         };
       };
       400: components['responses']['Error'];
       401: components['responses']['Error'];
       403: components['responses']['Error'];
+      404: components['responses']['Error'];
       409: components['responses']['Error'];
       500: components['responses']['Error'];
-      501: components['responses']['Error'];
+      503: components['responses']['Error'];
+    };
+  };
+  listMemory: {
+    parameters: {
+      query?: {
+        page?: number;
+        page_size?: number;
+      };
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Items and the total count */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            project_id: string;
+            memories: {
+              id: string;
+              text: string;
+              /** @enum {string|null} */
+              source: 'task' | 'decision' | 'human' | 'research' | null;
+              source_id: string | null;
+              task_id: string | null;
+              created_at: string | null;
+              searchable: boolean | null;
+              relativity: number | null;
+            }[];
+            total: number;
+            page: number;
+            page_size: number;
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      404: components['responses']['Error'];
+      409: components['responses']['Error'];
+      500: components['responses']['Error'];
       503: components['responses']['Error'];
     };
   };

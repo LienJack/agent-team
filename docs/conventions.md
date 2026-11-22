@@ -38,6 +38,7 @@
 | `Runner`、`RunHooks`、`RunnerRegistry`、`Resumable`、`QuotaReporting`        | `packages/core/src/ports/runner.ts`           | `packages/runners`                   |
 | `CheckExecutor`                                                              | `packages/core/src/ports/services.ts`         | `packages/runners`（共用子行程工具） |
 | `GitPort`                                                                    | `packages/core/src/ports/git.ts`              | `packages/git`                       |
+| `MemoryPort`（專案記憶，spec §18；逾時由實作負責，ADR 0023）                 | `packages/core/src/ports/project-memory.ts`   | `apps/server`（MemOS HTTP）          |
 | `Clock`、`IdGen`、`Notifier`、`LeaderNotifier`、`EventPublisher`、`Logger`   | `packages/core/src/ports/services.ts`         | `apps/server`（組裝）                |
 
 重點契約（完整說明在各介面的 TSDoc）：

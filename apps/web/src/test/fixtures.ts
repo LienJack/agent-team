@@ -93,6 +93,7 @@ export function makeRun(over: Partial<Run> = {}): Run {
     launched_at: null,
     started_at: T0,
     ended_at: '2026-11-20T08:02:00.000Z',
+    memory_ids: [],
     ...over,
   };
 }
@@ -221,6 +222,7 @@ export function makeState(over: Partial<StateSnapshot> = {}): StateSnapshot {
       report:
         '看板共 0 個任務：待派 0（草稿 0、排隊 0，都尚未執行）、進行中 0、待驗收 0、阻塞 0、完成 0。',
     },
+    memory_enabled: false,
     ...over,
   };
 }

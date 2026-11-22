@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 /**
- * Id prefixes (spec §5). `dispatch` and `outbox` are not named in the spec; they use `d_` and `o_`.
+ * Id prefixes (spec §5). `dispatch`, `outbox` and `note` are not named in the spec; they use `d_`,
+ * `o_` and `n_`.
  * An id is `<prefix><random>` where random is lowercase base32 (Crockford alphabet, no i/l/o/u).
  */
 export const ID_PREFIXES = {
@@ -13,6 +14,8 @@ export const ID_PREFIXES = {
   message: 'm_',
   dispatch: 'd_',
   outbox: 'o_',
+  /** A note a person added to a project's memory (`team memory add`; spec §18). */
+  note: 'n_',
 } as const;
 export type IdKind = keyof typeof ID_PREFIXES;
 
@@ -31,6 +34,7 @@ export const AttentionIdSchema = idSchema('attention');
 export const MessageIdSchema = idSchema('message');
 export const DispatchIdSchema = idSchema('dispatch');
 export const OutboxIdSchema = idSchema('outbox');
+export const NoteIdSchema = idSchema('note');
 
 interface RandomSource {
   getRandomValues(array: Uint8Array): Uint8Array;

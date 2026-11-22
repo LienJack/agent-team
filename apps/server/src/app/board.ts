@@ -112,5 +112,7 @@ export function boardSnapshot(ctx: AppContext): StateResponse {
     leader: ctx.leader.status(),
     // counts per column that sum (team status relays the line; docs/adr/0022)
     summary: boardSummary(tasks),
+    memory_enabled:
+      ctx.engine.ctx.config.memory.enabled && ctx.engine.ctx.deps.memory !== undefined,
   };
 }

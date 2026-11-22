@@ -26,7 +26,7 @@ import {
 import { markDelivered, persistReply, storedAnswer, unansweredMessages } from './persist.js';
 import { clearStarted, inputKey, markStarted, turnSeed, wasStarted } from './replay.js';
 import { LeaderProcess, leaderModel } from './process.js';
-import { leaderPromptVersion } from './prompt/system-v5.js';
+import { leaderPromptVersion } from './prompt/system-v6.js';
 import { resumeBrief } from './resume.js';
 import {
   leaderStatus,
@@ -60,9 +60,9 @@ interface Running {
 export function createLeader(deps: LeaderDeps): LeaderImpl {
   const { engine, store, clock, logger, service } = deps;
   const runtime = deps.runtime ?? { enabled: false };
-  const mode = service.research.mode;
-  const proc = runtime.enabled ? new LeaderProcess(runtime, deps.dataDir, mode) : undefined;
-  const promptVersion = leaderPromptVersion(mode);
+  const promptOpts = { mode: service.research.mode, memory: service.memory.enabled };
+  const proc = runtime.enabled ? new LeaderProcess(runtime, deps.dataDir, promptOpts) : undefined;
+  const promptVersion = leaderPromptVersion(promptOpts.mode, promptOpts.memory);
 
   let conv: ConversationState = freshConversation(randomUUID(), promptVersion);
   let offline: Offline | undefined = proc

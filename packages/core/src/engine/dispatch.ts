@@ -19,8 +19,10 @@ import type { EngineContext, Tx } from './context.js';
 import { checkBaseDrift } from './drift.js';
 import { enqueueEffect } from './effect-queue.js';
 import { blockForIntegrity, worktreeRef } from './integrity.js';
+import { readProjectMemory } from './memory-read.js';
 import { retryLater } from './outcomes.js';
 import { buildPrompt, REVIEW_DIFF_MAX_CHARS } from './prompt.js';
+import { memoryBlock } from './prompt-memory.js';
 import { buildResearchPrompt } from './prompt-research.js';
 import { saveTask } from './records.js';
 import { researchRefsFor } from './research.js';
@@ -88,7 +90,15 @@ export async function dispatchPlanned(
         return reject(ctx, task, `review diff: ${errorMessage(err)}`);
       }
     }
-    const runId = ctx.transact((tx) => createRun(ctx, tx, planned, project, ws, reviewDiff));
+    // project memory (spec §18): read before the run's transaction, never inside it; a failure
+    // only means the run goes out without the block
+    const memory = memoryBlock(
+      await readProjectMemory(ctx, task),
+      ctx.config.memory.max_prompt_chars,
+    );
+    const runId = ctx.transact((tx) =>
+      createRun(ctx, tx, planned, project, ws, { reviewDiff, memory }),
+    );
     if (runId === undefined) {
       return { task_id: task.id, outcome: 'deferred', reason: 'task_changed' };
     }
@@ -200,7 +210,19 @@ function createResearchRun(ctx: EngineContext, tx: Tx, planned: PlannedDispatch)
     sandbox: { allowNetwork: false },
   };
   if (planned.resolved.effort !== undefined) spec.effort = planned.resolved.effort;
-  return startRun(ctx, tx, planned, task, { runId, dispatchId, spec, workspaceId: null });
+  return startRun(ctx, tx, planned, task, {
+    runId,
+    dispatchId,
+    spec,
+    workspaceId: null,
+    memoryIds: [],
+  });
+}
+
+/** What dispatch prepared outside the transaction: the review diff and the memory block. */
+interface Prepared {
+  reviewDiff: ReviewDiff | null;
+  memory: { text: string; ids: string[] };
 }
 
 function createRun(
@@ -209,7 +231,7 @@ function createRun(
   planned: PlannedDispatch,
   project: Project,
   ws: Workspace,
-  reviewDiff: ReviewDiff | null,
+  prepared: Prepared,
 ): string | undefined {
   // the task may have changed while the worktree was prepared
   const task = stillPlanned(tx, planned);
@@ -227,9 +249,10 @@ function createRun(
     dispatchId,
     receiptSchema,
     implReceipt: kind === 'review' ? lastImplReceipt(tx, task.id) : null,
-    reviewDiff,
+    reviewDiff: prepared.reviewDiff,
     answers: answersFor(tx, task.id),
     research: researchRefsFor(tx, task),
+    memory: prepared.memory.text,
   });
   const spec: RunSpec = {
     dispatchId,
@@ -244,7 +267,13 @@ function createRun(
     sandbox: { allowNetwork: project.allow_network, repoPath: project.repo_path },
   };
   if (resolved.effort !== undefined) spec.effort = resolved.effort;
-  return startRun(ctx, tx, planned, task, { runId, dispatchId, spec, workspaceId: ws.id });
+  return startRun(ctx, tx, planned, task, {
+    runId,
+    dispatchId,
+    spec,
+    workspaceId: ws.id,
+    memoryIds: prepared.memory.ids,
+  });
 }
 
 /** Insert the run, move the task to its run's stage and store the `run.start` effect. */
@@ -253,7 +282,13 @@ function startRun(
   tx: Tx,
   planned: PlannedDispatch,
   task: Task,
-  r: { runId: string; dispatchId: string; spec: RunSpec; workspaceId: string | null },
+  r: {
+    runId: string;
+    dispatchId: string;
+    spec: RunSpec;
+    workspaceId: string | null;
+    memoryIds: string[];
+  },
 ): string {
   const { resolved, kind } = planned;
   const { runId, dispatchId, spec } = r;
@@ -282,6 +317,7 @@ function startRun(
     launched_at: null,
     started_at: tx.now,
     ended_at: null,
+    memory_ids: r.memoryIds,
   };
   tx.r.runs.insert(run);
   tx.emit(

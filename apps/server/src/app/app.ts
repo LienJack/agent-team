@@ -2,6 +2,7 @@ import { TeamError } from '@agent-team/core';
 import { OpenAPIHono, type RouteConfig, type RouteHandler } from '@hono/zod-openapi';
 import {
   ALL_ROUTES,
+  addMemory,
   answerAttention,
   approveTask,
   createProject,
@@ -9,10 +10,12 @@ import {
   getRunLog,
   isLocalOnly,
   listLeaderMessages,
+  listMemory,
   login,
   postLeaderMessage,
   reassignTask,
   rejectTask,
+  removeMemory,
   resetLeader,
   streamEvents,
 } from '@agent-team/protocol';
@@ -23,6 +26,7 @@ import { bearerAuth, type LanAuth } from '../auth/guards.js';
 import { notFound, onError, validationHook } from './errors.js';
 import { refreshReplay } from './delivery.js';
 import { idempotency } from './idempotency.js';
+import { registerMemoryRoutes } from './routes-memory.js';
 import { registerSystemRoutes } from './routes-system.js';
 import { registerWorkRoutes } from './routes-work.js';
 import { registerStatic } from './static.js';
@@ -79,8 +83,9 @@ function refusedBy(routes: readonly RouteConfig[]): (method: string, path: strin
  * conversation transcripts are for humans only; `team ask` (its own queue) and `team watch`
  * (never ends) would hang its turn; decisions that bypass review or change what runs where —
  * approve, reject, reassign, answering attention items — resetting its own conversation and
- * registering local repositories are the owner's calls. The engine refuses the human-only
- * commands to the leader as well; this list answers early with a clear hint.
+ * registering local repositories are the owner's calls. Of the project memory (spec §18) it may
+ * only search: listing, adding and deleting items are a person's. The engine refuses the
+ * human-only commands to the leader as well; this list answers early with a clear hint.
  */
 export const LEADER_FORBIDDEN = [
   createProject,
@@ -94,6 +99,9 @@ export const LEADER_FORBIDDEN = [
   postLeaderMessage,
   streamEvents,
   resetLeader,
+  listMemory,
+  addMemory,
+  removeMemory,
 ];
 
 function leaderForbidden(): MiddlewareHandler<AppEnv> {
@@ -140,6 +148,7 @@ export function createApp(ctx: AppContext, options: AppOptions): OpenAPIHono<App
   app.use('/api/*', idempotency({ ...ctx, refresh: (body) => refreshReplay(ctx, body) }));
 
   registerWorkRoutes(app, ctx);
+  registerMemoryRoutes(app, ctx);
   registerSystemRoutes(app, ctx);
 
   if (options.listener === 'lan') {

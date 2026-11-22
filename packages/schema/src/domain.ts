@@ -204,6 +204,11 @@ export const RunSchema = z.object({
   launched_at: IsoDateTimeSchema.nullable(),
   started_at: IsoDateTimeSchema,
   ended_at: IsoDateTimeSchema.nullable(),
+  /**
+   * Project memory items put into this run's prompt (MemOS ids, spec §18); empty when there was
+   * none, memory is off or MemOS was unavailable.
+   */
+  memory_ids: z.array(z.string().min(1).max(100)).max(50),
 });
 export type Run = z.infer<typeof RunSchema>;
 

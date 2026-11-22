@@ -2,6 +2,7 @@ import type { RunKind, Task, TaskStatus } from '@agent-team/schema';
 import { addMs, backoffMs } from '../util/time.js';
 import type { EngineContext, Tx } from './context.js';
 import { notify } from './notify.js';
+import { rememberDoneTask } from './project-memory.js';
 import { saveTask } from './records.js';
 
 // Task-level consequences of run outcomes. All run inside the caller's transaction.
@@ -40,6 +41,8 @@ export function completeTask(ctx: EngineContext, tx: Tx, task: Task, reason: str
     { status: 'done', current_run_id: null, fix_notes: null, recovery_note: null, retry_at: null },
     reason,
   );
+  // the project memory keeps what was finished (spec §18): review passed, approved, research
+  rememberDoneTask(ctx, tx, next);
   notify(ctx, tx, {
     kind: 'task_done',
     signature: `task_done:${task.id}`,

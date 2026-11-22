@@ -38,6 +38,8 @@ interface UiState {
   view: MobileView;
   selectedTaskId: string | undefined;
   newTaskOpen: boolean;
+  /** The project memory dialog (spec §18). */
+  memoryOpen: boolean;
   projectFilter: string | undefined;
   connection: Connection;
   auth: AuthState;
@@ -48,6 +50,7 @@ interface UiState {
   setView(view: MobileView): void;
   openTask(id: string | undefined): void;
   setNewTaskOpen(open: boolean): void;
+  setMemoryOpen(open: boolean): void;
   setProjectFilter(id: string | undefined): void;
   setConnection(connection: Connection): void;
   setAuth(auth: AuthState): void;
@@ -63,6 +66,7 @@ export const useUi = create<UiState>()((set) => ({
   view: 'board',
   selectedTaskId: undefined,
   newTaskOpen: false,
+  memoryOpen: false,
   projectFilter: undefined,
   connection: 'idle',
   auth: 'unknown',
@@ -75,6 +79,7 @@ export const useUi = create<UiState>()((set) => ({
   setView: (view) => set({ view }),
   openTask: (selectedTaskId) => set({ selectedTaskId }),
   setNewTaskOpen: (newTaskOpen) => set({ newTaskOpen }),
+  setMemoryOpen: (memoryOpen) => set({ memoryOpen }),
   setProjectFilter: (projectFilter) => set({ projectFilter }),
   setConnection: (connection) => set({ connection }),
   setAuth: (auth) => set({ auth }),

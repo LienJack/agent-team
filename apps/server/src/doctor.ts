@@ -54,6 +54,8 @@ export interface DoctorDeps {
   env: EnvReader;
   store: Store;
   dataDir: string;
+  /** Project memory (spec §18): its `/health`, only when it is enabled. */
+  memory?: { health(): Promise<{ ok: boolean; detail: string }> } | undefined;
 }
 
 /**
@@ -81,6 +83,12 @@ export async function runDoctor(deps: DoctorDeps): Promise<DoctorResponse> {
   } catch (err) {
     checks.push({ name: 'database', ok: false, detail: errorMessage(err) });
   }
+  // nothing contacts MemOS while memory is off; the detail never names its address
+  checks.push(
+    deps.memory
+      ? { name: 'memory', ...(await deps.memory.health()) }
+      : { name: 'memory', ok: true, detail: 'off (service.json memory.enabled = false)' },
+  );
   const runners = await Promise.all(deps.runners.names().map((name) => probe(deps.runners, name)));
   return {
     ok: checks.every((c) => c.ok) && runners.every((r) => r.available),

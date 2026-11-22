@@ -8,6 +8,8 @@ export const keys = {
   runLog: (id: string) => ['runLog', id] as const,
   leaderMessages: () => ['leaderMessages'] as const,
   roles: () => ['roles'] as const,
+  /** One project's memory pages (spec §18). */
+  memory: (projectId: string) => ['memory', projectId] as const,
 };
 
 export type QueryKey = readonly string[];

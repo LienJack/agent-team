@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { HOME_READ } from '../claude/sandbox.js';
 import { DSH_PROFILE } from './args.js';
 import { confinedProcess, confinedWrites, real, q } from '../checks/sandbox.js';
-import { denyPathsFor, strip, type SandboxPolicy } from '../sandbox-policy.js';
+import { denyPathsFor, refusedPorts, strip, type SandboxPolicy } from '../sandbox-policy.js';
 
 // dsh worker sandbox (docs/adr/0019, 0020). dsh's own `sandbox-policy` only has workspace-write /
 // read-only modes for its bash tool: reads anywhere stay possible (DATA with the listener
@@ -27,7 +27,8 @@ import { denyPathsFor, strip, type SandboxPolicy } from '../sandbox-policy.js';
 // - network: Seatbelt can only name `localhost` or `*` as a remote host, so the model provider
 //   cannot be pinned; outbound stays open but the service's own ports are refused on every
 //   address (`*:<port>`), as for the checks — except the model-key proxy's port, the one way dsh
-//   reaches the model API (it holds a per-run token, never the key; docs/adr/0020).
+//   reaches the model API (it holds a per-run token, never the key; docs/adr/0020). With project
+//   memory on, the MemOS port is refused the same way, on every host (spec §18).
 // dsh's bash tool cannot nest its own Seatbelt profile inside this one (args.ts).
 
 /** What a run may read under `~/.dsh`: the booted profile's own directory, nothing else. */
@@ -91,9 +92,8 @@ export function dshSandboxProfile(input: DshSandboxInput, policy: SandboxPolicy)
       .map(installRoot)
       .filter((p) => p.startsWith(`${home}/`)),
   ];
-  const ports = [...new Set(policy.servicePorts?.() ?? [])].filter(
-    (p) => Number.isInteger(p) && p > 0 && p < 65536 && p !== input.proxyPort,
-  );
+  // the service's own ports and the project memory's MemOS port (spec §18), except the proxy's
+  const ports = refusedPorts(policy).filter((p) => p !== input.proxyPort);
   const sub = (paths: readonly string[]) => paths.map((p) => `(subpath ${q(p)})`).join(' ');
   return [
     '(version 1)',

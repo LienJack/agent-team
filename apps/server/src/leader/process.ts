@@ -17,7 +17,7 @@ import {
   type ResearchMode,
 } from '@agent-team/schema';
 import { LEADER_OPTIONAL_FLAGS, LEADER_REQUIRED_FLAGS, leaderArgs } from './args.js';
-import { leaderSystemPrompt } from './prompt/system-v5.js';
+import { leaderSystemPrompt } from './prompt/system-v6.js';
 import { leaderSandboxSettings, leaderSocketPath } from './sandbox.js';
 import type { LeaderRuntime } from './types.js';
 
@@ -153,8 +153,14 @@ export class LeaderProcess {
   constructor(
     private readonly runtime: LeaderRuntime,
     private readonly dataDir: string,
-    /** `service.json` research.mode: one sentence of the system prompt (spec §17). */
-    private readonly researchMode: ResearchMode = 'on_request',
+    /**
+     * `service.json` research.mode and memory.enabled: one sentence of the system prompt each
+     * (spec §17, §18); memory also adds `team memory search` to the allow-list.
+     */
+    private readonly prompt: { mode: ResearchMode; memory: boolean } = {
+      mode: 'on_request',
+      memory: false,
+    },
   ) {
     this.paths = leaderPaths(dataDir);
   }
@@ -233,9 +239,10 @@ export class LeaderProcess {
       effort: input.model.effort,
       sessionId: input.sessionId,
       resume: input.resume,
-      systemPrompt: leaderSystemPrompt(this.researchMode),
+      systemPrompt: leaderSystemPrompt(this.prompt.mode, this.prompt.memory),
       flags: probe.flags,
       settings: this.settings,
+      memory: this.prompt.memory,
     });
     await rm(this.paths.turnLog, { recursive: true, force: true });
     const keyFile = join(this.dataDir, DATA_LAYOUT.leaderTurnKey);

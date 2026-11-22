@@ -18,8 +18,8 @@ beforeEach(() => {
 afterEach(() => tmp.remove());
 
 describe('attention-topic migration', () => {
-  it('is the latest committed migration', () => {
-    expect(readMigrations().at(-1)?.tag).toBe(TOPIC_TAG);
+  it('is a committed migration', () => {
+    expect(readMigrations().map((m) => m.tag)).toContain(TOPIC_TAG);
   });
 
   it('keeps existing items and marks them unclassified', () => {

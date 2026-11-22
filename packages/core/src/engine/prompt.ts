@@ -8,6 +8,7 @@ import type {
 } from '@agent-team/schema';
 import type { ReviewDiff } from '../ports/git.js';
 import { bullet, dataBlock, inlineText } from './prompt-blocks.js';
+import { formatProjectMemory, MEMORY_RULE } from './prompt-memory.js';
 import { formatResearchRefs, RESEARCH_REF_RULE, type ResearchRef } from './prompt-research.js';
 
 export { dataBlock, inlineText } from './prompt-blocks.js';
@@ -36,6 +37,8 @@ export interface PromptInput {
   answers?: ReadonlyArray<{ question: string; answer: string }>;
   /** Receipts of the done research tasks the task cites (`research_refs`; spec §17). */
   research?: readonly ResearchRef[];
+  /** The 專案記憶 block text (spec §18; already capped), or empty for none. */
+  memory?: string;
 }
 
 const code = (s: string) => `\`${s}\``;
@@ -182,6 +185,8 @@ export function buildPrompt(input: PromptInput): string {
   const research = input.research ?? [];
   const rules = kind === 'review' ? reviewRules(dispatchId) : implRules(task, dispatchId);
   if (research.length > 0) rules.push(RESEARCH_REF_RULE);
+  const memory = input.memory?.trim() ?? '';
+  if (memory !== '') rules.push(MEMORY_RULE);
   const sections: string[] = [
     `# 派工單 ${dispatchId}`,
     `任務 ${task.id}：${inlineText(task.title)}（tier ${task.tier}，專案 ${inlineText(project.name)}，類型 ${kind}）`,
@@ -201,6 +206,7 @@ export function buildPrompt(input: PromptInput): string {
   if (kind === 'review') sections.push(reviewScope(input));
   sections.push(`## 派工單原文\n\n${dataBlock('ticket', dispatchId, task.ticket_md.trim())}`);
   if (research.length > 0) sections.push(formatResearchRefs(research, dispatchId));
+  if (memory !== '') sections.push(formatProjectMemory(memory, dispatchId));
   if (kind === 'review') {
     sections.push(acceptance(task, dispatchId));
     sections.push(formatReviewDiff(workspace, input.reviewDiff, dispatchId));

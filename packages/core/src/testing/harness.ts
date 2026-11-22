@@ -4,6 +4,7 @@ import type { EngineConfig } from '../engine/context.js';
 import { InMemoryStore } from '../memory/store.js';
 import type { Store } from '../ports/repositories.js';
 import { FakeGit } from './fake-git.js';
+import { FakeMemory } from './fake-memory.js';
 import { FakeRunner, type FakeStep } from './fake-runner.js';
 import {
   FakeCheckExecutor,
@@ -28,6 +29,8 @@ export interface TestEngine {
   publisher: RecordingPublisher;
   registry: InMemoryRunnerRegistry;
   processes: FakeProcessControl;
+  /** The project memory port (used only when `config.memory.enabled`). */
+  memory: FakeMemory;
   /** One fake per runner name used by the test models config. */
   runners: Record<'claude' | 'codex' | 'dsh', FakeRunner>;
   config: EngineConfig;
@@ -54,6 +57,8 @@ export interface TestEngineOptions {
   git?: FakeGit;
   /** Share the processes of another engine (a restart keeps the OS processes). */
   processes?: FakeProcessControl;
+  /** Share the project memory of another engine (a restart keeps MemOS). */
+  memory?: FakeMemory;
 }
 
 /**
@@ -71,6 +76,7 @@ export function createTestEngine(options: TestEngineOptions = {}): TestEngine {
   const publisher = new RecordingPublisher();
   const registry = new InMemoryRunnerRegistry();
   const processes = options.processes ?? new FakeProcessControl();
+  const memory = options.memory ?? new FakeMemory();
   const runners = {
     claude: new FakeRunner('claude'),
     codex: new FakeRunner('codex'),
@@ -94,6 +100,7 @@ export function createTestEngine(options: TestEngineOptions = {}): TestEngine {
     leader,
     publisher,
     processes,
+    memory,
   });
   let projectId: string | undefined;
   const harness: TestEngine = {
@@ -107,6 +114,7 @@ export function createTestEngine(options: TestEngineOptions = {}): TestEngine {
     publisher,
     registry,
     processes,
+    memory,
     runners,
     config,
     project(overrides = {}) {

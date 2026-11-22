@@ -9,6 +9,9 @@ Grok 中樞（`src/hub/`：`grokmsg` 收發、outbox、合併與安靜時段、`
 - `src/app/board.ts`：`GET /api/state` 快照（每個任務附最近一次 run、`head_sha`、run 合計）；
   `src/run-log-watch.ts`：執行中 run 的日誌變長時寫 `run.log_advanced` 事件（每個 run 每 2 秒最多一筆）。
 - `src/env.ts`：唯一的 `.env` 讀取函式，一次回傳一個變數，process env 優先，不記錄值。
+- `src/memory/`：專案記憶的 MemOS HTTP 實作（spec §18、ADR 0023）：每個請求的 cube id 都檢查前綴、逾時用
+  `AbortSignal.timeout`、刪除前先以限定 cube 的查詢證明擁有權、錯誤不帶位址；`memory.enabled` 為 false 時不建立。
+  測試用 `src/testing/fake-memos.ts`（loopback 上的假 MemOS）。
 - 其餘模組只依賴 ports：`createService(deps)`、`createApp(ctx, { listener })`；測試用 `src/testing/harness.ts`
   （記憶體 store + core 的假 ports）。
 - 身分由權杖決定（ADR 0014）：本機監聽埠的 operator 權杖（`DATA/run/listener.json`）與區網 session 是人；leader 專用權杖

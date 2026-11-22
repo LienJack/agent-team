@@ -27,6 +27,7 @@ import { createHub } from './hub/hub.js';
 import { roleSummarizer, type Summarize } from './hub/summarizer.js';
 import type { Hub, HubRuntime } from './hub/types.js';
 import { createLeader } from './leader/leader.js';
+import type { MemosMemory } from './memory/memos.js';
 import type { Leader, LeaderRuntime } from './leader/types.js';
 import {
   boardUrls,
@@ -66,6 +67,11 @@ export interface ServiceDeps {
   summarize?: Summarize;
   /** Terminates worker groups left by a crashed service (startup recovery; docs/adr/0015). */
   processes?: ProcessControl;
+  /**
+   * Project memory in MemOS (spec §18). Used only when `memory.enabled`; main.ts builds the HTTP
+   * adapter, tests pass one against a fake MemOS on loopback.
+   */
+  memory?: MemosMemory;
 }
 
 export interface RunningService {
@@ -126,6 +132,8 @@ export function createService(deps: ServiceDeps): Service {
         dataDir,
       }),
   });
+  // while memory is off nothing may reach the MemOS address, not even `team doctor`
+  const memory = service.memory.enabled ? deps.memory : undefined;
   const engine = new Engine({
     store,
     runners,
@@ -137,12 +145,14 @@ export function createService(deps: ServiceDeps): Service {
       models: config.models,
       engine: service.engine,
       research: service.research,
+      memory: service.memory,
       dataDir,
       worktreeRoot: config.worktreeRoot,
       notifications: hub.delivering,
     },
     notifier: hub,
     ...(deps.processes ? { processes: deps.processes } : {}),
+    ...(memory ? { memory } : {}),
     // every committed event reaches SSE and the leader (it filters and keeps its own cursor)
     publisher: {
       publish: (batch) => {
@@ -178,7 +188,7 @@ export function createService(deps: ServiceDeps): Service {
     leader,
     events,
     webDist: config.webDist,
-    doctor: () => runDoctor({ runners, env: deps.env, store, dataDir }),
+    doctor: () => runDoctor({ runners, env: deps.env, store, dataDir, memory }),
     checkRepo: async (repoPath, baseBranch) => {
       await deps.git.resolveRef({ repoPath, ref: baseBranch });
     },

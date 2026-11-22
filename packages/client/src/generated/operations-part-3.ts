@@ -6,6 +6,178 @@
 import type { components } from './components.js';
 
 export interface operations_part3 {
+  addMemory: {
+    parameters: {
+      query?: never;
+      header?: {
+        'Idempotency-Key'?: string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          text: string;
+        };
+      };
+    };
+    responses: {
+      /** @description The note is queued (lane `memory`) */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            project_id: string;
+            source_id: string;
+            /** @enum {boolean} */
+            queued: true;
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      404: components['responses']['Error'];
+      409: components['responses']['Error'];
+      500: components['responses']['Error'];
+    };
+  };
+  removeMemory: {
+    parameters: {
+      query?: never;
+      header?: {
+        'Idempotency-Key'?: string;
+      };
+      path: {
+        id: string;
+        memory_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The item is gone */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            project_id: string;
+            memory_id: string;
+            /** @enum {boolean} */
+            removed: true;
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      404: components['responses']['Error'];
+      409: components['responses']['Error'];
+      500: components['responses']['Error'];
+      503: components['responses']['Error'];
+    };
+  };
+  listLeaderMessages: {
+    parameters: {
+      query?: {
+        after?: number | null;
+        limit?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Messages ordered by seq */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            messages: components['schemas']['Message'][];
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      500: components['responses']['Error'];
+    };
+  };
+  postLeaderMessage: {
+    parameters: {
+      query?: never;
+      header?: {
+        'Idempotency-Key'?: string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          text: string;
+          /** @enum {string} */
+          source?: 'web' | 'cli' | 'mcp' | 'grok' | 'service';
+          client_msg_id: string;
+          /** @default true */
+          wait?: boolean;
+        };
+      };
+    };
+    responses: {
+      /** @description The leader’s reply */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            message_id: string;
+            pending: boolean;
+            reply: string | null;
+            reply_message_id: string | null;
+            leader: {
+              /** @enum {string} */
+              state: 'idle' | 'busy' | 'offline';
+              /** Format: date-time */
+              last_activity_at: string | null;
+              available?: boolean;
+              /** @enum {string|null} */
+              reason?: 'disabled' | 'not_installed' | 'auth' | 'rate_limit' | null;
+              hint?: string | null;
+              /** Format: date-time */
+              until?: string | null;
+              queued?: number;
+              context_tokens?: number | null;
+              quota?: {
+                utilization: number | null;
+                /** Format: date-time */
+                resets_at: string | null;
+                exhausted: boolean;
+              } | null;
+            };
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      409: components['responses']['Error'];
+      500: components['responses']['Error'];
+      501: components['responses']['Error'];
+      503: components['responses']['Error'];
+    };
+  };
   getLeaderMessage: {
     parameters: {
       query?: never;

@@ -3,6 +3,11 @@ import { join } from 'node:path';
 import type { RunSpec } from '@agent-team/schema';
 import { strip, workerDenyPaths, type SandboxPolicy } from '../sandbox-policy.js';
 
+/** `host:port` entries for Claude Code's `deniedDomains` (spec §18: MemOS stays out of reach). */
+function deniedDomains(policy: SandboxPolicy): string[] {
+  return (policy.deniedEndpoints?.() ?? []).map((e) => `${e.host}:${e.port}`);
+}
+
 export type { SandboxPolicy } from '../sandbox-policy.js';
 
 // Claude Code's own sandbox for worker runs (docs/adr/0014), passed as `--settings <json>`
@@ -82,6 +87,10 @@ export function claudeWorkerSettings(
       filesystem: { denyRead: [...deny, home], allowRead, denyWrite: [...deny, pointer] },
       network: {
         allowedDomains: spec.sandbox?.allowNetwork === true ? ['*'] : [],
+        // with the network open, still not the project memory's server (spec §18)
+        ...(spec.sandbox?.allowNetwork === true && deniedDomains(policy).length > 0
+          ? { deniedDomains: deniedDomains(policy) }
+          : {}),
         strictAllowlist: true,
         allowLocalBinding: false,
         allowAllUnixSockets: false,
@@ -131,7 +140,11 @@ export function claudeResearchSettings(
     permissions: {
       blockReadsOutsideWorkingDirectories: true,
       blockWritesOutsideWorkingDirectories: true,
-      deny: [...CLAUDE_WEB_DENIED_TOOLS],
+      // WebFetch is Claude Code's own client: refuse the project memory's host there too
+      deny: [
+        ...CLAUDE_WEB_DENIED_TOOLS,
+        ...(policy.deniedEndpoints?.() ?? []).map((e) => `WebFetch(domain:${e.host})`),
+      ],
     },
     sandbox: {
       enabled: true,
