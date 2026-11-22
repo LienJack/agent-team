@@ -115,6 +115,16 @@ export class Engine {
     return this.ticking;
   }
 
+  /**
+   * Wait for the pass in progress — it may have read the store before the caller's commit —
+   * and then one more, so the caller sees the dispatch outcome of its own command (the
+   * `delivery` of task command responses, docs/adr/0022). Never rejects.
+   */
+  async settle(): Promise<void> {
+    if (this.ticking) await this.ticking.catch(() => undefined);
+    await this.tick().catch(() => undefined);
+  }
+
   /** Request a tick soon without awaiting it (coalesced). */
   wake(): void {
     if (this.wakeRequested || this.suspended || this.ctx.stopping) return;

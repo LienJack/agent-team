@@ -27,6 +27,7 @@ import {
 } from '../domain.js';
 import { MessageIdSchema, ProjectIdSchema, RunIdSchema, TaskIdSchema } from '../ids.js';
 import { RunnerStatusSchema } from '../records.js';
+import { BoardSummarySchema, DeliverySchema } from '../delivery.js';
 import { ResearchReceiptSchema } from '../research-receipt.js';
 import { RunnerCapabilitiesSchema, UsageSchema } from '../runner.js';
 import { RunKindSchema, RunStateSchema, TaskStatusSchema } from '../status.js';
@@ -141,6 +142,8 @@ export const StateResponseSchema = z.object({
   open_attention: z.array(AttentionSchema),
   runners: z.array(RunnerStatusSchema),
   leader: LeaderStatusSchema,
+  /** Counts per board column that sum to `total`, and the generated line (`team status`). */
+  summary: BoardSummarySchema,
 });
 export type StateResponse = z.infer<typeof StateResponseSchema>;
 
@@ -228,6 +231,17 @@ export const TaskListQuerySchema = z.object({
 });
 export const TaskListResponseSchema = z.object({ tasks: z.array(TaskSchema) });
 export const TaskResponseSchema = z.object({ task: TaskSchema });
+/**
+ * Every task command (create, research create, queue, cancel, retry, approve, reject,
+ * reassign): the task as it is now, what that means for its dispatch (`delivery`, derived from
+ * the stored state after one scheduling pass) and the generated one-line `report` the leader
+ * relays (docs/adr/0022). A replayed request (same Idempotency-Key) gets them recomputed.
+ */
+export const TaskCommandResponseSchema = TaskResponseSchema.extend({
+  delivery: DeliverySchema,
+  report: z.string(),
+});
+export type TaskCommandResponse = z.infer<typeof TaskCommandResponseSchema>;
 
 /** GET /tasks/:id — task with its runs (receipts included), workspace and attention items. */
 export const TaskDetailResponseSchema = z.object({

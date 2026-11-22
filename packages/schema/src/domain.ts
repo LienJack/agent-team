@@ -212,11 +212,60 @@ export const AttentionStatusSchema = z.enum(['open', 'answered', 'superseded']);
 export const AnswerViaSchema = z.enum(['web', 'cli', 'mcp', 'grok', 'leader']);
 export type AnswerVia = z.infer<typeof AnswerViaSchema>;
 
+/**
+ * What an attention item is about — set by whoever opens it, never derived from its text. The
+ * risk of every topic is one table (`ATTENTION_TOPIC_RISK`, docs/adr/0022).
+ */
+export const ATTENTION_TOPICS = [
+  /** Opened through the API (`team attention open`: the leader or a person). */
+  'general',
+  /** A worker's `needs_leader` (impl or research receipt). */
+  'worker_question',
+  /** The rate-limit loop guard stopped a runner; any answer re-arms it. */
+  'runner_halted',
+  /** Base drift: rebuild (discards the worktree's work) or continue on the old base. */
+  'base_drift',
+  /** Retry although the last run may have started (`start_unknown`). */
+  'start_unknown',
+  /** Retry although the previous worker could not be confirmed dead. */
+  'worker_unconfirmed',
+  /** The worktree failed its identity check (docs/adr/0018). */
+  'worktree_identity',
+  /** A worktree with uncommitted changes was kept instead of removed: keep or discard. */
+  'workspace_kept',
+  /** Rows from before topics existed: unknown, so treated as high risk. */
+  'unclassified',
+] as const;
+export const AttentionTopicSchema = z.enum(ATTENTION_TOPICS);
+export type AttentionTopic = z.infer<typeof AttentionTopicSchema>;
+
+/**
+ * `high`: answering can discard work or bypass a safety stop, so the item is answerable only
+ * from the board or the CLI — never from Grok, which gets no buttons for it (spec §10).
+ * Exhaustive: a new topic fails the type check until its risk is decided.
+ */
+export const ATTENTION_TOPIC_RISK: Readonly<Record<AttentionTopic, 'normal' | 'high'>> = {
+  general: 'normal',
+  worker_question: 'normal',
+  runner_halted: 'normal',
+  base_drift: 'high',
+  start_unknown: 'high',
+  worker_unconfirmed: 'high',
+  worktree_identity: 'high',
+  workspace_kept: 'high',
+  unclassified: 'high',
+};
+
+export function isHighRiskAttention(item: { topic: AttentionTopic }): boolean {
+  return ATTENTION_TOPIC_RISK[item.topic] === 'high';
+}
+
 /** Something a human (or the leader) must decide; server state, not chat history. */
 export const AttentionSchema = z.object({
   id: AttentionIdSchema,
   task_id: TaskIdSchema.nullable(),
   kind: AttentionKindSchema,
+  topic: AttentionTopicSchema,
   question: z.string().min(1),
   options: z.array(z.string().min(1)),
   status: AttentionStatusSchema,

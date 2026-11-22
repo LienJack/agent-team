@@ -8,7 +8,7 @@ import {
   TaskListResponseSchema,
   TaskReassignRequestSchema,
   TaskRejectRequestSchema,
-  TaskResponseSchema,
+  TaskCommandResponseSchema,
 } from '@agent-team/schema';
 import { body, errors, idParam, json, MutationHeadersSchema, optionalBody } from '../common.js';
 
@@ -32,7 +32,10 @@ export const createTask = createRoute({
   path: '/api/tasks',
   summary: 'Create a task (draft, or queued with `queue: true`)',
   request: { headers: MutationHeadersSchema, body: body(TaskCreateRequestSchema) },
-  responses: { 201: json(TaskResponseSchema, 'The created task'), ...errors(404, 409) },
+  responses: {
+    201: json(TaskCommandResponseSchema, 'The created task, its delivery and the report line'),
+    ...errors(404, 409),
+  },
 });
 
 export const getTask = createRoute({
@@ -57,7 +60,10 @@ function action(name: 'queue' | 'cancel' | 'retry' | 'approve', summary: string)
       headers: MutationHeadersSchema,
       body: optionalBody(TaskActionRequestSchema),
     },
-    responses: { 200: json(TaskResponseSchema, 'The updated task'), ...errors(404, 409) },
+    responses: {
+      200: json(TaskCommandResponseSchema, 'The updated task, its delivery and the report line'),
+      ...errors(404, 409),
+    },
   });
 }
 
@@ -73,7 +79,10 @@ export const rejectTask = createRoute({
   path: '/api/tasks/{id}/reject',
   summary: 'Reject a task in review; the note becomes the fix run’s must-fix list',
   request: { params, headers: MutationHeadersSchema, body: body(TaskRejectRequestSchema) },
-  responses: { 200: json(TaskResponseSchema, 'The updated task'), ...errors(404, 409) },
+  responses: {
+    200: json(TaskCommandResponseSchema, 'The updated task, its delivery and the report line'),
+    ...errors(404, 409),
+  },
 });
 
 export const reassignTask = createRoute({
@@ -83,7 +92,10 @@ export const reassignTask = createRoute({
   path: '/api/tasks/{id}/reassign',
   summary: 'Use another role for the next impl/fix run',
   request: { params, headers: MutationHeadersSchema, body: body(TaskReassignRequestSchema) },
-  responses: { 200: json(TaskResponseSchema, 'The updated task'), ...errors(404, 409) },
+  responses: {
+    200: json(TaskCommandResponseSchema, 'The updated task, its delivery and the report line'),
+    ...errors(404, 409),
+  },
 });
 
 export const taskRoutes = {

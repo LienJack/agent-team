@@ -16,7 +16,9 @@ export function describeRunner(r: RunnerStatus, now: number): RunnerView {
   const cooling = r.cooldown_until !== null && Date.parse(r.cooldown_until) > now;
   let label = '可用';
   let tone: Tone = 'ok';
-  if (r.circuit === 'open') [label, tone] = ['熔斷', 'bad'];
+  // the rate-limit loop guard stopped it: open until a person re-arms it (docs/adr/0022)
+  if (r.halted_at) [label, tone] = ['已停用', 'bad'];
+  else if (r.circuit === 'open') [label, tone] = ['熔斷', 'bad'];
   else if (r.quota?.exhausted) [label, tone] = ['額度用完', 'bad'];
   else if (cooling) [label, tone] = ['冷卻中', 'warn'];
   else if (!r.available) [label, tone] = ['不可用', 'bad'];
@@ -33,6 +35,11 @@ export function describeRunner(r: RunnerStatus, now: number): RunnerView {
   if (r.circuit_open_until && r.circuit !== 'closed')
     parts.push(`熔斷到 ${formatTime(r.circuit_open_until)}`);
   if (r.consecutive_failures > 0) parts.push(`連續失敗 ${r.consecutive_failures} 次`);
+  if (r.halted_at) {
+    parts.push(
+      `冷卻後連續 ${r.rate_limit_loops} 次又撞到額度上限，停止自動恢復（回答待決事項以重新啟用）`,
+    );
+  }
   return { name: r.runner, label, tone, utilization, detail: parts.join('；') };
 }
 

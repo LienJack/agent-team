@@ -275,6 +275,17 @@ export interface components {
       task_id: string | null;
       /** @enum {string} */
       kind: 'decision' | 'approval' | 'question';
+      /** @enum {string} */
+      topic:
+        | 'general'
+        | 'worker_question'
+        | 'runner_halted'
+        | 'base_drift'
+        | 'start_unknown'
+        | 'worker_unconfirmed'
+        | 'worktree_identity'
+        | 'workspace_kept'
+        | 'unclassified';
       question: string;
       options: string[];
       /** @enum {string} */
@@ -313,6 +324,17 @@ export interface components {
       consecutive_failures: number;
       /** Format: date-time */
       circuit_open_until: string | null;
+      /** @default 0 */
+      rate_limit_loops: number;
+      /** @default false */
+      probe_after_cooldown: boolean;
+      /**
+       * Format: date-time
+       * @default null
+       */
+      halted_at: string | null;
+      /** @default null */
+      halted_attention_id: string | null;
       quota: {
         utilization: number | null;
         /** Format: date-time */
@@ -366,6 +388,40 @@ export interface components {
         message: string;
         hint?: string;
       };
+    };
+    Delivery: {
+      /** @enum {string} */
+      state: 'running' | 'queued' | 'draft' | 'done' | 'not_accepted';
+      waiting: {
+        /** @enum {string} */
+        reason:
+          | 'path_overlap'
+          | 'no_slot'
+          | 'runner_cooldown'
+          | 'backoff'
+          | 'worker_alive'
+          | 'base_drift';
+        detail: string | null;
+        blocking_task_id: string | null;
+        /** Format: date-time */
+        retry_at: string | null;
+      } | null;
+      run_id: string | null;
+      reason: string | null;
+    };
+    BoardSummary: {
+      total: number;
+      columns: {
+        pending: number;
+        in_progress: number;
+        review: number;
+        blocked: number;
+        done: number;
+      };
+      drafts: number;
+      queued: number;
+      cancelled: number;
+      report: string;
     };
   };
   responses: {

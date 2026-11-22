@@ -13,8 +13,14 @@ class NotStored extends Error {}
  * the store's idempotency repository: same key + same payload → the stored response (handler not
  * run again); same key + different payload → 409 `idempotency_conflict`. Business errors (4xx)
  * are stored like successes; 5xx responses are not, so the client may retry with the same key.
+ * `refresh` may rewrite a replayed success (state that changes over time, e.g. a delivery).
  */
-export function idempotency(deps: { store: Store; clock: Clock }): MiddlewareHandler<AppEnv> {
+export function idempotency(deps: {
+  store: Store;
+  clock: Clock;
+  /** Rewrites a replayed body (task commands recompute their delivery; docs/adr/0022). */
+  refresh?: (body: JsonValue) => JsonValue;
+}): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const key = c.req.header(IDEMPOTENCY_HEADER);
     if (c.req.method !== 'POST' || key === undefined) {
@@ -52,8 +58,10 @@ export function idempotency(deps: { store: Store; clock: Clock }): MiddlewareHan
       throw err;
     }
     if (outcome.replayed) {
-      return new Response(JSON.stringify(outcome.response.body), {
-        status: outcome.response.status,
+      const { status, body } = outcome.response;
+      const replayed = deps.refresh && status < 300 ? deps.refresh(body) : body;
+      return new Response(JSON.stringify(replayed), {
+        status,
         headers: { 'content-type': 'application/json', [REPLAYED_HEADER]: 'true' },
       });
     }

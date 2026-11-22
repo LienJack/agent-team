@@ -11,6 +11,7 @@ import { capture, parseHelpFlags } from '../process/capture.js';
 import { childEnv } from '../process/env.js';
 import { siblingScript } from '../process/module-path.js';
 import { RunLog } from '../process/run-log.js';
+import { sweepOrphans } from '../process/orphans.js';
 import { groupAlive, killGroup } from '../process/spawn.js';
 import { makeRedactor, redactSecrets } from '../redact.js';
 import type { SandboxPolicy } from '../sandbox-policy.js';
@@ -244,6 +245,7 @@ export class CodexRunner implements Runner, Resumable {
 
     const stream = new CodexStream();
     let started = false;
+    let launchedAt = new Date().toISOString();
     let result: RunResult;
     try {
       const codex = new Codex({ codexPathOverride: shim, env, config: CODEX_CONFIG_OVERRIDES });
@@ -259,6 +261,7 @@ export class CodexRunner implements Runner, Resumable {
         ? codex.resumeThread(spec.resumeRef, options)
         : codex.startThread(options);
       // the SDK spawns the wrapper inside runStreamed: record the launch first (docs/adr/0015)
+      launchedAt = new Date().toISOString();
       try {
         hooks?.onLaunching?.();
       } catch {
@@ -321,6 +324,12 @@ export class CodexRunner implements Runner, Resumable {
       // the SDK only signals the wrapper; make sure the whole codex group is gone
       const pgid = readPgid(pgidFile);
       if (pgid !== undefined && groupAlive(pgid)) await killGroup(pgid, this.opts.killGraceMs);
+      // and what left it with proof of ownership (the wrapper's own kill does not snapshot)
+      await sweepOrphans({
+        markers: [spec.cwd, spec.logDir],
+        since: launchedAt,
+        ...(this.opts.killGraceMs === undefined ? {} : { graceMs: this.opts.killGraceMs }),
+      });
       await log.close();
     }
     this.opts.logger?.debug('codex run finished', {

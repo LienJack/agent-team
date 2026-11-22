@@ -1,11 +1,10 @@
-import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { sampleRun } from '@agent-team/core/testing';
 import { createSqliteStore, SqliteStore } from './index.js';
-import { appliedMigrations, MIGRATIONS_DIR, readMigrations } from './migrate.js';
-import { tempDir } from './testing.js';
+import { appliedMigrations, readMigrations } from './migrate.js';
+import { migrationsBefore, tempDir } from './testing.js';
 
 // spec §17: the research-stage migration is additive (existing rows become impl tasks without
 // refs) and makes run.workspace_id nullable — SQLite cannot drop NOT NULL in place, so drizzle-kit
@@ -21,23 +20,16 @@ beforeEach(() => {
 });
 afterEach(() => tmp.remove());
 
-/** A copy of the migrations folder without the research-stage migration (the previous build). */
+/** A copy of the migrations folder as it was before the research stage (the previous build). */
 function previousBuild(): string {
-  const dir = join(tmp.dir, 'previous');
-  cpSync(MIGRATIONS_DIR, dir, { recursive: true });
-  const journalPath = join(dir, 'meta', '_journal.json');
-  const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as { entries: { tag: string }[] };
-  journal.entries = journal.entries.filter((e) => e.tag !== RESEARCH_TAG);
-  rmSync(join(dir, `${RESEARCH_TAG}.sql`));
-  writeFileSync(journalPath, JSON.stringify(journal));
-  return dir;
+  return migrationsBefore(join(tmp.dir, 'previous'), RESEARCH_TAG);
 }
 
 const T0 = '2026-11-21T00:00:00.000Z';
 
 describe('research-stage migration (spec §17)', () => {
-  it('is the latest committed migration', () => {
-    expect(readMigrations().at(-1)?.tag).toBe(RESEARCH_TAG);
+  it('is a committed migration', () => {
+    expect(readMigrations().map((m) => m.tag)).toContain(RESEARCH_TAG);
   });
 
   it('upgrades a database with rows, keeping every row and every key', () => {

@@ -1,5 +1,12 @@
 import type { Store } from '@agent-team/core';
-import type { BoardTask, Run, StateResponse, Usage, Workspace } from '@agent-team/schema';
+import {
+  boardSummary,
+  type BoardTask,
+  type Run,
+  type StateResponse,
+  type Usage,
+  type Workspace,
+} from '@agent-team/schema';
 import type { AppContext } from './types.js';
 
 // GET /api/state (spec §11, §13): the board snapshot. Every task carries what its card shows —
@@ -93,14 +100,17 @@ function boardTasks(
 /** GET /api/state: one synchronous read, so `last_seq` matches the rows exactly. */
 export function boardSnapshot(ctx: AppContext): StateResponse {
   const { store } = ctx;
+  const tasks = boardTasks(store, (id) => ctx.engine.waitingOf(id));
   return {
     last_seq: store.events.lastSeq(),
     generated_at: ctx.clock.now().toISOString(),
     projects: store.projects.list(),
-    tasks: boardTasks(store, (id) => ctx.engine.waitingOf(id)),
+    tasks,
     active_runs: store.runs.list({ states: ['starting', 'running'] }),
     open_attention: store.attention.list({ statuses: ['open'] }),
     runners: ctx.engine.runnerStatuses(),
     leader: ctx.leader.status(),
+    // counts per column that sum (team status relays the line; docs/adr/0022)
+    summary: boardSummary(tasks),
   };
 }

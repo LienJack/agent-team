@@ -89,6 +89,7 @@ export async function checkBaseDrift(
     const item = openAttention(ctx, tx, {
       task_id: task.id,
       kind: 'decision',
+      topic: 'base_drift',
       question: `${task.title}（${task.id}）的基底分支已變動並影響 ${relevant.length} 個 owned 檔案，worktree 已有修改；要重建（捨棄 worktree，在新基底上重新實作）還是照舊繼續（留在舊基底）？`,
       options: [...DRIFT_OPTIONS],
     });

@@ -10,9 +10,15 @@ import type { ResearchMode } from '@agent-team/schema';
 // v3: the research stage (spec §17; ADR 0021) — one sentence per research.mode.
 // v4: one `team` command per Bash call — a compound command with any part outside the allow-list
 // (e.g. `echo "---"`) is refused whole (real haiku turns did that twice).
+// v5: relay the generated `report` line of task commands and `team status`; never call a task
+// running unless its `delivery` says so (docs/adr/0022 §1).
 export function leaderPromptVersion(mode: ResearchMode): string {
-  return `v4-${mode}`;
+  return `v5-${mode}`;
 }
+
+/** The v5 rule (tests check it is in every mode's prompt). */
+export const DELIVERY_RULE =
+  '- 回報任務的狀況時，轉述 `team` 輸出的 `report:` 那一行（`--json` 的 `report` 欄位），不要自己描述：建立、排入或重試任務的指令（`team task add|queue|retry` 等）都會印出 `delivery` 與 `report`，被問現況就轉述 `team status` 的 `report:`。`delivery` 不是 `running` 就不要說任務在執行、已開始或進行中——`queued` 是還在排隊、`draft` 是草稿還沒排入、`not_accepted` 是沒有受理或不會執行（照原因回報）。';
 
 /** The research sentence of each mode (spec §17 「leader 的系統提示依此帶入一句」). */
 export const RESEARCH_MODE_SENTENCE: Record<ResearchMode, string> = {
@@ -26,10 +32,9 @@ const RESEARCH_COMMANDS =
   '- 調研（題目短就用 `--question "…"`，長的用 heredoc 從 stdin）：`team research add <專案名稱> --title "…" [--queue] - <<\'EOF\'`（題目）`EOF`；`team research show <task_id>`（結果與候選）；實作單附上調研：`team task add … --research <調研任務 id>`（可重複，最多 3 個，同專案且已完成）\n';
 
 export function leaderSystemPrompt(mode: ResearchMode): string {
-  return LEADER_SYSTEM_PROMPT_BODY.replace('{{research}}', RESEARCH_MODE_SENTENCE[mode]).replace(
-    '{{research_commands}}',
-    mode === 'off' ? '' : RESEARCH_COMMANDS,
-  );
+  return LEADER_SYSTEM_PROMPT_BODY.replace('{{research}}', RESEARCH_MODE_SENTENCE[mode])
+    .replace('{{research_commands}}', mode === 'off' ? '' : RESEARCH_COMMANDS)
+    .replace('{{delivery}}', DELIVERY_RULE);
 }
 
 const LEADER_SYSTEM_PROMPT_BODY = `你是 agent-team 的 Team Leader，在無頭模式下替一位開發者協調一次性的 worker。
@@ -39,6 +44,7 @@ const LEADER_SYSTEM_PROMPT_BODY = `你是 agent-team 的 Team Leader，在無頭
 規則：
 - 每次 Bash 只放一個 \`team\` 指令（heredoc 可以）：不要用 \`&&\`、\`;\`、\`|\` 串接，也不要加 \`echo\` 等其他指令——含有 \`team\` 以外的指令，整個呼叫都會被拒絕、什麼都不執行。要跑幾個就分幾次呼叫；被拒絕時改成單一 \`team\` 指令再試。
 - 狀態一律先用 \`team\` 查，不憑記憶（對話會被壓縮，狀態只在服務端）。被問現況先跑 \`team status\`，細節再 \`team task list\`／\`team task show\`。
+{{delivery}}
 - 拆解：每張單一個可驗收的結果，寫明 tier、owned_paths（盡量窄，平行的單不重疊）、驗收標準（要跑的檢查或測試）。
 - tier：C＝介面已定、有測試、規格完整（便宜的大量實作者）；B＝多檔案、要判斷或除錯；A＝跨模組、公用介面、並行或安全。拿不準選高一級。
 - 需要人決定（範圍、取捨、花錢、刪除）就開待決事項，不要猜：\`team attention open --question "…" --option "…" --option "…"\`。

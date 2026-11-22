@@ -5,7 +5,7 @@ import {
   type Task,
   type TaskDetail,
 } from '@agent-team/client';
-import type { EventRecord } from '@agent-team/schema';
+import { boardSummary, type EventRecord } from '@agent-team/schema';
 import { describe, expect, it } from 'vitest';
 import { eventLine, formatStatus } from './format.js';
 import { serverEntry } from './node-io.js';
@@ -51,6 +51,7 @@ const attention: Attention = {
   id: 'a_000001',
   task_id: null,
   kind: 'decision',
+  topic: 'general',
   question: '要哪個？',
   options: ['A', 'B'],
   status: 'open',
@@ -98,7 +99,14 @@ describe('team — argument parsing', () => {
       owned_paths: ['src/a', 'src/b', 'docs'],
       queue: true,
     });
-    expect(io.text()).toBe('t_000001 [queued] C impl_C 加一個功能\n');
+    expect(io.text()).toBe(
+      [
+        't_000001 [queued] C impl_C 加一個功能',
+        'delivery: queued (waiting: not known yet)',
+        'report: 任務 t_000001「加一個功能」已排入佇列，尚未開始執行（等待排程）。',
+        '',
+      ].join('\n'),
+    );
   });
 
   it('task add under AGENT_TEAM_IDEMPOTENCY_SEED sends a key derived from the seed and body', async () => {
@@ -450,14 +458,23 @@ describe('team — output and exit codes', () => {
         },
         { runner: 'codex', available: true, circuit: 'closed', cooldown_until: null, quota: null },
         { runner: 'dsh', available: false, circuit: 'open', cooldown_until: null },
+        {
+          runner: 'fake',
+          available: false,
+          circuit: 'open',
+          cooldown_until: null,
+          halted_at: T0,
+        },
       ],
       leader: { state: 'offline', last_activity_at: null },
+      summary: boardSummary([task, { status: 'running' }, { status: 'cancelled' }]),
     } as unknown as Parameters<typeof formatStatus>[0];
     expect(formatStatus(state).split('\n')).toEqual([
       'tasks: pending 1 · in_progress 1 · review 0 · blocked 0 · done 0',
+      'report: 看板共 2 個任務：待派 1（草稿 1、排隊 0，都尚未執行）、進行中 1、待驗收 0、阻塞 0、完成 0；另有 1 個已取消（不在看板上）。',
       '  t_000002 [running] C impl_C 加一個功能',
       'attention: 1 open',
-      'runners: claude ok (34% used, resets 2026-11-26T18:00Z) · codex ok · dsh circuit open',
+      'runners: claude ok (34% used, resets 2026-11-26T18:00Z) · codex ok · dsh circuit open · fake halted (rate-limit loop; answer its attention item to re-arm)',
       'leader: offline',
     ]);
     const io = captureIo(

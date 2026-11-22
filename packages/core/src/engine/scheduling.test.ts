@@ -25,6 +25,10 @@ function plan(overrides: Partial<PlanInput>) {
         cooldown_reason: null,
         consecutive_failures: 0,
         circuit_open_until: null,
+        rate_limit_loops: 0,
+        probe_after_cooldown: false,
+        halted_at: null,
+        halted_attention_id: null,
         quota: null,
       };
       return resolveRole(

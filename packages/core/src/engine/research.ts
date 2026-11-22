@@ -221,7 +221,13 @@ export function applyResearchReceipt(
     // only a run that stopped asks a question; a finished run's remark rides on the event below
     // (an attention item on a done task would be superseded at once)
     if (note !== '') {
-      openAttention(ctx, tx, { task_id: task.id, kind: 'question', question: note, options: [] });
+      openAttention(ctx, tx, {
+        task_id: task.id,
+        kind: 'question',
+        topic: 'worker_question',
+        question: note,
+        options: [],
+      });
     }
     blockTask(ctx, tx, task, `${WORKER_REPORT_BLOCK}${receipt.status}：${receipt.summary}`);
     return;

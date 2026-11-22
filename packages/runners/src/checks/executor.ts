@@ -116,6 +116,8 @@ export function createCheckExecutor(opts: CheckExecutorOptions = {}): CheckExecu
         ...(opts.killGraceMs === undefined ? {} : { killGraceMs: opts.killGraceMs }),
         onStdoutLine: write,
         onStderrLine: write,
+        // checks run worker-written code: a daemon it started in the worktree goes too
+        ownership: { markers: [cwd] },
       });
 
       if (res.reason === 'aborted') {

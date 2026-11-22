@@ -3,7 +3,7 @@ import {
   ResearchCreateRequestSchema,
   ResearchDetailResponseSchema,
   TaskIdSchema,
-  TaskResponseSchema,
+  TaskCommandResponseSchema,
 } from '@agent-team/schema';
 import { body, errors, idParam, json, MutationHeadersSchema } from '../common.js';
 
@@ -19,7 +19,13 @@ export const createResearch = createRoute({
   path: '/api/research',
   summary: 'Create a research task (draft, or queued with `queue: true`); 409 when research is off',
   request: { headers: MutationHeadersSchema, body: body(ResearchCreateRequestSchema) },
-  responses: { 201: json(TaskResponseSchema, 'The created research task'), ...errors(404, 409) },
+  responses: {
+    201: json(
+      TaskCommandResponseSchema,
+      'The created research task, its delivery and the report line',
+    ),
+    ...errors(404, 409),
+  },
 });
 
 export const getResearch = createRoute({

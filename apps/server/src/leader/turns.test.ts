@@ -6,7 +6,7 @@ import { bootLeader, compactSteps, type FakeClaude, turnSteps } from '../testing
 import { local, TEST_LEADER_TOKEN, type Loose, type TestService } from '../testing/harness.js';
 import type { LeaderImpl } from './leader.js';
 import { LEADER_ALLOW_RULES, LEADER_DENY_RULES } from './args.js';
-import { leaderSystemPrompt } from './prompt/system-v4.js';
+import { leaderSystemPrompt } from './prompt/system-v5.js';
 import { LEADER_EVENT_CURSOR_KEY, LEADER_SESSION_KEY } from './types.js';
 
 // spec §9 with the scripted fake CLI (never the real claude): argv, serial queue, priority,

@@ -12,11 +12,12 @@ import {
 import {
   DATA_LAYOUT,
   MAX_SOCKET_PATH_BYTES,
+  refusedReport,
   type ModelsConfig,
   type ResearchMode,
 } from '@agent-team/schema';
 import { LEADER_OPTIONAL_FLAGS, LEADER_REQUIRED_FLAGS, leaderArgs } from './args.js';
-import { leaderSystemPrompt } from './prompt/system-v4.js';
+import { leaderSystemPrompt } from './prompt/system-v5.js';
 import { leaderSandboxSettings, leaderSocketPath } from './sandbox.js';
 import type { LeaderRuntime } from './types.js';
 
@@ -53,6 +54,13 @@ export const SHIM_REFUSED_COMMANDS = ['serve', 'watch', 'ask'] as const;
  * permissions, so what would read a local file (`--ticket-file`) or never return (`serve` would
  * also recover the live database) is refused before node starts.
  */
+/** `delivery:`/`report:` of a command the shim refuses (stdout, like the CLI's refusals). */
+function shimRefusal(message: string): string[] {
+  const delivery = `delivery: not_accepted (usage: ${message})`;
+  const report = `report: ${refusedReport('usage', message, true)}`;
+  return [`      echo ${shQuote(delivery)}`, `      echo ${shQuote(report)}`];
+}
+
 export function teamShim(dataDir: string, nodePath: string, teamEntry: string): string {
   return [
     '#!/bin/sh',
@@ -63,11 +71,14 @@ export function teamShim(dataDir: string, nodePath: string, teamEntry: string): 
     '    --ticket-file|--ticket-file=*)',
     '      echo "error: --ticket-file is not available to the leader" >&2',
     `      echo "hint: give the ticket on stdin: team task add ... - <<'EOF'" >&2`,
+    // the same two lines the CLI prints for a refusal (docs/adr/0022)
+    ...shimRefusal('--ticket-file is not available to the leader'),
     '      exit 2 ;;',
     // the same for the research question: reading a local file is not the leader's to do
     '    --question-file|--question-file=*)',
     '      echo "error: --question-file is not available to the leader" >&2',
     `      echo "hint: give the question with --question or on stdin: team research add ... - <<'EOF'" >&2`,
+    ...shimRefusal('--question-file is not available to the leader'),
     '      exit 2 ;;',
     '    -*) ;;',
     '    *) if [ -z "$cmd" ]; then cmd="$arg"; fi ;;',

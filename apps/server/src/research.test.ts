@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { EventRecord, ResearchMode, RunSpec } from '@agent-team/schema';
 import { afterEach, describe, expect, it } from 'vitest';
 import { formatDigest } from './leader/digest.js';
-import { leaderPromptVersion, leaderSystemPrompt } from './leader/prompt/system-v4.js';
+import { leaderPromptVersion, leaderSystemPrompt } from './leader/prompt/system-v5.js';
 import { LEADER_ALLOW_RULES } from './leader/args.js';
 import {
   createTestService,
@@ -57,7 +57,13 @@ describe('§17 research API and actors', () => {
     );
     expect(created.status).toBe(201);
     const id = created.body.task.id as string;
-    expect(created.body.task).toMatchObject({ kind: 'research', status: 'queued' });
+    expect(created.body.task).toMatchObject({ kind: 'research' });
+    // one scheduling pass ran before the reply: queued, or already dispatched (docs/adr/0022)
+    expect(['queued', 'running']).toContain(created.body.task.status);
+    expect(created.body.delivery.state).toBe(
+      created.body.task.status === 'queued' ? 'queued' : 'running',
+    );
+    expect(created.body.report).toMatch(/^調研任務 t_\w+「調研：佇列」/);
     await t.service.engine.runUntilIdle();
     const spec = t.runners.claude.calls[0]!;
     expect(spec.cwd).toBe(join(t.dataDir, 'research', t.store.runs.list()[0]!.id));

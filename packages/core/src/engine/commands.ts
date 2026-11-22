@@ -1,5 +1,6 @@
 import {
   AttentionCreateRequestSchema,
+  isHighRiskAttention,
   isLiveRunState,
   isTerminalTaskStatus,
   ProjectCreateRequestSchema,
@@ -22,6 +23,7 @@ import { enqueueEffect } from './effect-queue.js';
 import { completeTask, requestFix } from './outcomes.js';
 import { finishRun, lastRun, requireTask, saveTask } from './records.js';
 import { checkResearchRefs, requireResearchEnabled } from './research.js';
+import { haltedRunnerOf, rearmRunner } from './runner-health.js';
 import { needsHumanRetry, WORKER_UNCONFIRMED_BLOCK } from './start-unknown.js';
 
 // Human/leader commands (spec §11 task actions). Each runs in one transaction and checks the
@@ -230,6 +232,13 @@ export function retryTask(ctx: EngineContext, id: string, actor: Actor): Task {
         );
       }
     }
+    // a person retrying is a person deciding to try again: re-arm the runners the loop guard
+    // stopped that this task would use (docs/adr/0022)
+    if (human) {
+      const usable = runnersOfTask(ctx, current);
+      for (const runner of ctx.deps.runners.names())
+        if (usable.has(runner)) rearmRunner(tx, runner);
+    }
     const ws = tx.r.workspaces.findCurrentByTask(id);
     const backToReview =
       last?.kind === 'review' && current.fix_notes === null && ws?.head_sha != null;
@@ -346,6 +355,7 @@ export function createAttention(ctx: EngineContext, input: AttentionCreateReques
     return openAttention(ctx, tx, {
       task_id: req.task_id ?? null,
       kind: req.kind,
+      topic: 'general',
       question: req.question,
       options: req.options,
     });
@@ -366,9 +376,40 @@ export function answer(
 ): Attention {
   requireHuman(actor, 'answering an attention item');
   return ctx.transact((tx) => {
+    const open = tx.r.attention.get(id);
+    // high-risk decisions (discarding work, bypassing a safety stop) are answered where the
+    // person can see the task: the board or the CLI, never a chat button (docs/adr/0022)
+    if (open && via === 'grok' && isHighRiskAttention(open)) {
+      throw new ForbiddenError(
+        `attention ${id} (${open.topic}) can only be answered from the board or the CLI`,
+        `team attention answer ${id} "<option>"`,
+      );
+    }
     const item = answerAttention(tx, id, text, via);
     applyAttentionAction(ctx, tx, item);
     resumeAfterAnswer(ctx, tx, item);
+    // any answer to the loop guard's item re-arms its runner
+    if (item.topic === 'runner_halted') {
+      const runner = haltedRunnerOf(tx.r.kv, ctx.deps.runners, item.id);
+      if (runner !== undefined) rearmRunner(tx, runner);
+    }
     return item;
   });
+}
+
+/** Runners a task's next runs may use: every alias of its impl, review or research role. */
+function runnersOfTask(ctx: EngineContext, task: Task): Set<string> {
+  // a research task's impl_role is oss_researcher; it has no review run
+  const roles =
+    task.kind === 'research' ? [task.impl_role] : [task.impl_role, `review_${task.tier}`];
+  const runners = new Set<string>();
+  for (const role of roles) {
+    const entry = ctx.config.models.roles[role];
+    if (!entry) continue;
+    for (const alias of [entry.use, ...entry.fallback]) {
+      const runner = ctx.config.models.models[alias]?.runner;
+      if (runner !== undefined) runners.add(runner);
+    }
+  }
+  return runners;
 }

@@ -156,6 +156,7 @@ export function makeAttention(over: Partial<Attention> = {}): Attention {
     id: 'a_1',
     task_id: null,
     kind: 'decision',
+    topic: 'general',
     question: '要用哪個方案？',
     options: ['方案甲', '方案乙'],
     status: 'open',
@@ -190,6 +191,10 @@ export function makeRunner(over: Partial<RunnerStatus> = {}): RunnerStatus {
     cooldown_reason: null,
     consecutive_failures: 0,
     circuit_open_until: null,
+    rate_limit_loops: 0,
+    probe_after_cooldown: false,
+    halted_at: null,
+    halted_attention_id: null,
     quota: null,
     available: true,
     circuit: 'closed',
@@ -207,6 +212,15 @@ export function makeState(over: Partial<StateSnapshot> = {}): StateSnapshot {
     open_attention: [],
     runners: [makeRunner(), makeRunner({ runner: 'codex' }), makeRunner({ runner: 'dsh' })],
     leader: { state: 'offline', last_activity_at: null },
+    summary: {
+      total: 0,
+      columns: { pending: 0, in_progress: 0, review: 0, blocked: 0, done: 0 },
+      drafts: 0,
+      queued: 0,
+      cancelled: 0,
+      report:
+        '看板共 0 個任務：待派 0（草稿 0、排隊 0，都尚未執行）、進行中 0、待驗收 0、阻塞 0、完成 0。',
+    },
     ...over,
   };
 }

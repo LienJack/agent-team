@@ -12,10 +12,32 @@
  */
 export type GroupTermination = 'terminated' | 'not_running' | 'unconfirmed';
 
+/** What a sweep for a dead run's leftover processes did (docs/adr/0022 §4). */
+export interface OrphanSweep {
+  /** false: nothing could be examined on this platform (or no usable path): nothing signalled. */
+  supported: boolean;
+  /** Processes proven to belong to the run, signalled and gone. */
+  terminated: number[];
+  /** Proven ones still alive after SIGKILL: the worker may still be acting. */
+  survivors: number[];
+}
+
 /**
  * Terminates worker process groups recorded in the database (implemented in `packages/runners`).
  * Never signals a process whose identity (pid + OS start time) cannot be confirmed.
  */
 export interface ProcessControl {
+  /**
+   * Terminate the recorded group — and, while its leader is alive, every descendant that left
+   * the group (setsid children), snapshotted just before signalling.
+   */
   terminateGroup(input: { pid: number; startedAt: string | null }): Promise<GroupTermination>;
+  /**
+   * Terminate processes a dead run left outside its group (a daemonised descendant whose
+   * ancestors are gone), but only with proof of ownership: parent is init, same user, no
+   * terminal, started since the run's launch, and the run's own `paths` (worktree, research dir,
+   * log dir) are its working directory or in its command line. Optional: without it (or on an
+   * unsupported platform) recovery keeps the group-only behaviour.
+   */
+  reapOrphans?(input: { paths: readonly string[]; since: string }): Promise<OrphanSweep>;
 }

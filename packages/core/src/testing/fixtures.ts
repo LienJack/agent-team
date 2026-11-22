@@ -179,6 +179,7 @@ export function sampleAttention(overrides: Partial<Attention> = {}): Attention {
     id: 'a_000001',
     task_id: null,
     kind: 'decision',
+    topic: 'general',
     question: '要選哪個？',
     options: ['A', 'B'],
     status: 'open',

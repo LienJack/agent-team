@@ -107,7 +107,7 @@ export function applyRunResult(ctx: EngineContext, tx: Tx, runId: string, result
       error: `${kind}: ${message}`,
     });
     if (kind === 'rate_limit') {
-      startCooldown(ctx, tx, run.runner, result.quota?.resetsAt, `rate limit (run ${run.id})`);
+      startCooldown(ctx, tx, run, result.quota?.resetsAt, `rate limit (run ${run.id})`);
     } else if (kind !== 'cancelled') {
       recordRunnerFailure(ctx, tx, run.runner);
     }
@@ -187,6 +187,7 @@ function applyImplReceipt(
     openAttention(ctx, tx, {
       task_id: task.id,
       kind: 'question',
+      topic: 'worker_question',
       question: receipt.needs_leader.trim(),
       options: [],
     });

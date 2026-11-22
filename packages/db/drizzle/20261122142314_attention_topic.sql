@@ -1,0 +1,1 @@
+ALTER TABLE `attention` ADD `topic` text DEFAULT 'unclassified' NOT NULL;

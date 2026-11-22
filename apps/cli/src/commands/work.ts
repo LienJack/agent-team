@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { isAbsolute, resolve } from 'node:path';
 import { TeamApiError, type TeamClient } from '@agent-team/client';
 import { Option, type Command } from 'commander';
+import { printCommandResult, reportingRefusals } from '../delivery.js';
 import { formatReceipt, formatTaskDetail, projectLine, roleLine, taskLine } from '../format.js';
 import { UsageError } from '../io.js';
 import type { CommandContext } from '../program.js';
@@ -114,31 +115,36 @@ export function registerWorkCommands(program: Command, ctx: CommandContext): voi
           research: string[];
         },
       ) => {
-        if (stdin !== undefined && stdin !== '-') {
-          throw new UsageError(`unexpected argument "${stdin}" (use - for stdin)`);
-        }
-        const fromStdin = stdin === '-';
-        if (fromStdin === (options.ticketFile !== undefined)) {
-          throw new UsageError('give the ticket with exactly one of --ticket-file F or -');
-        }
-        const owned = parsePaths(options.paths);
-        const ticket = fromStdin
-          ? await ctx.io.readStdin()
-          : await ctx.io.readFile(resolve(ctx.io.cwd, options.ticketFile!));
-        if (ticket.trim() === '') throw new UsageError('the ticket is empty');
-        const client = await ctx.client();
-        const body = {
-          project_id: await projectId(client, options.project),
-          title: options.title,
-          tier: options.tier,
-          ticket_md: ticket,
-          owned_paths: owned,
-          queue: options.queue === true,
-          ...(options.research.length > 0 ? { research_refs: options.research } : {}),
-        };
-        const key = idempotencyKeyFor(ctx.io.env['AGENT_TEAM_IDEMPOTENCY_SEED'], body);
-        const created = await client.createTask(body, key ? { idempotencyKey: key } : undefined);
-        ctx.print(created, () => taskLine(created));
+        await reportingRefusals(ctx, async () => {
+          if (stdin !== undefined && stdin !== '-') {
+            throw new UsageError(`unexpected argument "${stdin}" (use - for stdin)`);
+          }
+          const fromStdin = stdin === '-';
+          if (fromStdin === (options.ticketFile !== undefined)) {
+            throw new UsageError('give the ticket with exactly one of --ticket-file F or -');
+          }
+          const owned = parsePaths(options.paths);
+          const ticket = fromStdin
+            ? await ctx.io.readStdin()
+            : await ctx.io.readFile(resolve(ctx.io.cwd, options.ticketFile!));
+          if (ticket.trim() === '') throw new UsageError('the ticket is empty');
+          const client = await ctx.client();
+          const body = {
+            project_id: await projectId(client, options.project),
+            title: options.title,
+            tier: options.tier,
+            ticket_md: ticket,
+            owned_paths: owned,
+            queue: options.queue === true,
+            ...(options.research.length > 0 ? { research_refs: options.research } : {}),
+          };
+          const key = idempotencyKeyFor(ctx.io.env['AGENT_TEAM_IDEMPOTENCY_SEED'], body);
+          const result = await client.createTaskResult(
+            body,
+            key ? { idempotencyKey: key } : undefined,
+          );
+          printCommandResult(ctx, result);
+        });
       },
     );
 
@@ -170,10 +176,11 @@ export function registerWorkCommands(program: Command, ctx: CommandContext): voi
   for (const action of ['queue', 'cancel', 'retry'] as const) {
     task
       .command(`${action} <id>`)
-      .description(`${action} a task`)
+      .description(`${action} a task (prints its delivery and a report line)`)
       .action(async (id: string) => {
-        const updated = await (await ctx.client()).taskAction(id, action);
-        ctx.print(updated, () => taskLine(updated));
+        await reportingRefusals(ctx, async () => {
+          printCommandResult(ctx, await (await ctx.client()).taskActionResult(id, action));
+        });
       });
   }
 

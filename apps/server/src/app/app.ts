@@ -21,6 +21,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { secureHeaders } from 'hono/secure-headers';
 import { bearerAuth, type LanAuth } from '../auth/guards.js';
 import { notFound, onError, validationHook } from './errors.js';
+import { refreshReplay } from './delivery.js';
 import { idempotency } from './idempotency.js';
 import { registerSystemRoutes } from './routes-system.js';
 import { registerWorkRoutes } from './routes-work.js';
@@ -136,7 +137,7 @@ export function createApp(ctx: AppContext, options: AppOptions): OpenAPIHono<App
     app.use('/api/*', options.lan.sessionGuard);
     app.use('/api/*', lanForbidden());
   }
-  app.use('/api/*', idempotency(ctx));
+  app.use('/api/*', idempotency({ ...ctx, refresh: (body) => refreshReplay(ctx, body) }));
 
   registerWorkRoutes(app, ctx);
   registerSystemRoutes(app, ctx);

@@ -24,6 +24,7 @@ export function applyStartUnknown(ctx: EngineContext, tx: Tx, run: Run, message:
   openAttention(ctx, tx, {
     task_id: task.id,
     kind: 'decision',
+    topic: 'start_unknown',
     question: `run ${run.id}（${task.title}）是否已啟動無法確認；確認沒有殘留的 worker 後再決定。`,
     options: ['重試', '取消'],
   });

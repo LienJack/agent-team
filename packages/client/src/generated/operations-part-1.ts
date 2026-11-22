@@ -50,6 +50,7 @@ export interface operations_part1 {
                 exhausted: boolean;
               } | null;
             };
+            summary: components['schemas']['BoardSummary'];
           };
         };
       };
@@ -371,7 +372,7 @@ export interface operations_part1 {
       };
     };
     responses: {
-      /** @description The created task */
+      /** @description The created task, its delivery and the report line */
       201: {
         headers: {
           [name: string]: unknown;
@@ -379,6 +380,8 @@ export interface operations_part1 {
         content: {
           'application/json': {
             task: components['schemas']['Task'];
+            delivery: components['schemas']['Delivery'];
+            report: string;
           };
         };
       };

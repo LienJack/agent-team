@@ -1,5 +1,6 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { quotaWaitUntil } from '@agent-team/core';
 import { DATA_LAYOUT } from '@agent-team/schema';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -58,7 +59,9 @@ describe('§9 leader availability (fake claude)', () => {
     expect(a.status).toBe(503);
     expect(a.body.error.code).toBe('unavailable');
     expect(a.body.error.hint).toMatch(/自動重試/);
-    const until1 = new Date(resetAt).toISOString();
+    // the reset plus 60 s and a stable 0–30 s spread, like the runners (docs/adr/0022)
+    const until1 = quotaWaitUntil(new Date(resetAt).toISOString(), h.clock.now(), 'leader')!;
+    expect(Date.parse(until1) - resetAt).toBeGreaterThanOrEqual(60_000);
     expect(h.service.leader.status()).toMatchObject({
       state: 'offline',
       available: false,
@@ -86,7 +89,11 @@ describe('§9 leader availability (fake claude)', () => {
     leader().pump(); // before the reset time: still waiting
     await new Promise((r) => setTimeout(r, 30));
     expect(fake.turns()).toHaveLength(1);
-    h.clock.advance(HOUR + 1000);
+    h.clock.advance(HOUR + 1000); // past the reset, not past the buffer: still waiting
+    leader().pump();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(fake.turns()).toHaveLength(1);
+    h.clock.advance(Date.parse(until1) - h.clock.now().getTime());
     leader().pump();
     await until(() => fake.turns().length === 3);
     await leader().settled();
@@ -108,6 +115,19 @@ describe('§9 leader availability (fake claude)', () => {
     ).toEqual(['idle', 'busy', 'idle']);
     // a retry with the same client_msg_id now returns the stored reply
     expect((await send('第一則', 'a')).body.reply).toBe('恢復了');
+  });
+
+  it('rate limit with a reset more than 8 days ahead: waits the default cooldown instead', async () => {
+    ({ h, fake } = bootLeader());
+    const resetAt = h.clock.now().getTime() + 30 * 24 * HOUR;
+    await fake.set(rateLimitedSteps(resetAt / 1000));
+    await h.service.start();
+    expect((await send('第一則', 'a')).status).toBe(503);
+    const cooldown = h.config.engine.rate_limit_cooldown_ms;
+    expect(h.service.leader.status()).toMatchObject({
+      reason: 'rate_limit',
+      until: new Date(h.clock.now().getTime() + cooldown).toISOString(),
+    });
   });
 
   it('not logged in: unavailable with a hint; reset continues in a new session with the brief', async () => {

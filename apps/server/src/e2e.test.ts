@@ -90,6 +90,15 @@ const isDone = (taskId: string) => (e: EventRecord) =>
   e.type === 'task.status_changed' &&
   (e.data as { to: string }).to === 'done';
 
+/** The delivery a task command reply may carry for the status it reports (docs/adr/0022). */
+const DELIVERY_FOR: Record<string, string[]> = {
+  queued: ['queued'],
+  running: ['running', 'queued'],
+  verifying: ['running'],
+  review: ['running', 'queued'],
+  done: ['done'],
+};
+
 describe('§14 端到端 — fake runners over real HTTP', () => {
   it('(a) create project → queue task → done with a service-side commit', async () => {
     h = createTestService();
@@ -118,7 +127,9 @@ describe('§14 端到端 — fake runners over real HTTP', () => {
       api.post(`/api/tasks/${task.id}/queue`, {}),
       api.events(start, isDone(task.id)),
     ]);
-    expect(queued.task.status).toBe('queued');
+    // one scheduling pass ran before the reply: the fast fake worker may already have it
+    expect(DELIVERY_FOR[queued.task.status]).toContain(queued.delivery.state);
+    expect(queued.report).toContain(task.id);
 
     expect(statusChanges(events, task.id)).toEqual([
       'queued',
@@ -217,7 +228,7 @@ describe('§14 端到端 — fake runners over real HTTP', () => {
       api.post(`/api/tasks/${task.id}/reject`, { note: '請補上錯誤處理' }),
       api.events(before, isDone(task.id)),
     ]);
-    expect(rejected.task.status).toBe('queued');
+    expect(DELIVERY_FOR[rejected.task.status]).toContain(rejected.delivery.state);
 
     const escalated = events.find((e) => e.type === 'task.escalated');
     expect(escalated?.data).toEqual({ from_role: 'impl_C', to_role: 'impl_B', fix_rounds: 2 });

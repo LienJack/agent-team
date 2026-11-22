@@ -7,6 +7,7 @@ import type {
 } from '@agent-team/schema';
 import { RunnerNameSchema } from '@agent-team/schema';
 import { isAfter } from '../util/time.js';
+import { exhaustedUntil } from './quota-wait.js';
 
 /** Per-runner health/availability as seen by `resolveRole` (keyed by runner name). */
 export type QuotaState = Readonly<
@@ -78,6 +79,8 @@ function blockedUntil(
   trialBusy: ReadonlySet<string>,
 ): { reason: string; until: string | null } | undefined {
   if (!health) return { reason: 'not_registered', until: null };
+  // stopped by the rate-limit loop guard until a person re-arms it (docs/adr/0022)
+  if (health.halted_at) return { reason: 'rate_limit_loop', until: null };
   if (isHalfOpen(health, now) && trialBusy.has(health.runner)) {
     return { reason: 'circuit_trial_in_flight', until: null };
   }
@@ -86,8 +89,9 @@ function blockedUntil(
   if (isAfter(health.circuit_open_until, now)) {
     return { reason: 'circuit_open', until: health.circuit_open_until };
   }
-  if (health.quota?.exhausted && isAfter(health.quota.resets_at, now)) {
-    return { reason: 'quota_exhausted', until: health.quota.resets_at };
+  const quotaUntil = exhaustedUntil(health);
+  if (quotaUntil !== undefined && isAfter(quotaUntil, now)) {
+    return { reason: 'quota_exhausted', until: quotaUntil };
   }
   if (!health.available) return { reason: 'unavailable', until: null };
   return undefined;

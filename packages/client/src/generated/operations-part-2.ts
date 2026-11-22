@@ -25,7 +25,7 @@ export interface operations_part2 {
       };
     };
     responses: {
-      /** @description The updated task */
+      /** @description The updated task, its delivery and the report line */
       200: {
         headers: {
           [name: string]: unknown;
@@ -33,6 +33,8 @@ export interface operations_part2 {
         content: {
           'application/json': {
             task: components['schemas']['Task'];
+            delivery: components['schemas']['Delivery'];
+            report: string;
           };
         };
       };
@@ -63,7 +65,7 @@ export interface operations_part2 {
       };
     };
     responses: {
-      /** @description The updated task */
+      /** @description The updated task, its delivery and the report line */
       200: {
         headers: {
           [name: string]: unknown;
@@ -71,6 +73,8 @@ export interface operations_part2 {
         content: {
           'application/json': {
             task: components['schemas']['Task'];
+            delivery: components['schemas']['Delivery'];
+            report: string;
           };
         };
       };
@@ -101,7 +105,7 @@ export interface operations_part2 {
       };
     };
     responses: {
-      /** @description The updated task */
+      /** @description The updated task, its delivery and the report line */
       200: {
         headers: {
           [name: string]: unknown;
@@ -109,6 +113,8 @@ export interface operations_part2 {
         content: {
           'application/json': {
             task: components['schemas']['Task'];
+            delivery: components['schemas']['Delivery'];
+            report: string;
           };
         };
       };
@@ -139,7 +145,7 @@ export interface operations_part2 {
       };
     };
     responses: {
-      /** @description The updated task */
+      /** @description The updated task, its delivery and the report line */
       200: {
         headers: {
           [name: string]: unknown;
@@ -147,6 +153,8 @@ export interface operations_part2 {
         content: {
           'application/json': {
             task: components['schemas']['Task'];
+            delivery: components['schemas']['Delivery'];
+            report: string;
           };
         };
       };
@@ -177,7 +185,7 @@ export interface operations_part2 {
       };
     };
     responses: {
-      /** @description The updated task */
+      /** @description The updated task, its delivery and the report line */
       200: {
         headers: {
           [name: string]: unknown;
@@ -185,6 +193,8 @@ export interface operations_part2 {
         content: {
           'application/json': {
             task: components['schemas']['Task'];
+            delivery: components['schemas']['Delivery'];
+            report: string;
           };
         };
       };
@@ -215,7 +225,7 @@ export interface operations_part2 {
       };
     };
     responses: {
-      /** @description The updated task */
+      /** @description The updated task, its delivery and the report line */
       200: {
         headers: {
           [name: string]: unknown;
@@ -223,6 +233,8 @@ export interface operations_part2 {
         content: {
           'application/json': {
             task: components['schemas']['Task'];
+            delivery: components['schemas']['Delivery'];
+            report: string;
           };
         };
       };
@@ -258,7 +270,7 @@ export interface operations_part2 {
       };
     };
     responses: {
-      /** @description The created research task */
+      /** @description The created research task, its delivery and the report line */
       201: {
         headers: {
           [name: string]: unknown;
@@ -266,6 +278,8 @@ export interface operations_part2 {
         content: {
           'application/json': {
             task: components['schemas']['Task'];
+            delivery: components['schemas']['Delivery'];
+            report: string;
           };
         };
       };

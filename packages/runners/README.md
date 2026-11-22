@@ -2,12 +2,12 @@
 
 Runner 實作（spec §7）：`claude`（`claude -p` stream-json）、`codex`（`@openai/codex-sdk` 0.171.0 與它自帶的執行檔）、
 `dsh`（`dsh --profile headless --json -`）、行程內假 runner；共用子行程工具（`src/process/`：參數陣列、標準輸入關閉、
-自成行程群組、逾時／取消時整群 SIGTERM→SIGKILL、結束訊號與行程結束先到者為準、逐行遮蔽金鑰後寫 `events.jsonl`／
+自成行程群組、逾時／取消時整群 SIGTERM→SIGKILL（連同快照到的、離開群組的後代；`ownership` 路徑在結束時清掉有證明的遺留行程，`src/process/orphans.ts`、ADR 0022）、結束訊號與行程結束先到者為準、逐行遮蔽金鑰後寫 `events.jsonl`／
 `stderr.log`／`prompt.md`）；`CheckExecutor`。
 
 對外介面：`createRunnerRegistry({ env, logger?, fake?, commands?, sandbox? })`（`probeAll()` 後 `capabilities()` 才有值；
 `fake: true` 在 claude/codex/dsh/fake 四個名稱下各放一個可排劇本的 `InProcessFakeRunner`，用 `fake(name).script(...)`）、
-`createCheckExecutor({ sandbox?, allowUnsandboxed? })`、`createProcessControl()`（復原時依 pid + 啟動時間終止殘留群組，ADR 0015）、
+`createCheckExecutor({ sandbox?, allowUnsandboxed? })`、`createProcessControl()`（復原時依 pid + 啟動時間終止殘留群組與離開群組的後代，`reapOrphans` 清掉有擁有權證明的遺留行程，ADR 0015、0022）、
 `@agent-team/runners/testing`（照劇本的假 CLI `fakeCliCommand`／`writeScenario`／`lastRecord`）。
 
 - 子行程環境一律白名單（不繼承 `GIT_*`、`CLAUDECODE`、`ANTHROPIC_*`、任何金鑰）；dsh 只多拿 `OPENROUTER_API_KEY`。

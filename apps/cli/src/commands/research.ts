@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import type { Command } from 'commander';
-import { formatResearch, taskLine } from '../format.js';
+import { printCommandResult, reportingRefusals } from '../delivery.js';
+import { formatResearch } from '../format.js';
 import { UsageError } from '../io.js';
 import type { CommandContext } from '../program.js';
 import { idempotencyKeyFor, projectId } from './work.js';
@@ -26,36 +27,38 @@ export function registerResearchCommands(program: Command, ctx: CommandContext):
         stdin: string | undefined,
         options: { title: string; question?: string; questionFile?: string; queue?: boolean },
       ) => {
-        if (stdin !== undefined && stdin !== '-') {
-          throw new UsageError(`unexpected argument "${stdin}" (use - for stdin)`);
-        }
-        const sources = [options.question !== undefined, options.questionFile !== undefined];
-        sources.push(stdin === '-');
-        if (sources.filter(Boolean).length !== 1) {
-          throw new UsageError(
-            'give the question with exactly one of --question, --question-file or -',
+        await reportingRefusals(ctx, async () => {
+          if (stdin !== undefined && stdin !== '-') {
+            throw new UsageError(`unexpected argument "${stdin}" (use - for stdin)`);
+          }
+          const sources = [options.question !== undefined, options.questionFile !== undefined];
+          sources.push(stdin === '-');
+          if (sources.filter(Boolean).length !== 1) {
+            throw new UsageError(
+              'give the question with exactly one of --question, --question-file or -',
+            );
+          }
+          const question =
+            options.question ??
+            (stdin === '-'
+              ? await ctx.io.readStdin()
+              : await ctx.io.readFile(resolve(ctx.io.cwd, options.questionFile!)));
+          if (question.trim() === '') throw new UsageError('the question is empty');
+          const client = await ctx.client();
+          const body = {
+            project_id: await projectId(client, project),
+            title: options.title,
+            question,
+            queue: options.queue === true,
+          };
+          // the leader's replayed turn gets the first result back (see `team task add`)
+          const key = idempotencyKeyFor(ctx.io.env['AGENT_TEAM_IDEMPOTENCY_SEED'], body);
+          const result = await client.createResearchResult(
+            body,
+            key ? { idempotencyKey: key } : undefined,
           );
-        }
-        const question =
-          options.question ??
-          (stdin === '-'
-            ? await ctx.io.readStdin()
-            : await ctx.io.readFile(resolve(ctx.io.cwd, options.questionFile!)));
-        if (question.trim() === '') throw new UsageError('the question is empty');
-        const client = await ctx.client();
-        const body = {
-          project_id: await projectId(client, project),
-          title: options.title,
-          question,
-          queue: options.queue === true,
-        };
-        // the leader's replayed turn gets the first result back (see `team task add`)
-        const key = idempotencyKeyFor(ctx.io.env['AGENT_TEAM_IDEMPOTENCY_SEED'], body);
-        const created = await client.createResearch(
-          body,
-          key ? { idempotencyKey: key } : undefined,
-        );
-        ctx.print(created, () => taskLine(created));
+          printCommandResult(ctx, result);
+        });
       },
     );
 

@@ -33,6 +33,20 @@ describe('describeRunner', () => {
     expect(describeRunner(past, now).label).toBe('可用');
   });
 
+  it('a runner stopped by the rate-limit loop guard says so and how to re-arm it', () => {
+    const halted = makeRunner({
+      circuit: 'open',
+      available: false,
+      rate_limit_loops: 3,
+      halted_at: '2026-11-20T07:30:00.000Z',
+      halted_attention_id: 'a_9',
+    });
+    const view = describeRunner(halted, now);
+    expect(view).toMatchObject({ label: '已停用', tone: 'bad' });
+    expect(view.detail).toContain('冷卻後連續 3 次又撞到額度上限，停止自動恢復');
+    expect(view.detail).not.toContain('熔斷到');
+  });
+
   it('orders claude, codex, dsh first', () => {
     const sorted = sortRunners([
       makeRunner({ runner: 'fake' }),

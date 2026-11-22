@@ -1,4 +1,4 @@
-import type { AnswerVia, Attention } from '@agent-team/schema';
+import type { AnswerVia, Attention, AttentionTopic } from '@agent-team/schema';
 import { ConflictError, NotFoundError } from '../errors.js';
 import type { EngineContext, Tx } from './context.js';
 import { notify } from './notify.js';
@@ -6,6 +6,8 @@ import { notify } from './notify.js';
 export interface OpenAttentionInput {
   task_id: string | null;
   kind: Attention['kind'];
+  /** What it is about; decides its risk (`ATTENTION_TOPIC_RISK`, docs/adr/0022). */
+  topic: AttentionTopic;
   question: string;
   options: string[];
 }
@@ -16,6 +18,7 @@ export function openAttention(ctx: EngineContext, tx: Tx, input: OpenAttentionIn
     id: ctx.newId('attention'),
     task_id: input.task_id,
     kind: input.kind,
+    topic: input.topic,
     question: input.question,
     options: input.options,
     status: 'open',

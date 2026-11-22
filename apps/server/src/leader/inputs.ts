@@ -1,4 +1,4 @@
-import type { Logger, Store } from '@agent-team/core';
+import { quotaWaitUntil, type Logger, type Store } from '@agent-team/core';
 import type { ClaudeTextResult } from '@agent-team/runners';
 import type { EventRecord, Message } from '@agent-team/schema';
 import type { Unavailable } from './conversation.js';
@@ -118,11 +118,11 @@ export function classifyFailure(
   const { kind, message } = result.error!;
   if (kind === 'cancelled' && ctx.aborted) return { action: 'requeue' };
   if (kind === 'rate_limit') {
-    const reset = result.quota?.resetsAt;
+    // the same guard as the runners (docs/adr/0022): a reset in the past or more than 8 days
+    // ahead is unknown (default cooldown); a known one gets 60 s plus a stable 0–30 s spread
     const until =
-      reset !== undefined && Date.parse(reset) > ctx.now.getTime()
-        ? reset
-        : new Date(ctx.now.getTime() + ctx.cooldownMs).toISOString();
+      quotaWaitUntil(result.quota?.resetsAt, ctx.now, 'leader') ??
+      new Date(ctx.now.getTime() + ctx.cooldownMs).toISOString();
     return {
       action: 'unavailable',
       unavailable: { reason: 'rate_limit', until, hint: rateLimitHint(until) },

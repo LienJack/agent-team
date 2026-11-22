@@ -31,14 +31,14 @@
 
 ## Ports（phase 2 各自實作，彼此不需溝通）
 
-| Port                                                                       | 檔案                                          | 實作者                               |
-| -------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------ |
-| `Store` + 11 個 repository                                                 | `packages/core/src/ports/repositories.ts`     | `packages/db`（SQLite）              |
-| `ProcessControl`（復原時終止殘留 worker，ADR 0015）                        | `packages/core/src/ports/worker-processes.ts` | `packages/runners`                   |
-| `Runner`、`RunHooks`、`RunnerRegistry`、`Resumable`、`QuotaReporting`      | `packages/core/src/ports/runner.ts`           | `packages/runners`                   |
-| `CheckExecutor`                                                            | `packages/core/src/ports/services.ts`         | `packages/runners`（共用子行程工具） |
-| `GitPort`                                                                  | `packages/core/src/ports/git.ts`              | `packages/git`                       |
-| `Clock`、`IdGen`、`Notifier`、`LeaderNotifier`、`EventPublisher`、`Logger` | `packages/core/src/ports/services.ts`         | `apps/server`（組裝）                |
+| Port                                                                         | 檔案                                          | 實作者                               |
+| ---------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------ |
+| `Store` + 11 個 repository                                                   | `packages/core/src/ports/repositories.ts`     | `packages/db`（SQLite）              |
+| `ProcessControl`（復原時終止殘留 worker 與有證明的遺留行程，ADR 0015、0022） | `packages/core/src/ports/worker-processes.ts` | `packages/runners`                   |
+| `Runner`、`RunHooks`、`RunnerRegistry`、`Resumable`、`QuotaReporting`        | `packages/core/src/ports/runner.ts`           | `packages/runners`                   |
+| `CheckExecutor`                                                              | `packages/core/src/ports/services.ts`         | `packages/runners`（共用子行程工具） |
+| `GitPort`                                                                    | `packages/core/src/ports/git.ts`              | `packages/git`                       |
+| `Clock`、`IdGen`、`Notifier`、`LeaderNotifier`、`EventPublisher`、`Logger`   | `packages/core/src/ports/services.ts`         | `apps/server`（組裝）                |
 
 重點契約（完整說明在各介面的 TSDoc）：
 

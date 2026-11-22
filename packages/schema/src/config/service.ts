@@ -45,6 +45,20 @@ export const ServiceConfigSchema = z.strictObject({
       summarize_threshold_chars: z.number().int().positive().default(600),
       /** Hard length cap of a condensed (or truncated) text. */
       summary_max_chars: z.number().int().positive().default(500),
+      /**
+       * Option buttons (spec §10, docs/adr/0022): attached only when the question and every
+       * option fit these limits whole. grokmsg pushes at most 6000 characters of text and echoes
+       * at most 300 characters of a question with a pick; it documents no label limit, so the
+       * label and count limits are conservative assumptions.
+       */
+      buttons: z
+        .strictObject({
+          message_max_chars: z.number().int().positive().default(6000),
+          question_max_chars: z.number().int().positive().default(300),
+          option_max_chars: z.number().int().positive().default(40),
+          max_options: z.number().int().positive().default(5),
+        })
+        .prefault({}),
     })
     .prefault({}),
   /** Machine checks (spec §6 step 4; docs/adr/0019). */
@@ -120,6 +134,12 @@ export const ServiceConfigSchema = z.strictObject({
       retry_max_ms: ms.default(300000),
       /** Cooldown after a rate limit without `resetsAt` (spec §8: 15 minutes). */
       rate_limit_cooldown_ms: ms.default(900000),
+      /**
+       * Cooldowns in a row whose first following run hit the rate limit again before the runner
+       * stops resuming by itself (open circuit + attention item until a person re-arms it;
+       * docs/adr/0022).
+       */
+      rate_limit_loop_limit: z.number().int().positive().default(3),
       /** Consecutive runner failures that open the circuit (spec §8: 3). */
       circuit_failure_threshold: z.number().int().positive().default(3),
       circuit_open_ms: ms.default(600000),

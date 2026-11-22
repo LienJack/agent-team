@@ -91,6 +91,7 @@ describe('§10 hub_summarizer', () => {
       id: 'a_000001',
       task_id: null,
       kind: 'decision',
+      topic: 'general',
       question: '要花 US$10 嗎？',
       options: ['先跑 3 條（上限 US$10）', "取消 '全部'"],
       status: 'open',

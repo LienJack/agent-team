@@ -89,8 +89,24 @@ describe('§14 cli — against the real server', () => {
     );
     expect(added).toMatchObject({ code: 0 });
     const taskId = /^(t_\w+) \[draft\]/.exec(added.out)![1]!;
+    // every task command says what happened to the dispatch (docs/adr/0022)
+    expect(added.out).toContain('\ndelivery: draft\n');
+    expect(added.out).toContain(`report: 任務 ${taskId}「加入 a」是草稿：尚未排入佇列，不會執行`);
 
-    expect((await team('task', 'queue', taskId)).out).toMatch(/\[queued\]/);
+    // one scheduling pass runs before the reply, so the fast fake worker may already have it;
+    // whatever the status, delivery and report say the same thing and never overstate it
+    const queued = (await team('task', 'queue', taskId)).out;
+    const status = /\[(\w+)\]/.exec(queued)![1]!;
+    const delivery = /\ndelivery: (\w+)/.exec(queued)![1]!;
+    const expected: Record<string, string> = {
+      queued: 'queued',
+      running: 'running',
+      verifying: 'running',
+      done: 'done',
+    };
+    expect(delivery).toBe(expected[status] ?? (status === 'review' ? delivery : 'unexpected'));
+    expect(delivery !== 'running' && /正在執行|正在審查/.test(queued)).toBe(false);
+    expect(queued).toMatch(new RegExp(`\nreport: 任務 ${taskId}「加入 a」`));
     // wait for the fake runs to finish (impl → verify → review → done)
     for (let i = 0; i < 50; i++) {
       const list = await team('--json', 'task', 'list');

@@ -486,6 +486,20 @@
           "id": { "type": "string", "pattern": "^a_[0-9a-z]{1,32}$" },
           "task_id": { "type": ["string", "null"], "pattern": "^t_[0-9a-z]{1,32}$" },
           "kind": { "type": "string", "enum": ["decision", "approval", "question"] },
+          "topic": {
+            "type": "string",
+            "enum": [
+              "general",
+              "worker_question",
+              "runner_halted",
+              "base_drift",
+              "start_unknown",
+              "worker_unconfirmed",
+              "worktree_identity",
+              "workspace_kept",
+              "unclassified"
+            ]
+          },
           "question": { "type": "string", "minLength": 1 },
           "options": { "type": "array", "items": { "type": "string", "minLength": 1 } },
           "status": { "type": "string", "enum": ["open", "answered", "superseded"] },
@@ -501,6 +515,7 @@
           "id",
           "task_id",
           "kind",
+          "topic",
           "question",
           "options",
           "status",
@@ -545,6 +560,10 @@
           "cooldown_reason": { "type": ["string", "null"] },
           "consecutive_failures": { "type": "integer", "minimum": 0 },
           "circuit_open_until": { "type": ["string", "null"], "format": "date-time" },
+          "rate_limit_loops": { "type": "integer", "minimum": 0, "default": 0 },
+          "probe_after_cooldown": { "type": "boolean", "default": false },
+          "halted_at": { "type": ["string", "null"], "format": "date-time", "default": null },
+          "halted_attention_id": { "type": ["string", "null"], "default": null },
           "quota": {
             "type": ["object", "null"],
             "properties": {
@@ -630,6 +649,60 @@
           }
         },
         "required": ["error"]
+      },
+      "Delivery": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": ["running", "queued", "draft", "done", "not_accepted"]
+          },
+          "waiting": {
+            "type": ["object", "null"],
+            "properties": {
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "path_overlap",
+                  "no_slot",
+                  "runner_cooldown",
+                  "backoff",
+                  "worker_alive",
+                  "base_drift"
+                ]
+              },
+              "detail": { "type": ["string", "null"] },
+              "blocking_task_id": { "type": ["string", "null"], "pattern": "^t_[0-9a-z]{1,32}$" },
+              "retry_at": { "type": ["string", "null"], "format": "date-time" }
+            },
+            "required": ["reason", "detail", "blocking_task_id", "retry_at"]
+          },
+          "run_id": { "type": ["string", "null"], "pattern": "^r_[0-9a-z]{1,32}$" },
+          "reason": { "type": ["string", "null"] }
+        },
+        "required": ["state", "waiting", "run_id", "reason"]
+      },
+      "BoardSummary": {
+        "type": "object",
+        "properties": {
+          "total": { "type": "integer", "minimum": 0 },
+          "columns": {
+            "type": "object",
+            "properties": {
+              "pending": { "type": "integer", "minimum": 0 },
+              "in_progress": { "type": "integer", "minimum": 0 },
+              "review": { "type": "integer", "minimum": 0 },
+              "blocked": { "type": "integer", "minimum": 0 },
+              "done": { "type": "integer", "minimum": 0 }
+            },
+            "required": ["pending", "in_progress", "review", "blocked", "done"]
+          },
+          "drafts": { "type": "integer", "minimum": 0 },
+          "queued": { "type": "integer", "minimum": 0 },
+          "cancelled": { "type": "integer", "minimum": 0 },
+          "report": { "type": "string" }
+        },
+        "required": ["total", "columns", "drafts", "queued", "cancelled", "report"]
       }
     },
     "responses": {
@@ -719,7 +792,8 @@
                         }
                       },
                       "required": ["state", "last_activity_at"]
-                    }
+                    },
+                    "summary": { "$ref": "#/components/schemas/BoardSummary" }
                   },
                   "required": [
                     "last_seq",
@@ -729,7 +803,8 @@
                     "active_runs",
                     "open_attention",
                     "runners",
-                    "leader"
+                    "leader",
+                    "summary"
                   ]
                 }
               }
@@ -1144,13 +1219,17 @@
         },
         "responses": {
           "201": {
-            "description": "The created task",
+            "description": "The created task, its delivery and the report line",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "properties": { "task": { "$ref": "#/components/schemas/Task" } },
-                  "required": ["task"]
+                  "properties": {
+                    "task": { "$ref": "#/components/schemas/Task" },
+                    "delivery": { "$ref": "#/components/schemas/Delivery" },
+                    "report": { "type": "string" }
+                  },
+                  "required": ["task", "delivery", "report"]
                 }
               }
             }
@@ -1240,13 +1319,17 @@
         },
         "responses": {
           "200": {
-            "description": "The updated task",
+            "description": "The updated task, its delivery and the report line",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "properties": { "task": { "$ref": "#/components/schemas/Task" } },
-                  "required": ["task"]
+                  "properties": {
+                    "task": { "$ref": "#/components/schemas/Task" },
+                    "delivery": { "$ref": "#/components/schemas/Delivery" },
+                    "report": { "type": "string" }
+                  },
+                  "required": ["task", "delivery", "report"]
                 }
               }
             }
@@ -1292,13 +1375,17 @@
         },
         "responses": {
           "200": {
-            "description": "The updated task",
+            "description": "The updated task, its delivery and the report line",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "properties": { "task": { "$ref": "#/components/schemas/Task" } },
-                  "required": ["task"]
+                  "properties": {
+                    "task": { "$ref": "#/components/schemas/Task" },
+                    "delivery": { "$ref": "#/components/schemas/Delivery" },
+                    "report": { "type": "string" }
+                  },
+                  "required": ["task", "delivery", "report"]
                 }
               }
             }
@@ -1344,13 +1431,17 @@
         },
         "responses": {
           "200": {
-            "description": "The updated task",
+            "description": "The updated task, its delivery and the report line",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "properties": { "task": { "$ref": "#/components/schemas/Task" } },
-                  "required": ["task"]
+                  "properties": {
+                    "task": { "$ref": "#/components/schemas/Task" },
+                    "delivery": { "$ref": "#/components/schemas/Delivery" },
+                    "report": { "type": "string" }
+                  },
+                  "required": ["task", "delivery", "report"]
                 }
               }
             }
@@ -1396,13 +1487,17 @@
         },
         "responses": {
           "200": {
-            "description": "The updated task",
+            "description": "The updated task, its delivery and the report line",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "properties": { "task": { "$ref": "#/components/schemas/Task" } },
-                  "required": ["task"]
+                  "properties": {
+                    "task": { "$ref": "#/components/schemas/Task" },
+                    "delivery": { "$ref": "#/components/schemas/Delivery" },
+                    "report": { "type": "string" }
+                  },
+                  "required": ["task", "delivery", "report"]
                 }
               }
             }
@@ -1449,13 +1544,17 @@
         },
         "responses": {
           "200": {
-            "description": "The updated task",
+            "description": "The updated task, its delivery and the report line",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "properties": { "task": { "$ref": "#/components/schemas/Task" } },
-                  "required": ["task"]
+                  "properties": {
+                    "task": { "$ref": "#/components/schemas/Task" },
+                    "delivery": { "$ref": "#/components/schemas/Delivery" },
+                    "report": { "type": "string" }
+                  },
+                  "required": ["task", "delivery", "report"]
                 }
               }
             }
@@ -1502,13 +1601,17 @@
         },
         "responses": {
           "200": {
-            "description": "The updated task",
+            "description": "The updated task, its delivery and the report line",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "properties": { "task": { "$ref": "#/components/schemas/Task" } },
-                  "required": ["task"]
+                  "properties": {
+                    "task": { "$ref": "#/components/schemas/Task" },
+                    "delivery": { "$ref": "#/components/schemas/Delivery" },
+                    "report": { "type": "string" }
+                  },
+                  "required": ["task", "delivery", "report"]
                 }
               }
             }
@@ -1556,13 +1659,17 @@
         },
         "responses": {
           "201": {
-            "description": "The created research task",
+            "description": "The created research task, its delivery and the report line",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "properties": { "task": { "$ref": "#/components/schemas/Task" } },
-                  "required": ["task"]
+                  "properties": {
+                    "task": { "$ref": "#/components/schemas/Task" },
+                    "delivery": { "$ref": "#/components/schemas/Delivery" },
+                    "report": { "type": "string" }
+                  },
+                  "required": ["task", "delivery", "report"]
                 }
               }
             }

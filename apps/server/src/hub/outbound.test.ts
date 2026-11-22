@@ -107,11 +107,13 @@ describe('§10 hub outbound (fake grokmsg)', () => {
     second.engine.ctx.transact((tx) => second!.hub.onLeaderRateLimited(tx, until1));
     await second.engine.drain();
     expect(t.store.outbox.list()).toHaveLength(3);
+    // two items open at once: neither gets buttons nor invites a reply in Grok (docs/adr/0022)
+    const [a1, a2] = t.store.attention.list();
     expect(notices(grok)).toEqual([
       `leader 額度用完，預計 ${until1} 恢復；訊息會保留，恢復後依序回覆`, // failed attempt
       `leader 額度用完，預計 ${until1} 恢復；訊息會保留，恢復後依序回覆`,
-      '需要你決定：第一題\n選項：\n- 甲\n（回覆其中一個選項的原文）',
-      '需要你決定：第二題\n選項：\n- 乙\n（回覆其中一個選項的原文）',
+      `需要你決定：第一題\n選項：\n- 甲\n目前有 2 個待決事項，請在看板或 CLI 回答：\nteam attention answer ${a1!.id} "<選項>"`,
+      `需要你決定：第二題\n選項：\n- 乙\n目前有 2 個待決事項，請在看板或 CLI 回答：\nteam attention answer ${a2!.id} "<選項>"`,
     ]);
   });
 
@@ -210,8 +212,10 @@ describe('§10 hub outbound (fake grokmsg)', () => {
     const [record] = grok.records('notify');
     expect(record!.argv).toContain('--file');
     expect(record!.argv).not.toContain('--text');
+    // too long for buttons (question_max_chars): the whole question, and where to answer it
+    const item = t.store.attention.list()[0]!;
     expect(record!.file).toBe(
-      `需要你決定：${question}\n選項：\n- 確認\n（回覆其中一個選項的原文）`,
+      `需要你決定：${question}\n選項：\n- 確認\n請在看板或 CLI 回答：\nteam attention answer ${item.id} "<選項>"`,
     );
     expect(record!.fileMode).toBe('600');
     await until(() => t.store.outbox.list().every((o) => o.status === 'sent'));

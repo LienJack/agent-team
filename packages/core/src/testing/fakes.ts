@@ -6,7 +6,7 @@ import {
   type RunnerCapabilities,
   type RunnerName,
 } from '@agent-team/schema';
-import type { GroupTermination, ProcessControl } from '../ports/worker-processes.js';
+import type { GroupTermination, OrphanSweep, ProcessControl } from '../ports/worker-processes.js';
 import type { Runner, RunnerRegistry } from '../ports/runner.js';
 import type {
   CheckExecutor,
@@ -198,5 +198,18 @@ export class FakeProcessControl implements ProcessControl {
     if (this.unkillable.has(input.pid)) return 'unconfirmed';
     this.alive.delete(input.pid);
     return 'terminated';
+  }
+
+  /** What `reapOrphans` reports (default: not supported, like a platform without the info). */
+  sweep: OrphanSweep = { supported: false, terminated: [], survivors: [] };
+  /** Groups the sweep empties when it terminates something (leaderless members it proved). */
+  readonly sweptGroups = new Set<number>();
+  readonly sweeps: Array<{ paths: readonly string[]; since: string }> = [];
+
+  async reapOrphans(input: { paths: readonly string[]; since: string }): Promise<OrphanSweep> {
+    this.sweeps.push(input);
+    if (this.sweep.terminated.length > 0)
+      for (const pid of this.sweptGroups) this.alive.delete(pid);
+    return this.sweep;
   }
 }

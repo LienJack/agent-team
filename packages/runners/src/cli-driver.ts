@@ -101,6 +101,8 @@ export async function runCli(input: CliRunInput): Promise<RunResult> {
       stdin: spec.prompt,
       timeoutMs: spec.timeoutMs,
       signal: input.signal,
+      // leftovers outside the group that provably belong to this run go too (docs/adr/0022)
+      ownership: { markers: [spec.cwd, spec.logDir] },
       ...(input.killGraceMs === undefined ? {} : { killGraceMs: input.killGraceMs }),
       ...(input.endGraceMs === undefined ? {} : { endGraceMs: input.endGraceMs }),
       onSpawn: (childPid) => {

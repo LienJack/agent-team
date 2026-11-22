@@ -46,6 +46,7 @@ const workspaceRemove: EffectHandler = {
         openAttention(ctx, tx, {
           task_id: ws.task_id,
           kind: 'decision',
+          topic: res.reason === 'tampered' ? 'worktree_identity' : 'workspace_kept',
           question:
             res.reason === 'tampered'
               ? `任務 ${ws.task_id} 的 worktree ${p.path} 沒有通過身分檢查（${res.detail}），已保留不刪除、也沒有在其中執行 git；請檢查後手動處理（docs/adr/0018）。`

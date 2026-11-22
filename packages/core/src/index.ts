@@ -72,6 +72,14 @@ export {
   runnerStatuses,
   unavailability,
 } from './engine/runner-health.js';
+export {
+  exhaustedUntil,
+  quotaJitterMs,
+  quotaWaitUntil,
+  QUOTA_RESET_BUFFER_MS,
+  QUOTA_RESET_JITTER_MAX_MS,
+  QUOTA_RESET_MAX_AHEAD_MS,
+} from './engine/quota-wait.js';
 
 // Helpers
 export {

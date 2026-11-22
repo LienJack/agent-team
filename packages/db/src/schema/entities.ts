@@ -137,6 +137,8 @@ export const attention = sqliteTable(
     id: text().primaryKey(),
     task_id: text().references(() => task.id),
     kind: text().$type<Attention['kind']>().notNull(),
+    // rows from before topics existed are unknown, so high risk (docs/adr/0022)
+    topic: text().$type<Attention['topic']>().notNull().default('unclassified'),
     question: text().notNull(),
     options: text({ mode: 'json' }).$type<Attention['options']>().notNull(),
     status: text().$type<Attention['status']>().notNull(),

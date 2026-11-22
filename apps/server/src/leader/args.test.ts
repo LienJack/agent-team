@@ -7,7 +7,7 @@ import {
   LEADER_REQUIRED_FLAGS,
   leaderArgs,
 } from './args.js';
-import { leaderPromptVersion, leaderSystemPrompt } from './prompt/system-v4.js';
+import { DELIVERY_RULE, leaderPromptVersion, leaderSystemPrompt } from './prompt/system-v5.js';
 
 // The leader's shell surface (spec §9, docs/adr/0012): Bash only, allowed for `team …`, with
 // Claude Code's auto-approved read-only commands denied explicitly.
@@ -65,7 +65,30 @@ describe('leader shell surface', () => {
       expect(prompt).toContain('每次 Bash 只放一個 `team` 指令');
       for (const s of ['`&&`', '`;`', '`|`', '`echo`']) expect(prompt).toContain(s);
       // a new rule is a new prompt version: the next start opens a new conversation
-      expect(leaderPromptVersion(mode)).toBe(`v4-${mode}`);
+      expect(leaderPromptVersion(mode)).toBe(`v5-${mode}`);
+    }
+  });
+
+  it('tells the leader to relay the generated report and never call a task running unless delivery says so (v5)', () => {
+    for (const mode of ['off', 'on_request', 'auto'] as const) {
+      const prompt = leaderSystemPrompt(mode);
+      expect(prompt).toContain(DELIVERY_RULE);
+      expect(prompt).not.toContain('{{');
+      for (const s of ['`report:`', '`delivery` 不是 `running`', '`queued`', '`not_accepted`']) {
+        expect(DELIVERY_RULE).toContain(s);
+      }
+      expect(DELIVERY_RULE).toContain('`team status` 的 `report:`');
+      expect(leaderPromptVersion(mode)).toBe(`v5-${mode}`);
+      // the prompt reaches the CLI verbatim through --append-system-prompt
+      const argv = leaderArgs({
+        model: 'm',
+        sessionId: 's',
+        resume: true,
+        systemPrompt: prompt,
+        settings: {},
+        flags: ALL_FLAGS,
+      });
+      expect(argv[argv.indexOf('--append-system-prompt') + 1]).toBe(prompt);
     }
   });
 

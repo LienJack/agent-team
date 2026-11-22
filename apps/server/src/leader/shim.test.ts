@@ -39,10 +39,10 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function run(...args: string[]): Promise<{ code: number; stderr: string }> {
+function run(...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((done) => {
-    execFile(shim, args, { env: { PATH: '/usr/bin:/bin' } }, (err, _out, stderr) =>
-      done({ code: err ? Number((err as { code?: number }).code ?? 1) : 0, stderr }),
+    execFile(shim, args, { env: { PATH: '/usr/bin:/bin' } }, (err, stdout, stderr) =>
+      done({ code: err ? Number((err as { code?: number }).code ?? 1) : 0, stdout, stderr }),
     );
   });
 }
@@ -99,6 +99,11 @@ describe('§9 leader team shim', () => {
       expect(res.code).toBe(2);
       expect(res.stderr).toMatch(/--ticket-file is not available to the leader/);
       expect(res.stderr).toMatch(/<<'EOF'/);
+      // like every refused task command: an explicit delivery and the report (docs/adr/0022)
+      expect(res.stdout).toBe(
+        'delivery: not_accepted (usage: --ticket-file is not available to the leader)\n' +
+          'report: 請求未被受理（usage）：--ticket-file is not available to the leader。沒有建立或改變任何任務。\n',
+      );
     }
     expect(existsSync(record)).toBe(false);
   });
@@ -111,6 +116,7 @@ describe('§9 leader team shim', () => {
       const res = await run(...args);
       expect(res.code).toBe(2);
       expect(res.stderr).toMatch(/--question-file is not available to the leader/);
+      expect(res.stdout).toMatch(/^delivery: not_accepted \(usage: --question-file/);
     }
     expect(existsSync(record)).toBe(false);
   });

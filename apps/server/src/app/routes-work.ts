@@ -18,12 +18,14 @@ import {
   rejectTask,
   retryTask,
 } from '@agent-team/protocol';
+import { settledReply } from './delivery.js';
 import { answerVia } from './origin.js';
 import { created, ok, register } from './register.js';
 import type { AppContext, AppEnv } from './types.js';
 
 // Projects, tasks and attention (spec §11). Handlers only translate HTTP to engine commands
-// (state changes) or store reads; every state change goes through the engine.
+// (state changes) or store reads; every state change goes through the engine. Task commands
+// answer with the task's delivery and report after one scheduling pass (docs/adr/0022).
 
 export function registerWorkRoutes(app: OpenAPIHono<AppEnv>, ctx: AppContext): void {
   const { engine, store } = ctx;
@@ -54,9 +56,10 @@ export function registerWorkRoutes(app: OpenAPIHono<AppEnv>, ctx: AppContext): v
     return ok({ tasks });
   });
 
-  register(app, createTask, (c) =>
-    created({ task: engine.createTask(c.req.valid('json'), c.get('actor')) }),
-  );
+  register(app, createTask, async (c) => {
+    const task = engine.createTask(c.req.valid('json'), c.get('actor'));
+    return created(await settledReply(ctx, task.id));
+  });
 
   register(app, getTask, (c) => {
     const { id } = c.req.valid('param');
@@ -71,9 +74,10 @@ export function registerWorkRoutes(app: OpenAPIHono<AppEnv>, ctx: AppContext): v
   });
 
   // research stage (spec §17): the engine answers 409 while research.mode is off
-  register(app, createResearch, (c) =>
-    created({ task: engine.createResearch(c.req.valid('json'), c.get('actor')) }),
-  );
+  register(app, createResearch, async (c) => {
+    const task = engine.createResearch(c.req.valid('json'), c.get('actor'));
+    return created(await settledReply(ctx, task.id));
+  });
   register(app, getResearch, (c) => {
     const { id } = c.req.valid('param');
     const task = store.tasks.get(id);
@@ -82,27 +86,24 @@ export function registerWorkRoutes(app: OpenAPIHono<AppEnv>, ctx: AppContext): v
     return ok({ task, receipt: found?.receipt ?? null, run_id: found?.run.id ?? null });
   });
 
-  register(app, queueTask, (c) =>
-    ok({ task: engine.queueTask(c.req.valid('param').id, c.get('actor')) }),
-  );
+  const reply = async (task: { id: string }) => ok(await settledReply(ctx, task.id));
+  register(app, queueTask, (c) => reply(engine.queueTask(c.req.valid('param').id, c.get('actor'))));
   register(app, cancelTask, (c) => {
     const { reason } = c.req.valid('json');
-    return ok({ task: engine.cancelTask(c.req.valid('param').id, reason) });
+    return reply(engine.cancelTask(c.req.valid('param').id, reason));
   });
-  register(app, retryTask, (c) =>
-    ok({ task: engine.retryTask(c.req.valid('param').id, c.get('actor')) }),
-  );
+  register(app, retryTask, (c) => reply(engine.retryTask(c.req.valid('param').id, c.get('actor'))));
   register(app, approveTask, (c) => {
     const { reason } = c.req.valid('json');
-    return ok({ task: engine.approveTask(c.req.valid('param').id, reason, c.get('actor')) });
+    return reply(engine.approveTask(c.req.valid('param').id, reason, c.get('actor')));
   });
   register(app, rejectTask, (c) => {
     const { note } = c.req.valid('json');
-    return ok({ task: engine.rejectTask(c.req.valid('param').id, note, c.get('actor')) });
+    return reply(engine.rejectTask(c.req.valid('param').id, note, c.get('actor')));
   });
   register(app, reassignTask, (c) => {
     const { role } = c.req.valid('json');
-    return ok({ task: engine.reassignTask(c.req.valid('param').id, role, c.get('actor')) });
+    return reply(engine.reassignTask(c.req.valid('param').id, role, c.get('actor')));
   });
 
   register(app, listAttention, (c) => {

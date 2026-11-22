@@ -112,7 +112,12 @@ describe('§14 server — routes (happy path and validation failure)', () => {
     h.runners.dsh.script(editing(h.git, ['src/feature/a.ts']));
     h.runners.codex.script({ hold: true }); // review waits
     const t = await newTask(p.id);
-    expect((await call(`/api/tasks/${t.id}/queue`, {})).body['task'].status).toBe('queued');
+    const queued = (await call(`/api/tasks/${t.id}/queue`, {})).body;
+    // the reply follows one scheduling pass: the task may be dispatched already (docs/adr/0022)
+    expect(['queued', 'running', 'verifying']).toContain(queued['task'].status);
+    expect(queued['delivery'].state).toBe(
+      queued['task'].status === 'queued' ? 'queued' : 'running',
+    );
     await h.service.engine.drain();
     expect(h.store.tasks.get(t.id)!.status).toBe('review');
     const approved = await call(`/api/tasks/${t.id}/approve`, { reason: 'looks good' });

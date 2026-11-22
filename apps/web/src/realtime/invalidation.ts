@@ -74,6 +74,7 @@ const EVENT_QUERIES = {
   'runner.quota': board,
   'runner.circuit_opened': board,
   'runner.circuit_closed': board,
+  'runner.halted': board,
 
   // internal bookkeeping: nothing on the board shows it
   'effect.failed': none,

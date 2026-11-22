@@ -1,7 +1,9 @@
 import { OpenAPIHono, type RouteConfig } from '@hono/zod-openapi';
 import {
   AttentionSchema,
+  BoardSummarySchema,
   BoardTaskSchema,
+  DeliverySchema,
   ErrorEnvelopeSchema,
   MessageSchema,
   ProjectSchema,
@@ -51,6 +53,8 @@ const COMPONENTS: ReadonlyArray<[string, z.ZodType]> = [
   ['RunnerStatus', RunnerStatusSchema],
   ['RunnerCapabilities', RunnerCapabilitiesSchema],
   ['ErrorEnvelope', ErrorEnvelopeSchema],
+  ['Delivery', DeliverySchema],
+  ['BoardSummary', BoardSummarySchema],
 ];
 
 const COMPONENT_PATH = '/__component/';

@@ -194,6 +194,15 @@ export const EVENT_DATA_SCHEMAS = {
     until: IsoDateTimeSchema,
   }),
   'runner.circuit_closed': z.object({ runner: RunnerNameSchema }),
+  /**
+   * The rate-limit loop guard stopped the runner (docs/adr/0022): `loops` cooldowns in a row
+   * ended in another rate limit; it stays off until a person re-arms it (`attention_id`).
+   */
+  'runner.halted': z.object({
+    runner: RunnerNameSchema,
+    loops: PositiveIntSchema,
+    attention_id: AttentionIdSchema,
+  }),
 
   'effect.failed': z.object({
     kind: EffectKindSchema,

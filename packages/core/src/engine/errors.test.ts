@@ -1,6 +1,7 @@
 import { runnerHealthKey } from '@agent-team/schema';
 import { describe, expect, it } from 'vitest';
 import { createTestEngine, editing } from '../testing/harness.js';
+import { quotaWaitUntil } from './quota-wait.js';
 
 describe('§14 冷卻與改派 — rate limit: cooldown and reassignment', () => {
   it('cools the runner down until resetsAt, requeues without consuming attempts, falls back', async () => {
@@ -19,7 +20,10 @@ describe('§14 冷卻與改派 — rate limit: cooldown and reassignment', () =>
     expect(limited).toMatchObject({ runner: 'codex', state: 'failed', outcome: 'rate_limited' });
     expect(fallback).toMatchObject({ runner: 'dsh', model_alias: 'kimi-pro', kind: 'impl' });
     const health = JSON.parse(h.store.kv.get(runnerHealthKey('codex'))!);
-    expect(health.cooldown_until).toBe('2026-11-21T02:00:00.000Z');
+    // the reset plus 60 s and a deterministic 0–30 s spread (docs/adr/0022)
+    const reset = '2026-11-21T02:00:00.000Z';
+    expect(health.cooldown_until).toBe(quotaWaitUntil(reset, h.clock.now(), 'codex'));
+    expect(Date.parse(health.cooldown_until) - Date.parse(reset)).toBeGreaterThanOrEqual(60_000);
     expect(health.consecutive_failures).toBe(0); // rate limits do not trip the breaker
     expect(h.eventTypes()).toContain('runner.cooldown');
     expect(h.notifier.sent.map((o) => o.kind)).toContain('quota_exhausted');

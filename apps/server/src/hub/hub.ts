@@ -9,6 +9,7 @@ import {
   readBuffer,
   writeBuffer,
 } from './coalesce.js';
+import { boardNotice, buttonVerdict, refusalText } from './buttons.js';
 import { Grokmsg, type GrokMessage, type ReplyStatus } from './grokmsg.js';
 import { anchorKey, enqueueOutbox, metaKey, readMeta, sentKey, summaryKey } from './outbox.js';
 import { condense } from './summarizer.js';
@@ -19,7 +20,8 @@ import type { Hub, HubDeps } from './types.js';
 // answers the attention item it belongs to. Out: outbox first, then the `outbox.send` effect
 // calls `send()` here: replies (`grokmsg reply`), attention items (`--status waiting_user` with
 // the question and options verbatim), proactive notices (`grokmsg notify`, routine kinds merged
-// per window and held in quiet hours).
+// per window and held in quiet hours). Option buttons only for the single open, normal-risk item
+// whose question and options fit whole; a Grok answer is checked the same way (buttons.ts).
 
 const RECEIVED = '已收到，處理中';
 
@@ -50,7 +52,10 @@ const sleep = (ms: number, signal: AbortSignal) =>
     );
   });
 
-/** The question with its options, verbatim, for a notice (no message to attach buttons to). */
+/**
+ * The question with its options, verbatim, for a notice about an item that could carry buttons
+ * but has no message to attach them to (a typed option is accepted like a pick).
+ */
 export function attentionNotice(item: Attention): string {
   if (item.options.length === 0) return `需要你決定：${item.question}`;
   return [
@@ -78,12 +83,17 @@ export function createHub(deps: HubDeps): Hub {
     return e;
   };
 
-  /** The open attention item a Grok message answers (by the anchor it replies to, or question). */
+  /**
+   * The attention item a Grok message answers (by the anchor it replies to, or question). A pick
+   * (`choice`) also matches an anchored item that is no longer open, so it gets a clear reply.
+   */
   function matchAttention(msg: GrokMessage): { item: Attention; answer: string } | undefined {
     const candidates: Attention[] = [];
     const anchored = msg.reply_to ? store.kv.get(anchorKey(msg.reply_to)) : undefined;
     const byAnchor = anchored ? store.attention.get(anchored) : undefined;
-    if (byAnchor?.status === 'open') candidates.push(byAnchor);
+    if (byAnchor && (byAnchor.status === 'open' || msg.choice !== undefined)) {
+      candidates.push(byAnchor);
+    }
     if (msg.choice !== undefined && msg.question) {
       for (const a of store.attention.list({ statuses: ['open'] })) {
         if (a.question === msg.question && a.id !== byAnchor?.id) candidates.push(a);
@@ -107,6 +117,13 @@ export function createHub(deps: HubDeps): Hub {
     }
     const e = engine();
     const target = matchAttention(msg);
+    // checked again at answer time: still the single open item, not high risk, fits whole
+    let refusal: string | undefined;
+    if (target) {
+      const open = store.attention.list({ statuses: ['open'] });
+      const verdict = buttonVerdict(target.item, open, cfg.buttons);
+      if (!verdict.ok) refusal = refusalText(target.item, verdict.why, open.length);
+    }
     const message = e.ctx.transact((tx) => {
       if (tx.r.messages.findByClientMsgId('grok', id)) return undefined;
       const stored = insertMessage(e, tx, {
@@ -132,11 +149,15 @@ export function createHub(deps: HubDeps): Hub {
     if (!message) return;
     if (target) {
       let text: string;
-      try {
-        e.answerAttention(target.item.id, target.answer, 'grok');
-        text = `已記錄你的選擇：${target.answer}`;
-      } catch (err) {
-        text = `這個問題已經處理過了（${errorMessage(err)}）`;
+      if (refusal !== undefined) {
+        text = refusal;
+      } else {
+        try {
+          e.answerAttention(target.item.id, target.answer, 'grok');
+          text = `已記錄你的選擇：${target.answer}`;
+        } catch (err) {
+          text = `這個問題已經處理過了（${errorMessage(err)}）`;
+        }
       }
       e.ctx.transact((tx) => {
         markDelivered(tx, message.id);
@@ -196,9 +217,10 @@ export function createHub(deps: HubDeps): Hub {
     let ask: { question: string; options: string[] } | undefined;
     if (meta.mode === 'final') {
       text = await prepared(item);
-      // an attention item is waiting on this conversation: keep its buttons
+      // an attention item is waiting on this conversation: keep its buttons, if it may have them
       const open = anchoredOpen(meta.reply_to);
-      if (open) {
+      const allOpen = store.attention.list({ statuses: ['open'] });
+      if (open && buttonVerdict(open, allOpen, cfg.buttons).ok) {
         status = 'waiting_user';
         ask = { question: open.question, options: open.options };
       }
@@ -216,6 +238,16 @@ export function createHub(deps: HubDeps): Hub {
     const id = item.signature.startsWith('attention:') ? item.signature.slice(10) : undefined;
     const attention = id ? store.attention.get(id) : undefined;
     if (!attention || attention.status !== 'open') return; // answered meanwhile
+    const open = store.attention.list({ statuses: ['open'] });
+    const verdict = buttonVerdict(attention, open, cfg.buttons);
+    if (!verdict.ok) {
+      // no buttons: the question verbatim and where to answer it (board or CLI)
+      const notice = await grok.notify(boardNotice(attention, verdict.why, open.length));
+      // anchored anyway: a pick or option typed in reply gets a clear refusal, not the leader
+      if (notice.id) store.kv.set(anchorKey(notice.id), attention.id);
+      if (!notice.pushed) logger.warn('grokmsg notify was not pushed (webhook not set)');
+      return;
+    }
     const anchor = store.messages.list({ channel: 'grok' }).findLast((m) => m.direction === 'in');
     if (anchor) {
       // stored before the send: a crash right after it still links the pick to this item

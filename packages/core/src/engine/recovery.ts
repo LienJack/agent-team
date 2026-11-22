@@ -1,4 +1,5 @@
-import { isTerminalTaskStatus, type Run } from '@agent-team/schema';
+import { isTerminalTaskStatus, researchWorkdir, type Run } from '@agent-team/schema';
+import type { OrphanSweep } from '../ports/worker-processes.js';
 import { errorMessage } from '../errors.js';
 import { addMs } from '../util/time.js';
 import type { EngineContext, Tx } from './context.js';
@@ -32,15 +33,68 @@ export interface RecoveryReport {
 export type WorkerFate = 'gone' | 'terminated' | 'unconfirmed';
 
 async function workerFate(ctx: EngineContext, run: Run): Promise<WorkerFate> {
-  if (run.pid === null) return run.launched_at === null ? 'gone' : 'unconfirmed';
+  if (run.pid === null) {
+    if (run.launched_at === null) return 'gone';
+    // proven leftovers go, but without a pid the worker itself cannot be accounted for
+    await reapLeftovers(ctx, run);
+    return 'unconfirmed';
+  }
   const control = ctx.deps.processes;
   if (!control) return 'unconfirmed';
   try {
-    const res = await control.terminateGroup({ pid: run.pid, startedAt: run.pid_started_at });
+    const group = { pid: run.pid, startedAt: run.pid_started_at };
+    let res = await control.terminateGroup(group);
+    // descendants that left the group and outlived their parents (docs/adr/0022 §4)
+    const sweep = await reapLeftovers(ctx, run);
+    if (sweep?.supported) {
+      if (sweep.survivors.length > 0) return 'unconfirmed';
+      // a leaderless group's members may have been among them: look at the group again
+      if (res === 'unconfirmed' && sweep.terminated.length > 0) {
+        res = await control.terminateGroup(group);
+      }
+    }
     return res === 'terminated' ? 'terminated' : res === 'not_running' ? 'gone' : 'unconfirmed';
   } catch (err) {
     ctx.logger.error('cannot terminate worker group', { run_id: run.id, error: errorMessage(err) });
     return 'unconfirmed';
+  }
+}
+
+/** The run's own paths: what proves a leftover process belongs to it. */
+function runPaths(ctx: EngineContext, run: Run): string[] {
+  const paths = [run.log_dir];
+  if (run.kind === 'research') paths.push(researchWorkdir(ctx.config.dataDir, run.id));
+  const ws = run.workspace_id === null ? undefined : ctx.store.workspaces.get(run.workspace_id);
+  if (ws) paths.push(ws.path);
+  return paths;
+}
+
+/**
+ * Terminate what the run left outside its group, with proof of ownership (ProcessControl
+ * `reapOrphans`); undefined when not available. Unproven processes are never signalled.
+ */
+async function reapLeftovers(ctx: EngineContext, run: Run): Promise<OrphanSweep | undefined> {
+  const control = ctx.deps.processes;
+  if (!control?.reapOrphans) return undefined;
+  try {
+    const sweep = await control.reapOrphans({
+      paths: runPaths(ctx, run),
+      since: run.launched_at ?? run.started_at,
+    });
+    if (sweep.terminated.length > 0 || sweep.survivors.length > 0) {
+      ctx.logger.warn('leftover worker processes outside the group', {
+        run_id: run.id,
+        terminated: sweep.terminated.length,
+        survivors: sweep.survivors.length,
+      });
+    }
+    return sweep;
+  } catch (err) {
+    ctx.logger.error('cannot sweep leftover worker processes', {
+      run_id: run.id,
+      error: errorMessage(err),
+    });
+    return undefined;
   }
 }
 
@@ -86,6 +140,7 @@ export function abandonLiveRuns(
       openAttention(ctx, tx, {
         task_id: task.id,
         kind: 'decision',
+        topic: 'worker_unconfirmed',
         question: `${task.title}（${task.id}）的 run ${run.id} 在服務重啟前已啟動 worker（${pid}），無法確認它已結束；確認沒有殘留的行程後再重試。`,
         options: ['重試', '取消'],
       });
@@ -161,6 +216,7 @@ export async function recover(ctx: EngineContext): Promise<RecoveryReport> {
       openAttention(ctx, tx, {
         task_id: task.id,
         kind: 'decision',
+        topic: 'worker_unconfirmed',
         question: `${task.title}（${task.id}）已停止的 run ${run.id}（pid ${run.pid}）在重啟後無法確認已結束；確認沒有殘留的行程後再重試。`,
         options: ['重試', '取消'],
       });

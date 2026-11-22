@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import type { GroupTermination, ProcessControl } from '@agent-team/core';
+import { sweepOrphans } from './orphans.js';
 import { groupAlive, killGroup } from './spawn.js';
 
 // Worker identity across a service crash (docs/adr/0015). Every worker is the leader of its own
@@ -39,8 +40,12 @@ export function createProcessControl(opts: ProcessControlOptions = {}): ProcessC
       if (leader === undefined) return groupAlive(pid) ? 'unconfirmed' : 'not_running';
       if (startedAt === null) return 'unconfirmed';
       if (leader !== startedAt.replace(/\s+/g, ' ')) return 'not_running';
+      // killGroup also takes the descendants that left the group (snapshotted while the leader
+      // still links them; docs/adr/0022)
       await killGroup(pid, opts.graceMs ?? 5000);
       return groupAlive(pid) ? 'unconfirmed' : 'terminated';
     },
+    reapOrphans: ({ paths, since }) =>
+      sweepOrphans({ markers: paths, since, graceMs: opts.graceMs ?? 5000 }),
   };
 }

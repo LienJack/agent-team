@@ -30,6 +30,12 @@ export type Message = Schemas['Message'];
 export type RunnerStatus = Schemas['RunnerStatus'];
 export type RunnerCapabilities = Schemas['RunnerCapabilities'];
 export type StateSnapshot = Json<'getState'>;
+/** Counts per board column that sum to `total`, and the generated line (docs/adr/0022). */
+export type BoardSummary = Schemas['BoardSummary'];
+/** What a task command did to the task's dispatch (running / queued / draft / done / not_accepted). */
+export type Delivery = Schemas['Delivery'];
+/** A task command's full reply: the task, its delivery and the one-line report to relay. */
+export type TaskCommandResult = Json<'createTask', 201>;
 export type TaskDetail = Json<'getTask'>;
 /** GET /api/research/:id: the research task and its last accepted receipt (spec §17). */
 export type ResearchDetail = Json<'getResearch'>;
@@ -96,12 +102,28 @@ export interface TeamClient {
    * from its turn and the body, so a replayed turn cannot create the same task twice).
    */
   createTask(body: TaskCreateBody, options?: { idempotencyKey?: string }): Promise<Task>;
+  /** `createTask` with the whole reply: the task, its `delivery` and the `report` line. */
+  createTaskResult(
+    body: TaskCreateBody,
+    options?: { idempotencyKey?: string },
+  ): Promise<TaskCommandResult>;
   getTask(id: string): Promise<TaskDetail>;
   /** A research task (spec §17); 409 while `research.mode` is off. `idempotencyKey` as above. */
   createResearch(body: ResearchCreateBody, options?: { idempotencyKey?: string }): Promise<Task>;
+  /** `createResearch` with the whole reply (task, delivery, report). */
+  createResearchResult(
+    body: ResearchCreateBody,
+    options?: { idempotencyKey?: string },
+  ): Promise<TaskCommandResult>;
   /** A research task and its result (links not verified by the service). */
   getResearch(id: string): Promise<ResearchDetail>;
   taskAction(id: string, action: SimpleTaskAction, reason?: string): Promise<Task>;
+  /** `taskAction` with the whole reply (task, delivery, report). */
+  taskActionResult(
+    id: string,
+    action: SimpleTaskAction,
+    reason?: string,
+  ): Promise<TaskCommandResult>;
   rejectTask(id: string, note: string): Promise<Task>;
   reassignTask(id: string, role: string): Promise<Task>;
   runLog(id: string, tail?: number): Promise<RunLog>;
@@ -186,6 +208,18 @@ export function createTeamClient(options: TeamClientOptions): TeamClient {
   }
 
   const byId = (id: string) => ({ params: { path: { id } } });
+  const keyed = (key: string | undefined) =>
+    key === undefined ? {} : { headers: { [IDEMPOTENCY_HEADER]: key } };
+
+  const createTaskResult: TeamClient['createTaskResult'] = (body, callOptions) =>
+    call(() => raw.POST('/api/tasks', { body, ...keyed(callOptions?.idempotencyKey) }));
+  const createResearchResult: TeamClient['createResearchResult'] = (body, callOptions) =>
+    call(() => raw.POST('/api/research', { body, ...keyed(callOptions?.idempotencyKey) }));
+  const taskActionResult: TeamClient['taskActionResult'] = (id, action, reason) => {
+    const init = { ...byId(id), body: reason === undefined ? {} : { reason } };
+    const path = `/api/tasks/{id}/${action}` as const;
+    return call(() => raw.POST(path, init));
+  };
 
   return {
     baseUrl,
@@ -195,23 +229,15 @@ export function createTeamClient(options: TeamClientOptions): TeamClient {
     createProject: async (body) => (await call(() => raw.POST('/api/projects', { body }))).project,
     listTasks: async (query = {}) =>
       (await call(() => raw.GET('/api/tasks', { params: { query } }))).tasks,
-    createTask: async (body, callOptions) => {
-      const key = callOptions?.idempotencyKey;
-      const headers = key === undefined ? {} : { headers: { [IDEMPOTENCY_HEADER]: key } };
-      return (await call(() => raw.POST('/api/tasks', { body, ...headers }))).task;
-    },
+    createTask: async (body, callOptions) => (await createTaskResult(body, callOptions)).task,
+    createTaskResult,
     getTask: (id) => call(() => raw.GET('/api/tasks/{id}', byId(id))),
-    createResearch: async (body, callOptions) => {
-      const key = callOptions?.idempotencyKey;
-      const headers = key === undefined ? {} : { headers: { [IDEMPOTENCY_HEADER]: key } };
-      return (await call(() => raw.POST('/api/research', { body, ...headers }))).task;
-    },
+    createResearch: async (body, callOptions) =>
+      (await createResearchResult(body, callOptions)).task,
+    createResearchResult,
     getResearch: (id) => call(() => raw.GET('/api/research/{id}', byId(id))),
-    taskAction: async (id, action, reason) => {
-      const init = { ...byId(id), body: reason === undefined ? {} : { reason } };
-      const path = `/api/tasks/{id}/${action}` as const;
-      return (await call(() => raw.POST(path, init))).task;
-    },
+    taskAction: async (id, action, reason) => (await taskActionResult(id, action, reason)).task,
+    taskActionResult,
     rejectTask: async (id, note) =>
       (await call(() => raw.POST('/api/tasks/{id}/reject', { ...byId(id), body: { note } }))).task,
     reassignTask: async (id, role) =>

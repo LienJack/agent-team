@@ -69,14 +69,16 @@ export function formatStatus(s: StateSnapshot): string {
     const n = visible.filter((t) => (col.statuses as readonly string[]).includes(t.status)).length;
     return `${col.id} ${n}`;
   });
-  const lines = [`tasks: ${columns.join(' · ')}`];
+  // the generated line (counts per column that sum; the leader relays it — docs/adr/0022)
+  const lines = [`tasks: ${columns.join(' · ')}`, `report: ${s.summary.report}`];
   const active = visible.filter((t) => ['running', 'verifying', 'review'].includes(t.status));
   for (const t of active) lines.push(`  ${taskLine(t)}`);
   lines.push(`attention: ${s.open_attention.length} open`);
   const runners = s.runners.map((r) => {
     if (!r.available) {
-      const why =
-        r.circuit !== 'closed'
+      const why = r.halted_at
+        ? 'halted (rate-limit loop; answer its attention item to re-arm)'
+        : r.circuit !== 'closed'
           ? `circuit ${r.circuit}`
           : r.cooldown_until
             ? `cooldown until ${r.cooldown_until}`

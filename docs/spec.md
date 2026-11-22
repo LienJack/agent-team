@@ -97,8 +97,11 @@ run          id, task_id, workspace_id, dispatch_id(unique), kind(impl|fix|revie
              launched_at?, started_at, ended_at?
              -- cost_estimated：runner 沒回報費用（codex、dsh）時 cost_usd 是 token 用量 × models.json 牌價的估算
              --   （未快取輸入與 cache 寫入用輸入價、cache 讀取用輸入價的 10%、輸出用輸出價），每個顯示處都標「估算」
-attention    id, task_id?, kind(decision|approval|question), question, options[], status(open|answered|superseded),
-             answer?, answered_via?
+attention    id, task_id?, kind(decision|approval|question), topic, question, options[],
+             status(open|answered|superseded), answer?, answered_via?
+             -- topic：開事項的地方設定（general|worker_question|runner_halted|base_drift|start_unknown|
+             --   worker_unconfirmed|worktree_identity|workspace_kept|unclassified）；風險是 schema 裡的一張表，
+             --   base_drift 起的六種是 high：只能在看板或 CLI 回答（§10，ADR 0022）
 message      id, channel(leader|grok), direction(in|out), source(web|cli|mcp|grok|service), body,
              client_msg_id(unique per channel), ref?, status(new|delivered|acked), seq
 event        seq(autoincrement), ts, type, task_id?, run_id?, data           -- 持久變更紀錄，SSE 的游標
@@ -169,7 +172,10 @@ interface Runner { readonly name; probe(): Promise<RunnerCapabilities>; run(spec
 選用能力以小介面另外宣告（`Resumable`、`QuotaReporting`）。`probe()` 在服務啟動與 `team doctor` 時執行：
 確認執行檔存在、版本、支援的參數、憑證是否就緒（不顯示值）；不支援的參數不要傳。
 
-共同要求：參數一律用陣列，不經 shell；標準輸入明確關閉或寫入後關閉；子行程自成行程群組，逾時或取消時終止整個群組；
+共同要求：參數一律用陣列，不經 shell；標準輸入明確關閉或寫入後關閉；子行程自成行程群組，逾時或取消時終止整個群組，
+連同送訊號前快照到的、離開群組的後代（`setsid` 的子行程；子先於父，SIGKILL 前以 pid＋啟動時間再核對）；worker run 與
+機器檢查結束時，再終止有擁有權證明的遺留行程（父行程是 init、同使用者、無終端、run 期間啟動、工作目錄或命令列含該 run 的
+worktree／調研目錄／日誌目錄；ADR 0022）；
 傳給子行程的 `HTTP(S)_PROXY`／`ALL_PROXY` 去掉 `user:pass@`；run 日誌目錄 0700、檔案 0600（已存在的也收緊）；
 spawn 前呼叫 `onLaunching`、spawn 後以 `onSpawned` 回報 pid 與 OS 啟動時間（ADR 0015）；輸出逐行讀取，單行上限 1 MiB
 （超過截斷並標記，繼續讀下一行）；
@@ -217,10 +223,16 @@ worker 規則：只改 owned_paths；不 commit、不 push；不要提問，解�
   這種阻塞不能用一般 retry 解除（ADR 0004）。
 - **選模型**：`resolveRole(role, quotaState)`：主力在冷卻中就依序取 fallback，並套用 `rules.quota`。
 - **派工結果**四種：`accepted`、`rejected`、`unknown`（→ `start_unknown`，不自動重送，開 attention）、`deferred`（槽位滿，延後）。
-- **錯誤**：`rate_limit` → runner 冷卻到 `resetsAt`（不明則 15 分鐘），任務回 `queued`，不計 attempts；
+- **錯誤**：`rate_limit` → runner 冷卻到 `resetsAt` 加 60 秒與 0–30 秒的固定抖動（由 runner 名稱與重置時間推導）；
+  `resetsAt` 不明、在過去或超過 8 天後 → 15 分鐘。任務回 `queued`，不計 attempts。額度用完（`quota.exhausted`）的停用與
+  leader 自己的 rate limit 用同一個上限與緩衝。冷卻結束後第一個開始的 run 又撞到 rate limit 算一圈（冷卻前已在跑的不算），
+  連續 `engine.rate_limit_loop_limit`（3）圈、中間沒有成功 → 停止自動恢復：熔斷開著、開一筆待決事項、照冷卻改用 fallback；
+  成功的 run 歸零，人回答該事項或人重試會用到它的任務才重新啟用（ADR 0022）。
   其他 → `attempts+1`，指數退避（5 秒起、上限 5 分鐘），達上限 `failed`。同一 runner 連續失敗 3 次 → 熔斷並通知。
-- **啟動復原**：遺留的 `starting|running` run 先處理它的 worker：記錄的 pid 與 OS 啟動時間都相符才終止整個群組；
-  無法確認已結束（已 spawn 但沒記到 pid、只剩群組成員…）就**不重排**：任務 `blocked`、開待決事項、只有人能重試（ADR 0015）。
+- **啟動復原**：遺留的 `starting|running` run 先處理它的 worker：記錄的 pid 與 OS 啟動時間都相符才終止整個群組（連同
+  離開群組的後代）；再終止該 run 有擁有權證明的遺留行程（同 §7；只剩群組成員而它們被證明並清掉 → 群組已不在）。
+  無法確認已結束（已 spawn 但沒記到 pid、只剩無法證明的群組成員、證明了卻殺不掉…）就**不重排**：任務 `blocked`、開待決
+  事項、只有人能重試（ADR 0015、0022）。讀不到行程表的平台只處理群組。
   其餘標為 `abandoned`；任務回 `queued`（審查 run 則留在 `review` 重新審查）並在下一次提示附上復原說明；資料庫裡沒有
   對應紀錄的 worktree 目錄移除；未完成的 effect 繼續執行。前一個 worker 可能還活著時，絕不派第二個進同一個 worktree。
 - **正常關機**：終止執行中 worker 的整個行程群組並中止進行中的機器檢查（AbortSignal；verify effect 留到下次），把 run
@@ -254,7 +266,8 @@ worker 規則：只改 owned_paths；不 commit、不 push；不要提問，解�
   「可能已經做過，先 `team task list` 確認」。turn 期間 shim 以 `DATA/leader/turn-key` 帶入種子，`team task add` 以
   「種子 + 內容雜湊」當 Idempotency-Key，同一個請求重放時伺服器回原結果、不重複建立（ADR 0012）。
 - `--append-system-prompt`：只做受理、拆解、派工、回報；不自己改程式碼；任務細節一律用 `team` 查，不憑記憶；
-  需要人決定就 `team attention open`；回覆要短。
+  需要人決定就 `team attention open`；回覆要短；回報任務狀況時轉述指令輸出的 `report` 那一行，`delivery` 不是 `running`
+  就不說任務在執行（提示 v5，ADR 0022）。
 - 上下文超過門檻（預設 60000 token）送 `/compact`。關鍵狀態全在資料庫，壓縮後丟失細節是預期行為。
 - leader 用的 `team` 子集**不含**讀取 run 日誌或對話的指令。
 - `GET /resume` 產生不經模型的現況摘要，供新對話或換登入後接手。
@@ -273,6 +286,10 @@ worker 規則：只改 owned_paths；不 commit、不 push；不要提問，解�
   anchor 再送（notify 只能在送出後寫）。保序的單位：回覆同一則 Grok 訊息的「處理中」與最終回覆保序；主動通知
   依任務保序；兩者分開，失敗退避中的通知不會卡住回覆。leader 的回覆超過門檻時用角色 `hub_summarizer` 整理；
   待決事項的問題與選項不經模型，原樣以 `--question`、`--option` 傳遞。
+- 選項按鈕只在送出當下**全部只有一筆**待決事項、它不是 high 風險（`topic` 的風險表）、有選項、問題與每個選項都不截斷地
+  放得下（`grok.buttons`）時才帶；否則送純文字，問題與選項原樣，指向看板或 CLI（`team attention answer <id> …`），high 的
+  另外說明只能在那裡回答。Grok 來的回答（按鈕或選項原文）在收到時用同一個判斷：已不是唯一的待決事項、已處理過或是
+  high → 不記錄，回一句原因（ADR 0022）。
 - 主動回報 `grokmsg notify`：任務完成／失敗、待決事項、阻塞、額度用完、worker 無回執、runner 熔斷。
   每則有 `signature`，相同特徵不重發（服務重啟後亦然）；同類進度在時間窗內合併；待決與額度不合併、不受安靜時段限制。
 - 整理失敗送截短原文並標「（未整理）」。
@@ -299,11 +316,15 @@ worker 規則：只改 owned_paths；不 commit、不 push；不要提問，解�
 
 ```
 GET  /state                         看板快照；每個任務附最近一次 run（別名、runner、狀態、費用、用量、起訖時間）、
-                                    workspace 的 head_sha 與 run 合計，卡片不必再各自請求
+                                    workspace 的 head_sha 與 run 合計，卡片不必再各自請求；summary：五欄計數（加總等於
+                                    total，已取消另計）與一行 report
 GET  /events?after=<seq>            SSE：首幀 server.connected，15 秒心跳，帶游標補發；每連線有上限的佇列，溢出只斷該連線
 GET/POST /projects                  （POST 僅本機）
 GET/POST /tasks        GET /tasks/:id
 POST /tasks/:id/{queue,cancel,retry,approve,reject}      POST /tasks/:id/reassign { role }
+                                    任務指令都回 { task, delivery, report }：等一次排程（最多 3 秒）後依現況推導
+                                    delivery（running|queued+等待原因|draft|done|not_accepted+原因），report 是程式產生的
+                                    一行繁中；同一個 Idempotency-Key 重放時依現況重算（ADR 0022）
 POST /research { project_id, title, question, queue? }    GET /research/:id（調研任務與結果；第 17 節）
 GET  /runs/:id/log?tail=            只給人看
 POST /leader/messages { text, source, client_msg_id, wait? } → { message_id, pending, reply?, reply_message_id?, leader }
@@ -329,6 +350,8 @@ team leader reset
 team attention list | open --question Q --option A … [--task T] | answer <id> "<answer>"
 ```
 
+`team task add|queue|cancel|retry`、`team research add` 在純文字與 `--json` 都印出 `delivery` 與 `report`（被拒、連不上、
+用法錯誤時是 `not_accepted` 與原因，結束碼不變）；`team status` 印 `report:` 一行（五欄計數，加總等於總數）。
 `team ask` 一直等到回覆（伺服器回 pending 就改為輪詢 `GET /leader/messages/:id`），Ctrl-C 只停止等待、訊息保留；
 `team task reassign` 先以 `GET /roles` 檢查角色存在且啟用。`pnpm start` 先建置（需要時）再從 `dist` 啟動服務。
 

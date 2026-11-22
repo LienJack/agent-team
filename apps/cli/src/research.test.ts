@@ -69,7 +69,11 @@ describe('§17 team research', () => {
       question: 'Q?',
       queue: true,
     });
-    expect(io.text()).toBe('t_000009 [queued] research oss_researcher 調研：佇列\n');
+    expect(io.text().split('\n')[0]).toBe('t_000009 [queued] research oss_researcher 調研：佇列');
+    expect(io.text()).toContain('\ndelivery: queued (waiting: not known yet)\n');
+    expect(io.text()).toMatch(
+      /\nreport: 調研任務 t_000009「.+」已排入佇列，尚未開始執行（等待排程）。\n$/,
+    );
   });
 
   it('add: the question comes from exactly one of --question, --question-file and -', async () => {

@@ -110,10 +110,14 @@ team task add --project demo --title "登入頁加上記住我" --tier C --paths
 - pnpm test 通過
 EOF
 
-team status            # 看板摘要
+team status            # 看板摘要（report: 一行，五欄計數加總等於總數）
 team watch             # 即時事件（Ctrl-C 結束）
 team receipt <task_id> # 最新回執
 ```
+
+`team task add|queue|cancel|retry` 與 `team research add` 會多印兩行：`delivery:`（`running`／`queued` 與等待原因／
+`draft`／`done`／`not_accepted` 與原因）與 `report:`（程式產生的一句繁中）。回覆前服務端先跑一次排程，所以排得進去的
+任務回來時已是 `running`；被拒或連不上時也印 `not_accepted`。leader 回報任務狀況時轉述這一行（ADR 0022）。
 
 或者直接跟 leader 說：`team ask "幫 demo 的登入頁加上記住我，拆成派工單"`。
 
@@ -253,8 +257,10 @@ codex（訂閱）與 dsh（OpenRouter 按量）不回報費用：服務端依 to
 2. `config/service.json` 設 `"grok": { "enabled": true }`（可另設合併視窗、安靜時段、整理門檻）。
 3. 重新啟動服務。
 
-開啟後：Grok 來的訊息原文交給 leader；回覆、待決事項（問題與選項原樣帶按鈕）與主動通知（完成、失敗、阻塞、
-額度用完、熔斷）先寫 outbox 再送，相同特徵不會重發（重啟後亦然）。
+開啟後：Grok 來的訊息原文交給 leader；回覆、待決事項（問題與選項原樣）與主動通知（完成、失敗、阻塞、
+額度用完、熔斷）先寫 outbox 再送，相同特徵不會重發（重啟後亦然）。選項按鈕只在全部只有一筆待決事項、它不是高風險
+（重建 worktree、`start_unknown` 後重試、worker 可能還活著時重試、worktree 身分不符、保留的 worktree）、問題與選項
+都放得下（`grok.buttons`）時才帶；否則訊息指向看板或 CLI，從 Grok 回的選擇不會被記錄、會回一句原因（ADR 0022）。
 
 ## 換一個 Claude 登入繼續
 
@@ -303,6 +309,7 @@ team leader reset
 | `team doctor` 顯示 dsh 不可用（sandbox-exec）    | dsh 只在 Seatbelt 內執行；Linux 上要明確設 `runners.dsh.allow_unsandboxed: true`（ADR 0019）                                                                                                        |
 | leader 顯示離線 `not_installed`（socket path）   | `AGENT_TEAM_HOME` 太長，`DATA/leader/api.sock` 超過 unix socket 的 103 位元組：改用較短的路徑                                                                                                       |
 | 卡片顯示「等待：…」                              | 排隊的任務為什麼還沒派出（路徑重疊、沒有槽位、runner 冷卻、退避、基底漂移）；事件 `task.waiting`                                                                                                    |
+| runner 一直熔斷、有一筆「停止自動恢復」的事項    | 連續 3 次冷卻結束後的第一個 run 又撞到額度上限（ADR 0022）：確認額度恢復後回答「重新啟用」，或人重試一個用到它的任務                                                                                |
 
 ## 已知限制
 
@@ -335,7 +342,9 @@ team leader reset
   訊息不會遺失，回覆之後出現在看板聊天。
 - 強制結束（第二次 Ctrl-C、kill -9、當機）時 leader 當下的 `claude` 行程可能殘留；worker 的行程群組會在強制結束前
   被 SIGKILL；當機時由下次啟動的復原先終止殘留的 worker 群組（pid 與啟動時間都相符才終止），無法確認的任務會阻塞
-  等人處理，不會派第二個 worker 進同一個 worktree（ADR 0015）。實測（2026-11-21）：服務被 `kill -9` 後，真實的 dsh
+  等人處理，不會派第二個 worker 進同一個 worktree（ADR 0015）。離開群組的後代（`setsid`、daemon）在 run 結束或復原時
+  一併終止，但只限有擁有權證明的（工作目錄或命令列含該 run 的 worktree／日誌目錄、父行程已不在、沒有終端、run 期間
+  啟動）；自己 `chdir("/")` 又不在命令列留路徑的 daemon 無法歸屬、會存活（ADR 0022）。實測（2026-11-21）：服務被 `kill -9` 後，真實的 dsh
   worker 1.5 秒內就自己結束了（推測是管線中斷），被中斷的 codex 審查在重啟前也已不在；復原兩次都走「行程已不在 →
   重新排入」，「終止殘留群組」那一支只有照劇本的假 claude 測過。
 - leader 的 turn 若在當機前已執行過指令，重啟後同一則輸入會再跑一次：提示會說明「可能已經做過」，`team task add`

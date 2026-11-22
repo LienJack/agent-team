@@ -1,10 +1,14 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { LineSplitter } from './lines.js';
+import { sweepOrphans } from './orphans.js';
+import { descendantsOf, listProcesses, signalProcess, stillSame } from './tree.js';
 
 // Shared child-process utility (spec §7 共同要求): argv arrays only (never a shell string),
 // explicit stdin (closed, or written then closed), its own process group, the whole group killed
 // on timeout/abort (SIGTERM, then SIGKILL after a grace period), and completion = the agent's end
-// signal or the process exit, whichever comes first.
+// signal or the process exit, whichever comes first. Descendants that left the group (setsid,
+// daemons) are snapshotted and killed with it, and with `ownership` the run's proven orphans are
+// swept at the end (docs/adr/0022 §4).
 
 export interface ChildSpec {
   command: string;
@@ -25,6 +29,12 @@ export interface ChildSpec {
   /** One complete stdout line; return `'end'` when it is the agent's end signal. */
   onStdoutLine?: (line: string) => void | 'end';
   onStderrLine?: (line: string) => void;
+  /**
+   * Worker runs and machine checks: the run's own paths (worktree / research dir, log dir). After
+   * the child ends, processes it left outside its group are terminated when they provably belong
+   * to it (process/orphans.ts); the result waits for that.
+   */
+  ownership?: { markers: readonly string[] };
 }
 
 export type ChildEndReason = 'exit' | 'end_signal' | 'timeout' | 'aborted' | 'spawn_error';
@@ -66,19 +76,28 @@ export function groupAlive(pid: number): boolean {
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
- * SIGTERM the group, wait up to `graceMs` for every member to exit, then SIGKILL whatever is
- * left. Resolves once the group is gone (or after the SIGKILL when it cannot be observed).
+ * SIGTERM the group led by `pid` and every descendant that left it (snapshotted by parent links
+ * just before: `setsid()` children, children first), wait up to `graceMs` for all of them to
+ * exit, then SIGKILL what is left — descendants only when pid and start time still match, so a
+ * reused pid is never signalled. Where the process table cannot be read, only the group.
  */
 export async function killGroup(pid: number, graceMs = DEFAULT_KILL_GRACE_MS): Promise<void> {
-  if (!signalGroup(pid, 'SIGTERM')) return;
+  const procs = await listProcesses();
+  const escaped = procs ? descendantsOf(pid, procs).filter((p) => p.pgid !== pid) : [];
+  for (const p of escaped) signalProcess(p.pid, 'SIGTERM');
+  const group = signalGroup(pid, 'SIGTERM');
+  if (!group && escaped.length === 0) return;
+  const anyAlive = () => groupAlive(pid) || escaped.some((p) => signalProcess(p.pid, 0 as never));
   const deadline = Date.now() + graceMs;
   while (Date.now() < deadline) {
     await sleep(25);
-    if (!groupAlive(pid)) return;
+    if (!anyAlive()) return;
   }
+  const now = escaped.length > 0 ? await listProcesses() : undefined;
+  for (const p of escaped) if (now && stillSame(p, now)) signalProcess(p.pid, 'SIGKILL');
   signalGroup(pid, 'SIGKILL');
   const hardDeadline = Date.now() + 1000;
-  while (Date.now() < hardDeadline && groupAlive(pid)) await sleep(25);
+  while (Date.now() < hardDeadline && anyAlive()) await sleep(25);
 }
 
 /** Run one child to completion. Never rejects. */
@@ -160,7 +179,19 @@ export function runChild(spec: ChildSpec): Promise<ChildResult> {
       if (child.pid !== undefined && reason !== 'spawn_error' && groupAlive(child.pid)) {
         terminate();
       }
-      void (killing ?? Promise.resolve()).then(() => resolve(result));
+      // nor do the ones that left it, when they provably belong to the run
+      const ownership = reason === 'spawn_error' ? undefined : spec.ownership;
+      void (killing ?? Promise.resolve())
+        .then(async () => {
+          if (ownership) {
+            await sweepOrphans({
+              markers: ownership.markers,
+              since: new Date(started).toISOString(),
+              graceMs: killGrace,
+            });
+          }
+        })
+        .then(() => resolve(result));
     };
 
     function onEndSignal() {

@@ -145,6 +145,22 @@ export const RunnerHealthSchema = z.object({
   /** Consecutive failed runs (rate limits and cancellations excluded). */
   consecutive_failures: NonNegativeIntSchema,
   circuit_open_until: IsoDateTimeSchema.nullable(),
+  /**
+   * Cooldowns in a row whose first following run hit the rate limit again (docs/adr/0022);
+   * a successful run resets it. Defaults keep health stored before these fields readable.
+   */
+  rate_limit_loops: NonNegativeIntSchema.default(0),
+  /**
+   * True from a rate-limit cooldown until the first run started after it reports: only that run
+   * hitting the limit again counts as a loop (runs already in flight do not; a success clears).
+   */
+  probe_after_cooldown: z.boolean().default(false),
+  /**
+   * Set when the loop guard stopped the runner: it stays unavailable (circuit open) until a
+   * person re-arms it — answering `halted_attention_id`, or a human retry of a task that uses it.
+   */
+  halted_at: IsoDateTimeSchema.nullable().default(null),
+  halted_attention_id: z.string().nullable().default(null),
   quota: z
     .object({
       utilization: z.number().min(0).max(1).nullable(),
