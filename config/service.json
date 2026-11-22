@@ -27,7 +27,7 @@
   "git": { "author": { "name": "agent-team", "email": "agent-team@localhost" } },
   "research": { "mode": "on_request", "timeout_ms": 600000 },
   "memory": {
-    "enabled": false,
+    "enabled": true,
     "base_url": "http://greennas.local:8000",
     "user_id": "agent-team",
     "cube_prefix": "agent-team-",
