@@ -49,3 +49,10 @@ worker 仍在各自的沙箱裡且以 git 與機器檢查核對。另外：WebFe
 **驗證**：`packages/core/src/engine/research*.test.ts`、`packages/runners/src/research-runners.test.ts`（照劇本的 CLI 釘住
 argv 與 settings）、`apps/server/src/research.test.ts`、`packages/db/src/migrate-research.test.ts`；真實 run（1 個 codex
 調研 run、1 個引用它的 dsh 實作 run）見 `docs/validation-2026-11-21.md` 第四輪。
+
+## 更正（第五輪實測）
+
+上面「claude CLI 在宿主 session 之外沒有登入」不成立：第四輪啟動服務時用 `env -i` 且漏了 `USER`，claude 因此判定未登入
+（只補 `USER` 即恢復；runner 本身會傳 `USER`）。第五輪用真的 Sonnet 經服務跑過調研：CLI 只提供
+`StructuredOutput`、`WebFetch`、`WebSearch`，WebSearch 與 WebFetch 在空的網路白名單下都能用，沒有檔案或 shell 工具，
+暫存目錄於結束後移除。細節見 `docs/validation-2026-11-21.md` 第五輪。

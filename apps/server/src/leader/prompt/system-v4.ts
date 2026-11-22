@@ -8,8 +8,10 @@ import type { ResearchMode } from '@agent-team/schema';
 
 // v2: approvals, answers and reassignment are human-only; leader retries are budgeted (ADR 0014).
 // v3: the research stage (spec §17; ADR 0021) — one sentence per research.mode.
+// v4: one `team` command per Bash call — a compound command with any part outside the allow-list
+// (e.g. `echo "---"`) is refused whole (real haiku turns did that twice).
 export function leaderPromptVersion(mode: ResearchMode): string {
-  return `v3-${mode}`;
+  return `v4-${mode}`;
 }
 
 /** The research sentence of each mode (spec §17 「leader 的系統提示依此帶入一句」). */
@@ -35,6 +37,7 @@ const LEADER_SYSTEM_PROMPT_BODY = `你是 agent-team 的 Team Leader，在無頭
 職責：受理需求、拆成派工單、派工、簡短回報。你不改程式碼；唯一的工具是 Bash 執行 \`team\`。
 
 規則：
+- 每次 Bash 只放一個 \`team\` 指令（heredoc 可以）：不要用 \`&&\`、\`;\`、\`|\` 串接，也不要加 \`echo\` 等其他指令——含有 \`team\` 以外的指令，整個呼叫都會被拒絕、什麼都不執行。要跑幾個就分幾次呼叫；被拒絕時改成單一 \`team\` 指令再試。
 - 狀態一律先用 \`team\` 查，不憑記憶（對話會被壓縮，狀態只在服務端）。被問現況先跑 \`team status\`，細節再 \`team task list\`／\`team task show\`。
 - 拆解：每張單一個可驗收的結果，寫明 tier、owned_paths（盡量窄，平行的單不重疊）、驗收標準（要跑的檢查或測試）。
 - tier：C＝介面已定、有測試、規格完整（便宜的大量實作者）；B＝多檔案、要判斷或除錯；A＝跨模組、公用介面、並行或安全。拿不準選高一級。

@@ -7,6 +7,7 @@ import {
   LEADER_REQUIRED_FLAGS,
   leaderArgs,
 } from './args.js';
+import { leaderPromptVersion, leaderSystemPrompt } from './prompt/system-v4.js';
 
 // The leader's shell surface (spec §9, docs/adr/0012): Bash only, allowed for `team …`, with
 // Claude Code's auto-approved read-only commands denied explicitly.
@@ -52,6 +53,20 @@ describe('leader shell surface', () => {
       expect(LEADER_DENY_RULES.some((r) => matches(r, command))).toBe(true);
     }
     expect(new Set(LEADER_DENIED_COMMANDS).size).toBe(LEADER_DENIED_COMMANDS.length);
+  });
+
+  it('tells the leader to run one `team` command per Bash call (a denied part refuses the whole call)', () => {
+    // real haiku turns chained `team status && echo "---" && team research show …` and lost the
+    // whole call to the `echo` deny rule (docs/validation-2026-11-21.md round 2, and again in
+    // the claude research re-validation)
+    expect(LEADER_DENY_RULES.some((r) => matches(r, 'echo "---"'))).toBe(true);
+    for (const mode of ['off', 'on_request', 'auto'] as const) {
+      const prompt = leaderSystemPrompt(mode);
+      expect(prompt).toContain('每次 Bash 只放一個 `team` 指令');
+      for (const s of ['`&&`', '`;`', '`|`', '`echo`']) expect(prompt).toContain(s);
+      // a new rule is a new prompt version: the next start opens a new conversation
+      expect(leaderPromptVersion(mode)).toBe(`v4-${mode}`);
+    }
   });
 
   it('always passes the isolation flags and the deny list; a CLI without them is refused', () => {

@@ -253,3 +253,18 @@ WebSearch／WebFetch 做調研（WebFetch 在空的 shell 網路白名單下能�
 
 本輪真實模型呼叫：1 個 codex 調研 run（訂閱，估算 ≈ $0.054）、1 個 deepseek-flash run（估算 ≈ $0.0012）；claude 與
 leader 0 次（上面那次 claude 未登入、沒有呼叫模型）。
+
+## 第五輪（調研：真實 Sonnet 與 leader 發起）
+
+第四輪的「claude 未登入」是啟動方式造成的：`env -i` 漏了 `USER`（只有 PATH／HOME／TMPDIR／LANG 時 `loggedIn: false`，
+補上 `USER` 即為 true）。不是本專案的缺陷；第四輪關於 claude 不可用的敘述以本節為準。
+
+| 項目                       | 結果                                                                                                                                                                                                                                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sonnet 調研（預設路由）    | 通過。工具只有 `StructuredOutput`／`WebFetch`／`WebSearch`；WebSearch 1 次、WebFetch 8 次（7 次成功、1 次 GitHub 回 404）；無檔案或 shell 工具、無權限拒絕；36 秒、US$0.091；6 個候選皆 MIT、建議 `adapt_pattern`；`DATA/research/<run>` 執行中 0700、結束後移除                            |
+| leader 發起調研（haiku）   | 第一次失敗：leader 把 `team status && echo … && team research show …` 串成一個指令，`echo` 在拒絕清單，整個被擋。leader 提示改為 v4（每次 Bash 只下一個 `team` 指令，不用 `&&`、`;`、`\|`、`echo`）後第二次通過：`team status --json`、`team research add … --queue -`，0 次拒絕、US$0.0025 |
+| leader 建立的調研（haiku） | 通過。52 秒、US$0.073；WebSearch 5 次、WebFetch 4 次；4 個 MIT 候選                                                                                                                                                                                                                         |
+
+未觀察：`research.completed` 進 leader 摘要（為了不超過兩個 leader 回合，摘要視窗設成 1 小時後停止服務）。
+提示規則是否就是第二次成功的原因只有一個樣本，且同時換了新的資料目錄。
+已知小問題：`done` 的調研回執若 `needs_leader` 非空，會開一筆待決事項並立刻被標為 superseded。
