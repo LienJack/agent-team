@@ -147,6 +147,9 @@ checkout). Verdicts:
   output or the `must_fix` list; then gate again, then a new review. At most **2 fix rounds**; then escalate one
   tier (new delegate in a new worktree from the current HEAD, carrying the ticket plus the findings), and when no
   tier is left ask the user what to drop, fix first or accept (ADR 0025).
+- From the second review on, sort each `must_fix`: a defect against the ticket's scope or acceptance criteria
+  counts toward the fix limit; a new edge case outside them becomes a follow-up ticket (list it in plan.md and tell
+  the user) instead of another round.
 
 ## 7. Accept and merge (the user decides)
 
