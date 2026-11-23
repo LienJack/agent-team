@@ -13,7 +13,8 @@ you (T3 main thread): plan -> delegate_task (worktree) per ticket -> team gate -
 agent-team service:   team gate (verify + checks + commit)   team research   team memory
 ```
 
-**You never write project code yourself**, never trust a worker's own report, and never merge without the person.
+Talk to the user, and write every `AskUserQuestion` (question, header, options), in the user's language
+(Traditional Chinese for this user). **You never write project code yourself**, never trust a worker's own report, and never merge without the person.
 
 ## 0. When to use the other route
 
