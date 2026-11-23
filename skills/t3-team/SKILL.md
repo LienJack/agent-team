@@ -60,6 +60,8 @@ untrusted input. T3 delegates run with T3's permissions; `team gate` only guaran
      No `..`, no absolute paths. `.` means the whole repo (blocks all parallel work).
    - `ticket_md`: goal, scope, interfaces, and `## 驗收標準` (which checks / tests prove it).
    - `depends_on`: tickets whose merged result it needs.
+   - Before fixing `owned_paths`, open the files the ticket must hook into (e.g. "make the existing CLI able to
+     select it" means that CLI file is owned too); a missing path costs a blocked round.
 4. Write the plan to the task scratch dir `~/.cache/ranolabs/sessions/<YYYY-MM-DD>-<task>/plan.md` (one table:
    id, title, tier, owned_paths, depends_on, state, worker thread, branch, base_sha, gate verdict, fix rounds).
    It is your board: update it after every step; state lives there, not in your memory of the conversation.
@@ -136,7 +138,8 @@ checkout). Verdicts:
   reviewer model from section 3, task text: the ticket, the worktree path, `base_sha`, and "Read-only. Review
   `git -C <worktree> diff <base_sha>..HEAD` against the ticket. Final answer: JSON
   {"verdict":"pass|needs_changes|blocked","summary":"<=600 chars","findings":[{"file":"","line":0,
-  "severity":"must_fix|should_fix|note","issue":""}]}". Only `must_fix` items are required.
+  "severity":"must_fix|should_fix|note","issue":""}]}". Only `must_fix` items are required. Add the gate's check results (verdict and tails) to the review task and say
+  the tests already ran in the gate, so the reviewer does not need to rerun them (it may be offline).
 - Fix round: `t3_thread_send` to the implementer's `childThreadId` (same worktree, same context) with the gate
   output or the `must_fix` list; then gate again, then a new review. At most **2 fix rounds**; then escalate one
   tier (new delegate in a new worktree from the current HEAD, carrying the ticket plus the findings), and when no
