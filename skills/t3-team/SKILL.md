@@ -31,7 +31,13 @@ untrusted input. T3 delegates run with T3's permissions; `team gate` only guaran
    but tell the user that the gate then only checks paths.
 3. The primary checkout must be clean and on the base branch (`git status --short`, `git branch --show-current`).
    Uncommitted edits do not reach delegate worktrees. If it is dirty, ask the user; never stash or commit for them.
-4. Call `orchestrator_capabilities` once (T3 rule) and check the models in section 3 are available.
+4. **This thread must belong to the target repo's T3 project**: `delegate_task` only makes worktrees of the
+   calling thread's project (a `target.projectId` of another project is refused). Check with `t3_project_list`
+   (`workspaceRoot` = the repo). If this thread is in another project, plan here if you like, write the plan and
+   tickets to files, then ask the user to start a leader thread there: `t3_thread_launch` with that `projectId`,
+   `workspaceStrategy: {type: "root"}`, and a message that invokes this skill on the saved plan. Launch it only
+   when the user agrees (it is a new top-level thread).
+5. Call `orchestrator_capabilities` once (T3 rule) and check the models in section 3 are available.
 
 ## 2. Plan (the Leader rules)
 
