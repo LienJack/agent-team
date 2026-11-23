@@ -3,3 +3,10 @@
 export { createGitPort, DEFAULT_AUTHOR, type CliGitPort, type GitPortOptions } from './git-port.js';
 export { fillReviewDiff, splitDiffSections } from './review-diff.js';
 export { GitError, gitEnv } from './exec.js';
+export {
+  createGateGit,
+  type GateGit,
+  type GateGitOptions,
+  type GateInspection,
+  type GateWorktree,
+} from './gate.js';

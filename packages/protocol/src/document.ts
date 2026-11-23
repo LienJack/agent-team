@@ -5,6 +5,7 @@ import {
   BoardTaskSchema,
   DeliverySchema,
   ErrorEnvelopeSchema,
+  GateJobSchema,
   MessageSchema,
   ProjectSchema,
   RunnerCapabilitiesSchema,
@@ -16,6 +17,7 @@ import {
 import type { z } from 'zod';
 import { ERROR_RESPONSE } from './constants.js';
 import { attentionRoutes } from './routes/attention.js';
+import { gateRoutes } from './routes/gate.js';
 import { leaderRoutes } from './routes/leader.js';
 import { memoryRoutes } from './routes/memory.js';
 import { projectRoutes } from './routes/projects.js';
@@ -32,6 +34,7 @@ export const routes = {
   ...memoryRoutes,
   ...leaderRoutes,
   ...attentionRoutes,
+  ...gateRoutes,
 };
 export type RouteName = keyof typeof routes;
 export const ALL_ROUTES: readonly RouteConfig[] = Object.values(routes);
@@ -50,6 +53,7 @@ const COMPONENTS: ReadonlyArray<[string, z.ZodType]> = [
   ['ErrorEnvelope', ErrorEnvelopeSchema],
   ['Delivery', DeliverySchema],
   ['BoardSummary', BoardSummarySchema],
+  ['GateJob', GateJobSchema],
 ];
 
 const COMPONENT_PATH = '/__component/';

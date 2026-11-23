@@ -45,7 +45,7 @@ afterEach(async () => {
 });
 
 describe('tool list', () => {
-  it('exposes exactly the thin tools (two for research, four for memory; spec §17, §18), with descriptions', async () => {
+  it('exposes exactly the thin tools (two for research, four for memory, one gate; spec §17–§19), with descriptions', async () => {
     const client = await connect({});
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
@@ -53,6 +53,7 @@ describe('tool list', () => {
       'add_research',
       'answer_attention',
       'ask_leader',
+      'gate_worktree',
       'list_attention',
       'list_memory',
       'remove_memory',

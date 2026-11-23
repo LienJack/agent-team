@@ -12,6 +12,8 @@ export const ERROR_CODES = [
   'invalid_transition',
   'idempotency_conflict',
   'request_in_progress',
+  /** A concurrency limit is reached (e.g. `gate.max_concurrent`); try again later (HTTP 429). */
+  'too_many_requests',
   'unavailable',
   /** The endpoint exists but its feature is not built yet (e.g. the phase 2 leader stub). */
   'not_implemented',
@@ -32,6 +34,7 @@ export const ERROR_HTTP_STATUS: Readonly<Record<ErrorCode, number>> = {
   invalid_transition: 409,
   idempotency_conflict: 409,
   request_in_progress: 409,
+  too_many_requests: 429,
   unavailable: 503,
   not_implemented: 501,
   internal: 500,

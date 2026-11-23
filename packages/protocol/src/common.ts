@@ -5,7 +5,7 @@ import { ERROR_RESPONSE } from './constants.js';
 // Building blocks shared by every route contract (spec §11). The server implements the routes;
 // the client's types are generated from the document these produce.
 
-type ErrorStatus = 400 | 401 | 403 | 404 | 409 | 415 | 500 | 501 | 503;
+type ErrorStatus = 400 | 401 | 403 | 404 | 409 | 415 | 429 | 500 | 501 | 503;
 
 const ERROR_REF = { $ref: `#/components/responses/${ERROR_RESPONSE}` } as const;
 

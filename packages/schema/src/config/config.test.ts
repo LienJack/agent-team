@@ -109,6 +109,8 @@ describe('config/service.json', () => {
     expect(cfg.sse.heartbeat_ms).toBe(15000);
     expect(cfg.paths.worktree_root).toBe('~/RanoLabs/worktrees');
     expect(cfg.git.author).toEqual({ name: 'agent-team', email: 'agent-team@localhost' });
+    expect(cfg.gate.max_concurrent).toBe(2);
+    expect(ServiceConfigSchema.safeParse({ gate: { max_concurrent: 0 } }).success).toBe(false);
   });
 
   it('allows port 0 (OS-assigned) and a custom commit author', () => {

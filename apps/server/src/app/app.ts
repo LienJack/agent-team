@@ -6,7 +6,7 @@ import {
   answerAttention,
   approveTask,
   createProject,
-  updateProject,
+  getGate,
   getLeaderMessage,
   getRunLog,
   listLeaderMessages,
@@ -16,7 +16,9 @@ import {
   rejectTask,
   removeMemory,
   resetLeader,
+  startGate,
   streamEvents,
+  updateProject,
 } from '@agent-team/protocol';
 import type { MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
@@ -25,6 +27,7 @@ import { bearerAuth, lanHumanActor } from '../auth/guards.js';
 import { notFound, onError, validationHook } from './errors.js';
 import { refreshReplay } from './delivery.js';
 import { idempotency } from './idempotency.js';
+import { registerGateRoutes } from './routes-gate.js';
 import { registerMemoryRoutes } from './routes-memory.js';
 import { registerSystemRoutes } from './routes-system.js';
 import { registerWorkRoutes } from './routes-work.js';
@@ -68,7 +71,8 @@ function refusedBy(routes: readonly RouteConfig[]): (method: string, path: strin
  * (never ends) would hang its turn; decisions that bypass review or change what runs where —
  * approve, reject, reassign, answering attention items — resetting its own conversation and
  * registering local repositories or changing their checks are the owner's calls. Of the project memory (spec §18) it may
- * only search: listing, adding and deleting items are a person's. The engine refuses the
+ * only search: listing, adding and deleting items are a person's. The gate (spec §19) verifies
+ * and commits outside worktrees for a person: never the leader's. The engine refuses the
  * human-only commands to the leader as well; this list answers early with a clear hint.
  */
 export const LEADER_FORBIDDEN = [
@@ -87,6 +91,8 @@ export const LEADER_FORBIDDEN = [
   listMemory,
   addMemory,
   removeMemory,
+  startGate,
+  getGate,
 ];
 
 function leaderForbidden(): MiddlewareHandler<AppEnv> {
@@ -96,7 +102,7 @@ function leaderForbidden(): MiddlewareHandler<AppEnv> {
       throw new TeamError(
         'forbidden',
         `${c.req.method} ${c.req.path} is not available to the leader`,
-        'the leader works from receipts and `team task show`; approvals, answers, reassignment, run logs, transcripts and project registration or settings are for humans (open an attention item)',
+        'the leader works from receipts and `team task show`; approvals, answers, reassignment, run logs, transcripts, project registration or settings and the gate are for humans (open an attention item)',
       );
     }
     await next();
@@ -133,6 +139,7 @@ export function createApp(ctx: AppContext, options: AppOptions): OpenAPIHono<App
   registerWorkRoutes(app, ctx);
   registerMemoryRoutes(app, ctx);
   registerSystemRoutes(app, ctx);
+  registerGateRoutes(app, ctx);
 
   if (options.listener === 'lan') registerStatic(app, ctx.webDist);
   return app;

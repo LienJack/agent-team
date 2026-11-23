@@ -1,5 +1,6 @@
 import type { Actor, Clock, Engine, Logger, Store } from '@agent-team/core';
 import type { DoctorResponse, ServiceConfig } from '@agent-team/schema';
+import type { GateJobs } from '../gate/jobs.js';
 import type { Leader } from '../leader/types.js';
 import type { EventHub } from './sse.js';
 
@@ -30,4 +31,6 @@ export interface AppContext {
   webDist: string | undefined;
   /** Validate a new project's repository before it is stored (git can resolve the branch). */
   checkRepo?: (repoPath: string, baseBranch: string) => Promise<void>;
+  /** Gate jobs for outside worktrees (spec §19); undefined → the gate routes answer 503. */
+  gates?: GateJobs;
 }

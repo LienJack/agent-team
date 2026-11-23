@@ -20,6 +20,8 @@ export interface CliIo {
   newMessageId?: () => string;
   /** Poll interval of `team ask` while the reply is pending (default 2000 ms; tests). */
   askPollMs?: number;
+  /** Poll interval of `team gate` while the job runs (default 1000 ms; tests). */
+  gatePollMs?: number;
 }
 
 /** A usage problem found by a command itself (exit code 2). */

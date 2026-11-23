@@ -19,6 +19,7 @@
     }
   },
   "checks": { "allow_unsandboxed": false },
+  "gate": { "max_concurrent": 2 },
   "runners": { "dsh": { "allow_unsandboxed": false } },
   "git": { "author": { "name": "agent-team", "email": "agent-team@localhost" } },
   "research": { "mode": "on_request", "timeout_ms": 600000 },

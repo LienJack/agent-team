@@ -20,6 +20,7 @@ const TITLES: Record<ErrorCode, string> = {
   invalid_transition: '目前狀態不允許此操作',
   idempotency_conflict: '重複的請求內容不一致',
   request_in_progress: '相同請求仍在處理中',
+  too_many_requests: '同時進行的工作已達上限，請稍後再試',
   unavailable: '服務暫時無法使用',
   not_implemented: '此功能尚未實作',
   internal: '伺服器內部錯誤',

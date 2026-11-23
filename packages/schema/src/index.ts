@@ -17,3 +17,4 @@ export * from './paths.js';
 export * from './redact.js';
 export * from './api/errors.js';
 export * from './api/dto.js';
+export * from './api/gate.js';

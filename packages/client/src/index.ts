@@ -8,6 +8,7 @@ export {
   type AskLeaderOptions,
   type AskLeaderResult,
 } from './ask.js';
+export { runGate, type RunGateOptions } from './gate.js';
 export { randomId } from './ids.js';
 export { connectionError, errorFromResponse, TeamApiError, type TeamErrorInfo } from './errors.js';
 export {

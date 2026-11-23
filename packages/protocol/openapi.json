@@ -642,6 +642,7 @@
                   "invalid_transition",
                   "idempotency_conflict",
                   "request_in_progress",
+                  "too_many_requests",
                   "unavailable",
                   "not_implemented",
                   "internal"
@@ -708,6 +709,48 @@
           "report": { "type": "string" }
         },
         "required": ["total", "columns", "drafts", "queued", "cancelled", "report"]
+      },
+      "GateJob": {
+        "type": "object",
+        "properties": {
+          "gate_id": { "type": "string", "pattern": "^g_[0-9a-z]{1,32}$" },
+          "project_id": { "type": "string", "pattern": "^p_[0-9a-z]{1,32}$" },
+          "worktree_path": { "type": "string" },
+          "state": { "type": "string", "enum": ["running", "done"] },
+          "verdict": { "type": "string", "enum": ["pass", "rejected", "checks_failed"] },
+          "reasons": { "type": "array", "items": { "type": "string" } },
+          "files_changed": { "type": "array", "items": { "type": "string" } },
+          "out_of_scope": { "type": "array", "items": { "type": "string" } },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "cmd": { "type": "string" },
+                "result": { "type": "string", "enum": ["pass", "fail", "not_run"] },
+                "tail": { "type": "string" }
+              },
+              "required": ["name", "cmd", "result", "tail"]
+            }
+          },
+          "head_sha": { "type": "string", "pattern": "^[0-9a-f]{4,64}$" },
+          "committed": { "type": "boolean" },
+          "started_at": { "type": "string", "format": "date-time" },
+          "ended_at": { "type": "string", "format": "date-time" }
+        },
+        "required": [
+          "gate_id",
+          "project_id",
+          "worktree_path",
+          "state",
+          "reasons",
+          "files_changed",
+          "out_of_scope",
+          "checks",
+          "committed",
+          "started_at"
+        ]
       }
     },
     "responses": {
@@ -2519,6 +2562,91 @@
           "403": { "$ref": "#/components/responses/Error" },
           "404": { "$ref": "#/components/responses/Error" },
           "409": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/gate": {
+      "post": {
+        "operationId": "startGate",
+        "tags": ["gate"],
+        "summary": "Start checking an outside worktree (owned paths, machine checks, then a service-side commit); 429 at gate.max_concurrent",
+        "parameters": [
+          {
+            "schema": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "project_id": { "type": "string", "pattern": "^p_[0-9a-z]{1,32}$" },
+                  "worktree_path": { "type": "string", "minLength": 1, "maxLength": 4096 },
+                  "base_sha": { "type": "string", "pattern": "^[0-9a-f]{4,64}$" },
+                  "owned_paths": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+                  "commit_message": { "type": "string", "minLength": 1, "maxLength": 2000 },
+                  "commit": { "type": "boolean", "default": true }
+                },
+                "required": ["project_id", "worktree_path", "base_sha", "owned_paths"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The job started; poll GET /api/gate/{id}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "gate_id": { "type": "string", "pattern": "^g_[0-9a-z]{1,32}$" },
+                    "state": { "type": "string", "enum": ["running"] }
+                  },
+                  "required": ["gate_id", "state"]
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "429": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" },
+          "503": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/api/gate/{id}": {
+      "get": {
+        "operationId": "getGate",
+        "tags": ["gate"],
+        "summary": "A gate job: running, or done with its verdict (kept 1 hour, lost on restart)",
+        "parameters": [
+          {
+            "schema": { "type": "string", "pattern": "^g_[0-9a-z]{1,32}$" },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The gate job",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/GateJob" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
           "500": { "$ref": "#/components/responses/Error" }
         }
       }

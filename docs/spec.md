@@ -336,6 +336,7 @@ POST /leader/messages { text, source, client_msg_id, wait? } → { message_id, p
 GET  /leader/messages?after=&limit=     GET /leader/messages/:id（一則輸入與它的回覆）    POST /leader/reset（僅本機）
 GET/POST /attention    POST /attention/:id/answer { answer, via }
 GET  /resume    GET /quota    GET /doctor    GET /roles（models.json 的角色：說明、別名、runner、槽位、啟用、fallback）
+POST /gate    GET /gate/:id          外部 worktree 的把關（第 19 節；只有人可以）
 ```
 
 ## 12. CLI 與 MCP

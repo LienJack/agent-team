@@ -16,6 +16,8 @@ export const ID_PREFIXES = {
   outbox: 'o_',
   /** A note a person added to a project's memory (`team memory add`; spec §18). */
   note: 'n_',
+  /** One in-memory gate job (`POST /api/gate`; spec §19). */
+  gate: 'g_',
 } as const;
 export type IdKind = keyof typeof ID_PREFIXES;
 
@@ -35,6 +37,7 @@ export const MessageIdSchema = idSchema('message');
 export const DispatchIdSchema = idSchema('dispatch');
 export const OutboxIdSchema = idSchema('outbox');
 export const NoteIdSchema = idSchema('note');
+export const GateIdSchema = idSchema('gate');
 
 interface RandomSource {
   getRandomValues(array: Uint8Array): Uint8Array;
