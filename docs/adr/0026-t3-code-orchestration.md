@@ -35,3 +35,8 @@ agent 的自述，對照 git 實際變更、跑沙箱內的機器檢查，只提
   gate 只保證「提交進去的東西」是核對過的，不保證 worker 執行時沒碰別的。需要 worker 沙箱的工作仍交給原本的
   `team task add`（兩條路並存，skill 會說明怎麼選）。
 - 得到的：T3 的 UI、多家模型、子 agent 管理與 worktree 生命週期，agent-team 不必再追著各家 CLI 的旗標改 runner。
+
+**更新（2026-11-23，擁有者決定不再開 agent-team 服務）**：t3-team skill 改成獨立運作。把關改用 skill 自帶的
+`skills/t3-team/gate.py`（Python 標準庫，同 spec §19 的第 1–5 步，但檢查不在沙箱裡跑，只把環境裡看起來像秘密的變數
+拿掉）；調研改用 T3 的 research delegate；檢查指令記在 plan.md；不再使用專案記憶。`POST /api/gate` 留在服務裡，給
+仍用 `team-agent` 路線的人。
