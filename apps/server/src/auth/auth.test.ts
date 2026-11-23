@@ -135,9 +135,18 @@ describe('§14 server — LAN listener without login (docs/adr/0024)', () => {
         const asset = await lanRequest(app, '/assets/app.js');
         expect(asset.status).toBe(200);
         expect(await asset.text()).toBe('console.log(1)');
+        expect(asset.headers.get('cache-control')).toContain('immutable');
+        const index = await lanRequest(app, '/');
+        expect(index.status).toBe(200);
+        expect(index.headers.get('cache-control')).toBe('no-cache');
         const route = await lanRequest(app, '/tasks/t_000001');
         expect(route.status).toBe(200);
+        expect(route.headers.get('cache-control')).toBe('no-cache');
         expect(await route.text()).toContain('<title>board</title>');
+        // an old page asking for a hash a rebuild deleted gets a 404, not index.html
+        const stale = await lanRequest(app, '/assets/index-old.js');
+        expect(stale.status).toBe(404);
+        expect(stale.headers.get('content-type') ?? '').not.toContain('text/html');
         expect((await lanRequest(app, '/api/state')).status).toBe(200);
         expect((await lanRequest(app, '/api/nope')).status).toBe(404);
         // the login endpoint is gone here too (no handler answers a POST to it)
