@@ -59,19 +59,19 @@ Goal: before anything is designed, you and the user agree on what is being built
 
 1. **Read first**: the repo's docs, the code around the request, earlier plan.md files and any existing
    `openspec/specs`. Ask only what the code and docs cannot answer.
-2. **Talk, in rounds**: plain chat turns in this thread (not only `AskUserQuestion`), at most 3-4 questions per
-   round, most important first. Prefer concrete choices to open questions ("A: …, B: …, or something else?"), and
-   say what you will assume if they don't care. Cover, as far as relevant:
-   - the goal and the problem behind it; who uses the result and in which situations;
-   - must-haves vs nice-to-haves, and explicit non-goals;
-   - constraints: existing code to keep, data, platforms, budget (paid APIs, model cost), licences, deadlines;
-   - how success is checked (a command, a test, a demo, an output the user will look at);
-   - the user's preferences that should bind every ticket (they become Standing orders).
-3. **Play it back**: a short summary (goal, users, scope in/out, success criteria, open questions, assumptions) in
-   the user's language. Iterate until the user says it is right. This summary is the input to proposal.md
-   (section 2b) or, for a small change, to the tickets.
-4. Stop asking when the remaining unknowns would not change the design; list them as assumptions instead.
-   Unattended: write the summary from what you have, mark it `unattended draft`, and continue.
+2. **Ask only what changes the outcome.** Before asking anything, test the question: would a different answer
+   change the scope, the architecture, the cost or what counts as done? If not, do not ask: decide it yourself and
+   list it as an assumption. Never ask what the code, the docs, an earlier plan or a sensible default already
+   answers, and never ask about naming, wording, file layout or other details you can change later cheaply.
+3. **One focused round, usually.** Ask the few questions that passed the test (normally 1-3, never more than 5),
+   most consequential first, each as a concrete choice with your recommended answer marked ("A（建議）: …；B: …"),
+   so the user can reply in one line. Typical candidates, only when genuinely open: the core goal or user, a
+   must-have vs non-goal boundary, a hard constraint (budget, paid APIs, licence, platform), how success is checked.
+   Ask a second round only if an answer opened a new question that passes the same test.
+4. **Play it back with your assumptions**: a short summary (goal, scope in/out, success criteria) followed by
+   "我先這樣假設（不對再說）：…", the decisions you made instead of asking. The user corrects only what is wrong.
+   This summary is the input to proposal.md (section 2b) or, for a small change, to the tickets.
+5. Unattended: skip the questions, write the summary and assumptions, mark it `unattended draft`, and continue.
 
 ## 2. Plan (the Leader rules)
 
