@@ -1,6 +1,6 @@
-import { AskAbortedError, askLeader, randomId } from '@agent-team/client';
+import { AskAbortedError, askLeader, randomId, TeamApiError } from '@agent-team/client';
 import type { Command } from 'commander';
-import { attentionLine } from '../format.js';
+import { attentionDetail, attentionLine } from '../format.js';
 import { UsageError } from '../io.js';
 import type { CommandContext } from '../program.js';
 
@@ -10,7 +10,7 @@ export const ASK_INTERRUPTED = 130;
 const collect = (value: string, previous: string[]) => [...previous, value];
 const STATUSES = ['open', 'answered', 'superseded'] as const;
 
-/** `team ask "<text>"`, `team leader reset`, `team attention list | open … | answer <id> "<answer>"` */
+/** `team ask "<text>"`, `team leader reset`, `team attention list | show <id> | open … | answer <id> "<answer>"` */
 export function registerTalkCommands(program: Command, ctx: CommandContext): void {
   program
     .command('ask <text>')
@@ -61,6 +61,24 @@ export function registerTalkCommands(program: Command, ctx: CommandContext): voi
       ctx.print(items, () =>
         items.length === 0 ? `no ${options.status} items` : items.map(attentionLine).join('\n'),
       );
+    });
+
+  attention
+    .command('show <id>')
+    .description('one item in full: question, options, answer')
+    .action(async (id: string) => {
+      const item = (await (await ctx.client()).listAttention()).find((a) => a.id === id);
+      if (!item) {
+        throw new TeamApiError(
+          {
+            code: 'not_found',
+            message: `no attention item ${id}`,
+            hint: 'see `team attention list`',
+          },
+          404,
+        );
+      }
+      ctx.print(item, () => attentionDetail(item));
     });
 
   attention

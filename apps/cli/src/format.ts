@@ -49,6 +49,20 @@ export function attentionLine(a: Attention): string {
   return `${a.id} [${a.kind}/${a.status}]${task} ${clip(a.question)}${options}${answer}`;
 }
 
+/** `team attention show`: every field in full (the list line clips the question). */
+export function attentionDetail(a: Attention): string {
+  return [
+    `${a.id} [${a.kind}/${a.status}] topic ${a.topic}${a.task_id ? ` task ${a.task_id}` : ''}`,
+    `opened ${a.created_at}`,
+    '',
+    a.question,
+    ...(a.options.length > 0 ? ['', 'options:', ...a.options.map((o) => `- ${o}`)] : []),
+    ...(a.status === 'answered'
+      ? ['', `answer (${a.answered_via ?? '?'}, ${a.answered_at ?? '?'}):`, a.answer ?? '']
+      : []),
+  ].join('\n');
+}
+
 type RunnerQuota = StateSnapshot['runners'][number]['quota'];
 
 /** ` (34% used, resets 2026-11-26T18:00Z)` — the last quota a runner reported, if any. */

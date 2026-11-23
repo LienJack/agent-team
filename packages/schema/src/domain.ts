@@ -238,6 +238,11 @@ export const ATTENTION_TOPICS = [
   'worktree_identity',
   /** A worktree with uncommitted changes was kept instead of removed: keep or discard. */
   'workspace_kept',
+  /**
+   * The fix rounds ran out with no role to escalate to; the answer goes to the next worker and
+   * the task is queued again with a fresh fix budget (docs/adr/0025).
+   */
+  'fix_limit',
   /** Rows from before topics existed: unknown, so treated as high risk. */
   'unclassified',
 ] as const;
@@ -258,6 +263,7 @@ export const ATTENTION_TOPIC_RISK: Readonly<Record<AttentionTopic, 'normal' | 'h
   worker_unconfirmed: 'high',
   worktree_identity: 'high',
   workspace_kept: 'high',
+  fix_limit: 'normal',
   unclassified: 'high',
 };
 

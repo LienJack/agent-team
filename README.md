@@ -197,26 +197,26 @@ team memory rm demo <記憶 id>
 
 ## CLI 速查
 
-| 指令                                                                                                        | 說明                                                                              |
-| ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `team serve`                                                                                                | 前景執行服務                                                                      |
-| `team status` / `team doctor` / `team resume`                                                               | 看板摘要／環境與 runner 檢查／不經模型的現況摘要                                  |
-| `team watch [--after seq]`                                                                                  | 每個事件一行，斷線自動接續                                                        |
-| `team roles`                                                                                                | `config/models.json` 的角色、別名、runner、槽位                                   |
-| `team project add <name> <repo> [--base B] [--check "name=cmd"]… [--allow-network]`                         | 註冊專案；`--allow-network` 讓 worker 沙箱可連公開網路（預設關閉，建立後不能改）  |
-| `team project update <project> (--check "name=cmd"… \| --clear-checks)`                                     | 整份取代專案的 checks（只有人可以，Leader 會被拒）；下一次驗證起生效              |
-| `team task add --project P --title T --tier A\|B\|C --paths "…" (--ticket-file F \| -) [--queue]`           | 建任務                                                                            |
-| `team task list [--project P] [--status queued,running]` / `team task show <id>`                            | 列出／詳情                                                                        |
-| `team task queue\|cancel\|retry <id>`                                                                       | 排入／停止並取消／重試                                                            |
-| `team task reassign <id> <role>`                                                                            | 改派角色（先檢查角色存在且啟用）                                                  |
-| `team task add … --research <task_id>`                                                                      | 引用已完成的調研（可重複，最多 3 個）                                             |
-| `team research add <project> --title T (--question Q \| --question-file F \| -) [--queue]`                  | 建調研任務（`research.mode` 為 `off` 時 409）                                     |
-| `team research show <task_id>`                                                                              | 調研結果（連結未經服務端驗證）                                                    |
-| `team receipt <task_id>`                                                                                    | 最新回執                                                                          |
-| `team ask "<text>"`                                                                                         | 對 leader 說話，等到回覆為止；Ctrl-C 只停止等待（訊息保留，回覆會出現在看板聊天） |
-| `team leader reset`                                                                                         | 開新的 leader 對話（例如換了 Claude 登入）                                        |
-| `team attention list` / `open --question Q --option A …` / `answer <id> "<答案>"`                           | 待決事項；回答 worker 提出的最後一個問題後，任務帶著回答自動續行（ADR 0017）      |
-| `team memory search <project> <query>` / `add <project> <text\|->` / `list <project>` / `rm <project> <id>` | 專案記憶（spec §18；關閉時 409）；leader 只能 search                              |
+| 指令                                                                                                        | 說明                                                                                                          |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `team serve`                                                                                                | 前景執行服務                                                                                                  |
+| `team status` / `team doctor` / `team resume`                                                               | 看板摘要／環境與 runner 檢查／不經模型的現況摘要                                                              |
+| `team watch [--after seq]`                                                                                  | 每個事件一行，斷線自動接續                                                                                    |
+| `team roles`                                                                                                | `config/models.json` 的角色、別名、runner、槽位                                                               |
+| `team project add <name> <repo> [--base B] [--check "name=cmd"]… [--allow-network]`                         | 註冊專案；`--allow-network` 讓 worker 沙箱可連公開網路（預設關閉，建立後不能改）                              |
+| `team project update <project> (--check "name=cmd"… \| --clear-checks)`                                     | 整份取代專案的 checks（只有人可以，Leader 會被拒）；下一次驗證起生效                                          |
+| `team task add --project P --title T --tier A\|B\|C --paths "…" (--ticket-file F \| -) [--queue]`           | 建任務                                                                                                        |
+| `team task list [--project P] [--status queued,running]` / `team task show <id>`                            | 列出／詳情                                                                                                    |
+| `team task queue\|cancel\|retry <id>`                                                                       | 排入／停止並取消／重試                                                                                        |
+| `team task reassign <id> <role>`                                                                            | 改派角色（先檢查角色存在且啟用）                                                                              |
+| `team task add … --research <task_id>`                                                                      | 引用已完成的調研（可重複，最多 3 個）                                                                         |
+| `team research add <project> --title T (--question Q \| --question-file F \| -) [--queue]`                  | 建調研任務（`research.mode` 為 `off` 時 409）                                                                 |
+| `team research show <task_id>`                                                                              | 調研結果（連結未經服務端驗證）                                                                                |
+| `team receipt <task_id>`                                                                                    | 最新回執                                                                                                      |
+| `team ask "<text>"`                                                                                         | 對 leader 說話，等到回覆為止；Ctrl-C 只停止等待（訊息保留，回覆會出現在看板聊天）                             |
+| `team leader reset`                                                                                         | 開新的 leader 對話（例如換了 Claude 登入）                                                                    |
+| `team attention list` / `show <id>` / `open --question Q --option A …` / `answer <id> "<答案>"`             | 待決事項；`show` 看全文；回答 worker 的最後一個問題或修正上限的提問後，任務帶著回答自動續行（ADR 0017、0025） |
+| `team memory search <project> <query>` / `add <project> <text\|->` / `list <project>` / `rm <project> <id>` | 專案記憶（spec §18；關閉時 409）；leader 只能 search                                                          |
 
 每個指令都可加 `--json`。結束碼：0 成功、1 業務錯誤、2 用法或連線錯誤（`team ask` 被 Ctrl-C 中止是 130）。
 

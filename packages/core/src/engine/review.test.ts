@@ -109,6 +109,45 @@ describe('§14 修正與升級 — review → fix → escalate', () => {
     expect(h.notifier.sent.map((o) => o.kind)).toContain('task_blocked');
   });
 
+  it('a fix-limit block asks the person; the answer reaches the worker with a fresh budget', async () => {
+    const h = createTestEngine();
+    const task = h.task({ tier: 'A', impl_role: 'impl_A' });
+    let reviews = 0;
+    const prompts: string[] = [];
+    scriptAll(h, (spec) => (++reviews <= 3 ? needsChanges(spec) : { final: reviewReceipt(spec) }));
+    for (const r of Object.values(h.runners)) {
+      const run = r.run.bind(r);
+      r.run = (spec, ...rest) => {
+        prompts.push(spec.prompt);
+        return run(spec, ...rest);
+      };
+    }
+    await h.engine.runUntilIdle();
+    const [item] = h.store.attention.list({ task_id: task.id, statuses: ['open'] });
+    expect(item).toMatchObject({ kind: 'decision', topic: 'fix_limit', options: [] });
+    expect(item!.question).toContain('未處理 null');
+    expect(item!.question).toContain('重新給 2 輪修正額度');
+
+    const before = prompts.length;
+    h.engine.answerAttention(item!.id, '命名問題先不管，只修 null', 'cli');
+    expect(h.get(task.id)).toMatchObject({ status: 'queued', fix_rounds: 0, blocked_reason: null });
+    await h.engine.runUntilIdle();
+    // the resumed fix run passed review: no round was counted against the fresh budget
+    expect(h.get(task.id)).toMatchObject({ status: 'done', fix_rounds: 0 });
+    expect(prompts.slice(before).some((p) => p.includes('命名問題先不管，只修 null'))).toBe(true);
+  });
+
+  it('a person retrying a fix-limit block gives it a fresh budget; the open item is superseded', async () => {
+    const h = createTestEngine();
+    const task = h.task({ tier: 'A', impl_role: 'impl_A' });
+    scriptAll(h, needsChanges);
+    await h.engine.runUntilIdle();
+    const [item] = h.store.attention.list({ task_id: task.id, statuses: ['open'] });
+    h.engine.retryTask(task.id);
+    expect(h.get(task.id)).toMatchObject({ status: 'queued', fix_rounds: 0 });
+    expect(h.store.attention.get(item!.id)?.status).toBe('superseded');
+  });
+
   it('a rejection (checks failing) follows the same fix → escalate path', async () => {
     const h = createTestEngine();
     const task = h.task();

@@ -286,6 +286,7 @@ export interface components {
         | 'worker_unconfirmed'
         | 'worktree_identity'
         | 'workspace_kept'
+        | 'fix_limit'
         | 'unclassified';
       question: string;
       options: string[];

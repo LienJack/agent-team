@@ -156,7 +156,8 @@ ReviewReceipt  { dispatch_id, verdict(pass|needs_changes|blocked), summary(≤60
 6. 任務進 `review`，排入審查 run（`review_A|B|C`）。審查者的模型別名不得與最近一次實作 run 相同。
 
 審查 `pass` → `done`。`needs_changes` → 修正 run（帶 must_fix 清單），`fix_rounds+1`；達到
-`rules.max_fix_rounds_before_escalate` 後換 `escalate_to` 的角色；無處可升則 `blocked`。
+`rules.max_fix_rounds_before_escalate` 後換 `escalate_to` 的角色；無處可升則 `blocked`，並開一筆待決事項
+（`topic=fix_limit`）問人；回答會交給下一個 worker，任務重排並重新給修正額度，人按重試也重新給額度（ADR 0025）。
 
 ## 7. Runner
 
@@ -350,7 +351,7 @@ team task list | show <id> | queue|cancel|retry <id> | reassign <id> <role>
 team receipt <task_id>
 team ask "<text>"
 team leader reset
-team attention list | open --question Q --option A … [--task T] | answer <id> "<answer>"
+team attention list | show <id> | open --question Q --option A … [--task T] | answer <id> "<answer>"
 ```
 
 `team task add|queue|cancel|retry`、`team research add` 在純文字與 `--json` 都印出 `delivery` 與 `report`（被拒、連不上、

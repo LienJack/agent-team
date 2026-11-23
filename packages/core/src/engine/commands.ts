@@ -17,7 +17,7 @@ import {
 } from '@agent-team/schema';
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../errors.js';
 import type { EngineContext, Tx } from './context.js';
-import { resumeAfterAnswer } from './answers.js';
+import { isFixLimitBlock, resumeAfterAnswer } from './answers.js';
 import { answerAttention, openAttention } from './attention.js';
 import { applyAttentionAction, isBaseDriftBlock } from './drift.js';
 import { WORKTREE_INTEGRITY_BLOCK } from './integrity.js';
@@ -275,6 +275,8 @@ export function retryTask(ctx: EngineContext, id: string, actor: Actor): Task {
         ...(human
           ? { attempts: 0, leader_retries: 0 }
           : { leader_retries: current.leader_retries + 1 }),
+        // a person retrying a task that ran out of fix rounds gives it a fresh budget
+        ...(human && isFixLimitBlock(current) ? { fix_rounds: 0 } : {}),
         retry_at: null,
         blocked_reason: null,
         current_run_id: null,
