@@ -1,7 +1,9 @@
 import {
   errorMessage,
   ForbiddenError,
-  TeamError,
+  NotFoundError,
+  TooManyRequestsError,
+  UnavailableError,
   type Actor,
   type CheckExecutor,
   type Clock,
@@ -109,12 +111,11 @@ export function createGateJobs(deps: GateJobsDeps): GateJobs {
           'a person (or their T3 Code session) runs `team gate`',
         );
       }
-      if (abort.signal.aborted) throw new TeamError('unavailable', 'the service is stopping');
+      if (abort.signal.aborted) throw new UnavailableError('the service is stopping');
       const req = GateRequestSchema.parse(body);
       prune();
       if (running.size >= deps.maxConcurrent) {
-        throw new TeamError(
-          'too_many_requests',
+        throw new TooManyRequestsError(
           `${running.size} gate job(s) already running (gate.max_concurrent = ${deps.maxConcurrent})`,
           'wait for one to finish (GET /api/gate/{id}) and try again',
         );
@@ -141,9 +142,9 @@ export function createGateJobs(deps: GateJobsDeps): GateJobs {
       prune();
       const job = jobs.get(id);
       if (!job) {
-        throw new TeamError(
-          'not_found',
-          `gate job ${id} not found`,
+        throw new NotFoundError(
+          'gate job',
+          id,
           'jobs live in memory for an hour after they finish and are lost on a restart; run the gate again (it is idempotent)',
         );
       }

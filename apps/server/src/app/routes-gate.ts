@@ -1,4 +1,4 @@
-import { TeamError } from '@agent-team/core';
+import { UnavailableError } from '@agent-team/core';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { getGate, startGate } from '@agent-team/protocol';
 import type { GateJobs } from '../gate/jobs.js';
@@ -9,7 +9,7 @@ import type { AppContext, AppEnv } from './types.js';
 // here (route guard); the job table refuses it as well.
 
 function jobs(ctx: AppContext): GateJobs {
-  if (!ctx.gates) throw new TeamError('unavailable', 'the gate is not available in this service');
+  if (!ctx.gates) throw new UnavailableError('the gate is not available in this service');
   return ctx.gates;
 }
 
