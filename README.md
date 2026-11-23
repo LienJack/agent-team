@@ -212,6 +212,16 @@ team memory rm demo <記憶 id>
 
 每個指令都可加 `--json`。結束碼：0 成功、1 業務錯誤、2 用法或連線錯誤（`team ask` 被 Ctrl-C 中止是 130）。
 
+## Claude skill：`/team-agent`
+
+`skills/team-agent/` 是給 Claude Code 的 skill：在任何 session 輸入 `/team-agent`（或說「交給 agent team」）就會確認服務
+已啟動（沒開就在背景啟動）、打開看板，之後用 `team` 指令把你的需求轉給 leader、回報進度；它不讀 worker 的日誌，也不
+替你做決定。安裝（連結到本 repo，更新 repo 即更新 skill）：
+
+```sh
+ln -s /ABS/PATH/agent-team/skills/team-agent ~/.claude/skills/team-agent
+```
+
 ## MCP（Claude／Codex 桌面版）
 
 工具：`ask_leader`、`status`、`list_attention`、`answer_attention`、`task_action`、`add_research`、
