@@ -121,14 +121,14 @@ def check_identity(repo: Path, wt: Path, base: str, base_branch: str) -> tuple[s
 
 
 def changed_files(wt: Path, base_sha: str) -> list[str]:
-    files = set(git(wt, "diff", "--name-only", "-z", f"{base_sha}..HEAD").split("\0"))
-    files |= set(git(wt, "diff", "--name-only", "-z", "HEAD").split("\0"))
+    files = set(git(wt, "diff", "--no-renames", "--name-only", "-z", f"{base_sha}..HEAD").split("\0"))
+    files |= set(git(wt, "diff", "--no-renames", "--name-only", "-z", "HEAD").split("\0"))
     files |= set(git(wt, "ls-files", "--others", "--exclude-standard", "-z").split("\0"))
     return sorted(f for f in files if f)
 
 
 def uncommitted(wt: Path) -> list[str]:
-    files = set(git(wt, "diff", "--name-only", "-z", "HEAD").split("\0"))
+    files = set(git(wt, "diff", "--no-renames", "--name-only", "-z", "HEAD").split("\0"))
     files |= set(git(wt, "ls-files", "--others", "--exclude-standard", "-z").split("\0"))
     return sorted(f for f in files if f)
 

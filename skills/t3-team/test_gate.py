@@ -79,10 +79,30 @@ class GateTest(unittest.TestCase):
         r = self.run_gate(worktree=str(self.repo))
         self.assertIn("primary checkout", " ".join(r["reasons"]))
 
-    def test_base_branch_rejected(self):
+    def test_detached_head_rejected(self):
         sh(self.wt, "checkout", "-q", "--detach")
         r = self.run_gate()
         self.assertIn("detached", " ".join(r["reasons"]))
+
+    def test_rename_from_outside_counts_both_paths(self):
+        (self.repo / "docs").mkdir()
+        (self.repo / "docs" / "x.md").write_text("doc\n" * 20)
+        sh(self.repo, "add", ".")
+        sh(self.repo, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "doc")
+        self.base = sh(self.repo, "rev-parse", "HEAD").strip()
+        sh(self.wt, "merge", "-q", "--ff-only", "main")
+        sh(self.wt, "mv", "docs/x.md", "src/x.md")
+        r = self.run_gate(no_commit=True)
+        self.assertEqual(r["verdict"], "rejected", r)
+        self.assertIn("docs/x.md", r["out_of_scope"])
+        sh(self.wt, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "mv")
+        r = self.run_gate(no_commit=True)
+        self.assertIn("docs/x.md", r["out_of_scope"])
+
+    def test_head_on_base_branch_rejected(self):
+        sh(self.repo, "branch", "-q", "other")
+        r = self.run_gate(base_branch="feature")
+        self.assertIn("base branch", " ".join(r["reasons"]))
 
     def test_base_not_ancestor_rejected(self):
         (self.repo / "other.txt").write_text("o\n")
