@@ -198,14 +198,19 @@ checkout). Verdicts:
    each decision, log it under `## Decisions` as `unattended ruling`, and limit yourself to local, reversible
    actions (local merges, running the product into its output folder). Never push, open PRs, delete user data or
    spend money unattended; park those as open decisions.
-2. Merge in the primary checkout, on the base branch, clean tree: `git merge --no-ff <branch> -m "Merge <id>: <title>"`.
+2. **Recheck the base first**: `git log -1 <base branch>` against the plan's last known HEAD. If someone outside the
+   plan committed (another app or terminal session), never overwrite or force: re-gate the branch on the new HEAD
+   (rebase it in the worktree via the worker, or re-dispatch a port ticket), and ask the user to pick a single
+   writer for that branch; unattended, keep going and keep your product output (e.g. a topic or output folder)
+   separate from theirs.
+3. Merge in the primary checkout, on the base branch, clean tree: `git merge --no-ff <branch> -m "Merge <id>: <title>"`.
    On a conflict: `git merge --abort`, then re-dispatch the ticket from the new HEAD (or ask the user). Never force,
    amend or skip hooks; push / PR only when the user asks.
-3. After the merge run the project checks once more on the base branch. If they fail, tell the user (do not revert
+4. After the merge run the project checks once more on the base branch. If they fail, tell the user (do not revert
    on your own).
-4. Record the user's decisions and the ticket summary in plan.md; offer to move lasting decisions into the
+5. Record the user's decisions and the ticket summary in plan.md; offer to move lasting decisions into the
    project's docs (ADR / design doc) at the end.
-5. Update plan.md, then dispatch the tickets this merge unblocked.
+6. Update plan.md, then dispatch the tickets this merge unblocked.
 
 ## 8. Finish and clean up
 
