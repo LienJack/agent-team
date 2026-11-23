@@ -115,8 +115,10 @@ Final answer: a JSON object {"ticket":"<id>","status":"done|blocked|failed","sum
 
 ## 5. Verify (never trust the receipt)
 
-When a worker finishes, read its result (`task_status`). `blocked` / `failed` or a non-empty `needs_leader`:
-ask the user (quote it), then continue via section 6's thread message with their answer. Otherwise run:
+When a worker finishes, read its result (`task_status`). `blocked` / `failed`: ask the user (quote it), then
+continue via section 6's thread message with their answer. `done` with a non-empty `needs_leader`: if it blocks
+accepting this ticket, ask first; if it is informational or a decision for a later ticket, gate and review now and
+ask the user in parallel. Otherwise run:
 
 ```sh
 team gate <project> --worktree <worktree> --base <base_sha> --paths "<owned_paths, comma separated>" \
