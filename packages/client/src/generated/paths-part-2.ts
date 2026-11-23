@@ -6,6 +6,24 @@
 import type { operations } from './operations.js';
 
 export interface paths_part2 {
+  '/api/attention': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Attention items (decisions, approvals, questions), optionally by status */
+    get: operations['listAttention'];
+    put?: never;
+    /** Open an attention item (`team attention open`) */
+    post: operations['createAttention'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/attention/{id}/answer': {
     parameters: {
       query?: never;

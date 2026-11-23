@@ -172,6 +172,18 @@ export const ProjectCreateRequestSchema = z.object({
   allow_network: z.boolean().default(false),
 });
 export type ProjectCreateRequest = z.input<typeof ProjectCreateRequestSchema>;
+/**
+ * PATCH /projects/{id} (humans only): replace the machine checks; `[]` clears them. Only
+ * `checks` can change: `allow_network` stays as registered (README, project add).
+ */
+export const ProjectUpdateRequestSchema = z.object({
+  checks: z
+    .array(ProjectCheckSchema)
+    .refine((list) => new Set(list.map((c) => c.name)).size === list.length, {
+      message: 'check names must be unique',
+    }),
+});
+export type ProjectUpdateRequest = z.input<typeof ProjectUpdateRequestSchema>;
 export const ProjectResponseSchema = z.object({ project: ProjectSchema });
 export const ProjectListResponseSchema = z.object({ projects: z.array(ProjectSchema) });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ConflictError,
+  ForbiddenError,
   IdempotencyConflictError,
   InvalidTransitionError,
   NotFoundError,
@@ -27,6 +28,30 @@ describe('§14 樂觀鎖 — optimistic lock and transition table in the engine'
       VersionConflictError,
     );
     expect(h.get(task.id)).toMatchObject({ status: 'queued', version: 2, priority: 0 });
+  });
+});
+
+describe('project commands', () => {
+  it('updateProject replaces the checks for humans only and emits project.updated', () => {
+    const h = createTestEngine();
+    const p = h.project();
+    const checks = [{ name: 'test', cmd: 'uv run pytest -q' }];
+    expect(() => h.engine.updateProject(p.id, { checks }, { kind: 'leader' })).toThrow(
+      ForbiddenError,
+    );
+    expect(h.store.projects.get(p.id)?.checks).toEqual(p.checks);
+    const updated = h.engine.updateProject(p.id, { checks });
+    expect(updated).toEqual({ ...p, checks });
+    expect(h.store.projects.get(p.id)).toEqual(updated);
+    const last = h.store.events.listAfter(0).at(-1);
+    expect(last).toMatchObject({
+      type: 'project.updated',
+      data: { name: p.name, checks: ['test'] },
+    });
+    expect(h.engine.updateProject(p.id, { checks: [] }).checks).toEqual([]);
+    const dup = [checks[0]!, { name: 'test', cmd: 'x' }];
+    expect(() => h.engine.updateProject(p.id, { checks: dup })).toThrow(ValidationError);
+    expect(() => h.engine.updateProject('p_zzzzzz', { checks })).toThrow(NotFoundError);
   });
 });
 

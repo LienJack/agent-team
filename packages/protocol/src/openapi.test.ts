@@ -14,6 +14,7 @@ const SPEC_ROUTES = [
   'GET /api/events',
   'GET /api/projects',
   'POST /api/projects',
+  'PATCH /api/projects/{id}',
   'GET /api/tasks',
   'POST /api/tasks',
   'GET /api/tasks/{id}',

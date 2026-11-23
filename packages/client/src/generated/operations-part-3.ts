@@ -6,6 +6,54 @@
 import type { components } from './components.js';
 
 export interface operations_part3 {
+  listMemory: {
+    parameters: {
+      query?: {
+        page?: number;
+        page_size?: number;
+      };
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Items and the total count */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            project_id: string;
+            memories: {
+              id: string;
+              text: string;
+              /** @enum {string|null} */
+              source: 'task' | 'decision' | 'human' | 'research' | null;
+              source_id: string | null;
+              task_id: string | null;
+              created_at: string | null;
+              searchable: boolean | null;
+              relativity: number | null;
+            }[];
+            total: number;
+            page: number;
+            page_size: number;
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      404: components['responses']['Error'];
+      409: components['responses']['Error'];
+      500: components['responses']['Error'];
+      503: components['responses']['Error'];
+    };
+  };
   addMemory: {
     parameters: {
       query?: never;

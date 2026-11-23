@@ -314,6 +314,46 @@ export interface operations_part1 {
       500: components['responses']['Error'];
     };
   };
+  updateProject: {
+    parameters: {
+      query?: never;
+      header?: {
+        'Idempotency-Key'?: string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          checks: {
+            name: string;
+            cmd: string;
+          }[];
+        };
+      };
+    };
+    responses: {
+      /** @description The updated project */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            project: components['schemas']['Project'];
+          };
+        };
+      };
+      400: components['responses']['Error'];
+      401: components['responses']['Error'];
+      403: components['responses']['Error'];
+      404: components['responses']['Error'];
+      500: components['responses']['Error'];
+    };
+  };
   listTasks: {
     parameters: {
       query?: {
@@ -391,38 +431,6 @@ export interface operations_part1 {
       403: components['responses']['Error'];
       404: components['responses']['Error'];
       409: components['responses']['Error'];
-      500: components['responses']['Error'];
-    };
-  };
-  getTask: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        id: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Task detail */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            task: components['schemas']['Task'];
-            runs: components['schemas']['Run'][];
-            workspace: components['schemas']['Workspace'] | null;
-            attention: components['schemas']['Attention'][];
-          };
-        };
-      };
-      400: components['responses']['Error'];
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-      404: components['responses']['Error'];
       500: components['responses']['Error'];
     };
   };

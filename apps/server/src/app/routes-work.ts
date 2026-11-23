@@ -17,6 +17,7 @@ import {
   reassignTask,
   rejectTask,
   retryTask,
+  updateProject,
 } from '@agent-team/protocol';
 import { settledReply } from './delivery.js';
 import { answerVia } from './origin.js';
@@ -45,6 +46,11 @@ export function registerWorkRoutes(app: OpenAPIHono<AppEnv>, ctx: AppContext): v
       }
     }
     return created({ project: engine.createProject(body, c.get('actor')) });
+  });
+
+  register(app, updateProject, (c) => {
+    const { id } = c.req.valid('param');
+    return ok({ project: engine.updateProject(id, c.req.valid('json'), c.get('actor')) });
   });
 
   register(app, listTasks, (c) => {

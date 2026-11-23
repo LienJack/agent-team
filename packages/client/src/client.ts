@@ -49,6 +49,7 @@ export type LeaderReset = Json<'resetLeader'>;
 export type Resume = Json<'getResume'>;
 export type DoctorReport = Json<'getDoctor'>;
 export type ProjectCreateBody = Body<'createProject'>;
+export type ProjectUpdateBody = Body<'updateProject'>;
 export type TaskCreateBody = Body<'createTask'>;
 export type ResearchCreateBody = Body<'createResearch'>;
 export type LeaderMessageBody = Body<'postLeaderMessage'>;
@@ -103,6 +104,8 @@ export interface TeamClient {
   state(): Promise<StateSnapshot>;
   listProjects(): Promise<Project[]>;
   createProject(body: ProjectCreateBody): Promise<Project>;
+  /** Replace a project's checks (humans only). */
+  updateProject(id: string, body: ProjectUpdateBody): Promise<Project>;
   listTasks(query?: TaskListQuery): Promise<Task[]>;
   /**
    * `idempotencyKey`: a caller-chosen `Idempotency-Key` (the leader's `team task add` derives it
@@ -240,6 +243,8 @@ export function createTeamClient(options: TeamClientOptions): TeamClient {
     state: () => call(() => raw.GET('/api/state')),
     listProjects: async () => (await call(() => raw.GET('/api/projects'))).projects,
     createProject: async (body) => (await call(() => raw.POST('/api/projects', { body }))).project,
+    updateProject: async (id, body) =>
+      (await call(() => raw.PATCH('/api/projects/{id}', { ...byId(id), body }))).project,
     listTasks: async (query = {}) =>
       (await call(() => raw.GET('/api/tasks', { params: { query } }))).tasks,
     createTask: async (body, callOptions) => (await createTaskResult(body, callOptions)).task,

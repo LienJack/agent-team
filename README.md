@@ -204,6 +204,7 @@ team memory rm demo <記憶 id>
 | `team watch [--after seq]`                                                                                  | 每個事件一行，斷線自動接續                                                        |
 | `team roles`                                                                                                | `config/models.json` 的角色、別名、runner、槽位                                   |
 | `team project add <name> <repo> [--base B] [--check "name=cmd"]… [--allow-network]`                         | 註冊專案；`--allow-network` 讓 worker 沙箱可連公開網路（預設關閉，建立後不能改）  |
+| `team project update <project> (--check "name=cmd"… \| --clear-checks)`                                     | 整份取代專案的 checks（只有人可以，Leader 會被拒）；下一次驗證起生效              |
 | `team task add --project P --title T --tier A\|B\|C --paths "…" (--ticket-file F \| -) [--queue]`           | 建任務                                                                            |
 | `team task list [--project P] [--status queued,running]` / `team task show <id>`                            | 列出／詳情                                                                        |
 | `team task queue\|cancel\|retry <id>`                                                                       | 排入／停止並取消／重試                                                            |

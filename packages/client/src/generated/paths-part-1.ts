@@ -146,6 +146,23 @@ export interface paths_part1 {
     patch?: never;
     trace?: never;
   };
+  '/api/projects/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /** Change a project's checks */
+    patch: operations['updateProject'];
+    trace?: never;
+  };
   '/api/tasks': {
     parameters: {
       query?: never;
@@ -415,24 +432,6 @@ export interface paths_part1 {
     put?: never;
     /** New leader conversation */
     post: operations['resetLeader'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/attention': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    /** Attention items (decisions, approvals, questions), optionally by status */
-    get: operations['listAttention'];
-    put?: never;
-    /** Open an attention item (`team attention open`) */
-    post: operations['createAttention'];
     delete?: never;
     options?: never;
     head?: never;

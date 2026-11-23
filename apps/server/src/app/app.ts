@@ -6,6 +6,7 @@ import {
   answerAttention,
   approveTask,
   createProject,
+  updateProject,
   getLeaderMessage,
   getRunLog,
   listLeaderMessages,
@@ -66,12 +67,13 @@ function refusedBy(routes: readonly RouteConfig[]): (method: string, path: strin
  * conversation transcripts are for humans only; `team ask` (its own queue) and `team watch`
  * (never ends) would hang its turn; decisions that bypass review or change what runs where —
  * approve, reject, reassign, answering attention items — resetting its own conversation and
- * registering local repositories are the owner's calls. Of the project memory (spec §18) it may
+ * registering local repositories or changing their checks are the owner's calls. Of the project memory (spec §18) it may
  * only search: listing, adding and deleting items are a person's. The engine refuses the
  * human-only commands to the leader as well; this list answers early with a clear hint.
  */
 export const LEADER_FORBIDDEN = [
   createProject,
+  updateProject,
   approveTask,
   rejectTask,
   reassignTask,
@@ -94,7 +96,7 @@ function leaderForbidden(): MiddlewareHandler<AppEnv> {
       throw new TeamError(
         'forbidden',
         `${c.req.method} ${c.req.path} is not available to the leader`,
-        'the leader works from receipts and `team task show`; approvals, answers, reassignment, run logs, transcripts and project registration are for humans (open an attention item)',
+        'the leader works from receipts and `team task show`; approvals, answers, reassignment, run logs, transcripts and project registration or settings are for humans (open an attention item)',
       );
     }
     await next();

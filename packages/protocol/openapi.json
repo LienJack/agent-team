@@ -1141,6 +1141,70 @@
         }
       }
     },
+    "/api/projects/{id}": {
+      "patch": {
+        "operationId": "updateProject",
+        "tags": ["projects"],
+        "summary": "Change a project's checks",
+        "parameters": [
+          {
+            "schema": { "type": "string", "pattern": "^p_[0-9a-z]{1,32}$" },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          },
+          {
+            "schema": { "type": "string", "minLength": 1, "maxLength": 200 },
+            "required": false,
+            "name": "Idempotency-Key",
+            "in": "header"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "checks": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": { "type": "string", "minLength": 1, "maxLength": 64 },
+                        "cmd": { "type": "string", "minLength": 1 }
+                      },
+                      "required": ["name", "cmd"]
+                    }
+                  }
+                },
+                "required": ["checks"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "project": { "$ref": "#/components/schemas/Project" } },
+                  "required": ["project"]
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Error" },
+          "401": { "$ref": "#/components/responses/Error" },
+          "403": { "$ref": "#/components/responses/Error" },
+          "404": { "$ref": "#/components/responses/Error" },
+          "500": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
     "/api/tasks": {
       "get": {
         "operationId": "listTasks",

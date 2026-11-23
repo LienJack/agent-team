@@ -37,6 +37,7 @@ const nullableString = z.string().nullable();
  */
 export const EVENT_DATA_SCHEMAS = {
   'project.created': z.object({ name: z.string() }),
+  'project.updated': z.object({ name: z.string(), checks: z.array(z.string()) }),
 
   'task.created': z.object({ title: z.string(), status: TaskStatusSchema }),
   /** Non-status field changes (names only). */

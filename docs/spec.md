@@ -320,7 +320,7 @@ GET  /state                         看板快照；每個任務附最近一次 r
                                     workspace 的 head_sha 與 run 合計，卡片不必再各自請求；summary：五欄計數（加總等於
                                     total，已取消另計）與一行 report
 GET  /events?after=<seq>            SSE：首幀 server.connected，15 秒心跳，帶游標補發；每連線有上限的佇列，溢出只斷該連線
-GET/POST /projects
+GET/POST /projects    PATCH /projects/:id（只改 checks；只有人可以）
 GET/POST /tasks        GET /tasks/:id
 POST /tasks/:id/{queue,cancel,retry,approve,reject}      POST /tasks/:id/reassign { role }
                                     任務指令都回 { task, delivery, report }：等一次排程（最多 3 秒）後依現況推導
@@ -344,6 +344,7 @@ GET  /resume    GET /quota    GET /doctor    GET /roles（models.json 的角色�
 ```
 team serve | status | doctor | resume | roles | watch [--after seq]
 team project add <name> <repo> [--base B] [--check "name=cmd"]… [--allow-network]
+team project update <project> (--check "name=cmd"… | --clear-checks)   # 只有人可以；整份取代，下次驗證起生效
 team task add --project P --title T --tier C --paths "…" (--ticket-file F | -) [--queue]
 team task list | show <id> | queue|cancel|retry <id> | reassign <id> <role>
 team receipt <task_id>

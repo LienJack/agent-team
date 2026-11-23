@@ -8,6 +8,7 @@ import {
   type MessageStatus,
   type Project,
   type ProjectCreateRequest,
+  type ProjectUpdateRequest,
   type ResearchCreateRequest,
   type RunnerStatus,
   type Task,
@@ -21,6 +22,7 @@ import {
   createAttention,
   createProject,
   createTask,
+  updateProject,
   queueTask,
   reassignTask,
   rejectTask,
@@ -303,6 +305,10 @@ export class Engine {
 
   createProject(input: ProjectCreateRequest, actor: Actor = HUMAN): Project {
     return createProject(this.ctx, input, actor);
+  }
+
+  updateProject(projectId: string, input: ProjectUpdateRequest, actor: Actor = HUMAN): Project {
+    return updateProject(this.ctx, projectId, input, actor);
   }
 
   createTask(input: TaskCreateRequest, actor: Actor = HUMAN): Task {

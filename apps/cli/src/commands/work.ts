@@ -83,6 +83,33 @@ export function registerWorkCommands(program: Command, ctx: CommandContext): voi
       },
     );
 
+  project
+    .command('update <project>')
+    .description("replace a project's machine checks (humans only; next verification on)")
+    .option(
+      '--check <name=cmd>',
+      'machine check, repeatable; replaces the whole list',
+      collect,
+      [] as string[],
+    )
+    .option('--clear-checks', 'remove every check', false)
+    .action(async (value: string, options: { check: string[]; clearChecks: boolean }) => {
+      if (options.clearChecks === options.check.length > 0) {
+        throw new UsageError('give --check "name=cmd" (repeatable) or --clear-checks, not both');
+      }
+      const checks = options.check.map(parseCheck);
+      const client = await ctx.client();
+      const updated = await client.updateProject(await projectId(client, value), { checks });
+      ctx.print(updated, () =>
+        [
+          projectLine(updated),
+          ...(updated.checks.length === 0
+            ? ['  checks: (none)']
+            : updated.checks.map((c) => `  check ${c.name}: ${c.cmd}`)),
+        ].join('\n'),
+      );
+    });
+
   const task = program.command('task').description('tasks');
   task
     .command('add')

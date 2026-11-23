@@ -4,12 +4,14 @@ import {
   isLiveRunState,
   isTerminalTaskStatus,
   ProjectCreateRequestSchema,
+  ProjectUpdateRequestSchema,
   TaskCreateRequestSchema,
   type AnswerVia,
   type Attention,
   type AttentionCreateRequest,
   type Project,
   type ProjectCreateRequest,
+  type ProjectUpdateRequest,
   type Task,
   type TaskCreateRequest,
 } from '@agent-team/schema';
@@ -34,7 +36,7 @@ import { rememberAnswer } from './project-memory.js';
 // Actors (docs/adr/0014): the server derives the actor from the credential — `human` (LAN
 // session, operator token), `leader` (the leader-scoped token). Decisions that bypass review or
 // change what runs where are human-only: approve, reject, answering attention items, reassign,
-// project registration, base-drift decisions and retries the leader is not trusted with.
+// project registration and settings, base-drift decisions and retries the leader is not trusted with.
 
 export interface Actor {
   kind: 'human' | 'leader' | 'system';
@@ -97,6 +99,28 @@ export function createProject(
     };
     tx.r.projects.insert(project);
     tx.emit('project.created', { name: project.name });
+    return project;
+  });
+}
+
+/**
+ * Replace a project's machine checks (humans only, like registration). Takes effect at the next
+ * verification: a run already being verified keeps the list it started with.
+ */
+export function updateProject(
+  ctx: EngineContext,
+  projectId: string,
+  input: ProjectUpdateRequest,
+  actor: Actor = HUMAN,
+): Project {
+  requireHuman(actor, "changing a project's checks");
+  const req = parse(ProjectUpdateRequestSchema, input);
+  return ctx.transact((tx) => {
+    const current = tx.r.projects.get(projectId);
+    if (!current) throw new NotFoundError('project', projectId);
+    const project: Project = { ...current, checks: req.checks };
+    tx.r.projects.update(project);
+    tx.emit('project.updated', { name: project.name, checks: req.checks.map((c) => c.name) });
     return project;
   });
 }

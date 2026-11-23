@@ -62,6 +62,23 @@ describe('§9 leader-forbidden routes', () => {
     expect((await call('/api/runs/r_000001/log')).status).toBe(404);
   });
 
+  it("changing a project's checks is human-only", async () => {
+    const p = h.service.engine.createProject({ name: 'demo', repo_path: '/repos/demo' });
+    const patch = (token?: string) =>
+      h.localApp().request(`/api/projects/${p.id}`, {
+        ...local({ checks: [{ name: 'test', cmd: 'pytest -q' }] }, {}, token),
+        method: 'PATCH',
+      });
+    const refused = await patch(LEADER);
+    expect(refused.status).toBe(403);
+    expect(h.store.projects.get(p.id)?.checks).toEqual([]);
+    const done = await patch();
+    expect(done.status).toBe(200);
+    expect(((await done.json()) as Loose).project.checks).toEqual([
+      { name: 'test', cmd: 'pytest -q' },
+    ]);
+  });
+
   it('attention answers are human-only; the channel comes from the credential', async () => {
     const q = h.service.engine.openAttention({ question: 'Q?', options: ['A', 'B'] });
     const res = await call(`/api/attention/${q.id}/answer`, { answer: 'A', via: 'cli' }, LEADER);

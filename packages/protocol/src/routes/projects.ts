@@ -1,10 +1,12 @@
 import { createRoute } from '@hono/zod-openapi';
 import {
   ProjectCreateRequestSchema,
+  ProjectIdSchema,
   ProjectListResponseSchema,
   ProjectResponseSchema,
+  ProjectUpdateRequestSchema,
 } from '@agent-team/schema';
-import { body, errors, json, MutationHeadersSchema } from '../common.js';
+import { body, errors, idParam, json, MutationHeadersSchema } from '../common.js';
 
 const tags = ['projects'];
 
@@ -28,4 +30,19 @@ export const createProject = createRoute({
   responses: { 201: json(ProjectResponseSchema, 'The created project'), ...errors(409) },
 });
 
-export const projectRoutes = { listProjects, createProject };
+/** Replace a project's machine checks (humans only; the leader gets 403). */
+export const updateProject = createRoute({
+  operationId: 'updateProject',
+  tags,
+  method: 'patch',
+  path: '/api/projects/{id}',
+  summary: "Change a project's checks",
+  request: {
+    params: idParam(ProjectIdSchema),
+    headers: MutationHeadersSchema,
+    body: body(ProjectUpdateRequestSchema),
+  },
+  responses: { 200: json(ProjectResponseSchema, 'The updated project'), ...errors(404) },
+});
+
+export const projectRoutes = { listProjects, createProject, updateProject };
