@@ -1,1 +1,0 @@
-ALTER TABLE `run` ADD `cost_estimated` integer DEFAULT false NOT NULL;

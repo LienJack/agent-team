@@ -1,9 +1,7 @@
-node_modules/
-dist/
-*.tsbuildinfo
-coverage/
 .env
 .env.*
-!.env.example
+__pycache__/
+*.pyc
 *.log
 .DS_Store
+node_modules/

@@ -1,1 +1,0 @@
-ALTER TABLE `run` ADD `memory_ids` text DEFAULT '[]' NOT NULL;
