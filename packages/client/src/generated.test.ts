@@ -36,4 +36,20 @@ describe('generated client types', () => {
       "import type { components } from './components.js';",
     );
   });
+
+  it('a part refers back to its own whole type with an import', () => {
+    const member = (n: number) => [`  m${n}: {`, `    x: components['schemas']['X'];`, '  };'];
+    const source = [
+      'export interface components {',
+      ...Array.from({ length: 10 }, (_, i) => member(i)).flat(),
+      '}',
+      '',
+    ].join('\n');
+    const files = splitGenerated(source, 24);
+    expect(files.get('components-part-2.ts')).toContain(
+      "import type { components } from './components.js';",
+    );
+    // the whole file does not import itself
+    expect(files.get('components.ts')).not.toContain("from './components.js'");
+  });
 });

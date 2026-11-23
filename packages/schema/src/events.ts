@@ -17,6 +17,7 @@ import {
 } from './domain.js';
 import {
   AttentionIdSchema,
+  GateIdSchema,
   MessageIdSchema,
   OutboxIdSchema,
   ProjectIdSchema,
@@ -163,6 +164,16 @@ export const EVENT_DATA_SCHEMAS = {
   }),
   /** A person deleted one item of a project's memory. */
   'memory.removed': z.object({ project_id: ProjectIdSchema, memory_id: z.string() }),
+
+  /**
+   * A gate job finished (spec §19): an outside worktree was checked (and maybe committed).
+   * No task or run: gate jobs live in memory only.
+   */
+  'gate.completed': z.object({
+    gate_id: GateIdSchema,
+    project_id: ProjectIdSchema,
+    verdict: z.enum(['pass', 'rejected', 'checks_failed']),
+  }),
 
   'attention.opened': z.object({
     attention_id: AttentionIdSchema,

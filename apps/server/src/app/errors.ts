@@ -15,6 +15,7 @@ const HTTP_CODES: Record<number, ErrorCode> = {
   409: 'conflict',
   413: 'bad_request',
   415: 'bad_request',
+  429: 'too_many_requests',
   503: 'unavailable',
 };
 

@@ -5,6 +5,7 @@ export * from './constants.js';
 export { errors, MutationHeadersSchema } from './common.js';
 export { ALL_ROUTES, buildOpenApiDocument, routes, type RouteName } from './document.js';
 export * from './routes/attention.js';
+export * from './routes/gate.js';
 export * from './routes/leader.js';
 export * from './routes/memory.js';
 export * from './routes/projects.js';

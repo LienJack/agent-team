@@ -16,8 +16,8 @@ export class TeamError extends Error {
 }
 
 export class NotFoundError extends TeamError {
-  constructor(entity: string, id: string) {
-    super('not_found', `${entity} ${id} not found`);
+  constructor(entity: string, id: string, hint?: string) {
+    super('not_found', `${entity} ${id} not found`, hint);
   }
 }
 
@@ -96,6 +96,13 @@ export class RequestInProgressError extends TeamError {
 export class UnavailableError extends TeamError {
   constructor(message: string, hint?: string) {
     super('unavailable', message, hint);
+  }
+}
+
+/** A concurrency limit is reached (e.g. `gate.max_concurrent`); try again later (HTTP 429). */
+export class TooManyRequestsError extends TeamError {
+  constructor(message: string, hint?: string) {
+    super('too_many_requests', message, hint);
   }
 }
 

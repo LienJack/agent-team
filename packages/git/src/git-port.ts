@@ -1,6 +1,6 @@
-import { existsSync, lstatSync, readdirSync, readlinkSync, rmdirSync } from 'node:fs';
+import { existsSync, readdirSync, rmdirSync } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { dirname } from 'node:path';
 import { isWorktreeIntegrityError, type GitPort, type WorktreeRef } from '@agent-team/core';
 import { git, gitEnv, withLockRetry } from './exec.js';
 import {
@@ -10,14 +10,9 @@ import {
   statusPaths,
   type WorktreeEntry,
 } from './parse.js';
-import {
-  assertAbsolute,
-  canonical,
-  isInside,
-  samePath,
-  stripSlash,
-  toCallerForm,
-} from './paths.js';
+import { assertAbsolute, isInside, samePath, stripSlash, toCallerForm } from './paths.js';
+import { resolveWorktreePaths } from './resolve-paths.js';
+import { commitListed } from './commit.js';
 import { verifyWorktreeIdentity } from './identity.js';
 import { fillReviewDiff } from './review-diff.js';
 
@@ -48,7 +43,6 @@ export interface CliGitPort extends GitPort {
 }
 
 export const DEFAULT_AUTHOR = { name: 'agent-team', email: 'agent-team@localhost' } as const;
-const ADD_CHUNK = 200;
 
 export function createGitPort(opts: GitPortOptions): CliGitPort {
   assertAbsolute(opts.worktreeRoot, 'worktreeRoot');
@@ -233,41 +227,17 @@ export function createGitPort(opts: GitPortOptions): CliGitPort {
     },
 
     async commitFiles({ message, files, baseBranch, ...ref }) {
-      const { worktreePath } = ref;
       await verify(ref, baseBranch);
-      const wanted = new Set(files);
-      const changed = statusPaths(await statusEntries(worktreePath)).filter((f) => wanted.has(f));
-      // exact paths only (literal pathspecs: a file named ":x" is not pathspec magic)
-      for (let i = 0; i < changed.length; i += ADD_CHUNK) {
-        const chunk = changed.slice(i, i + ADD_CHUNK);
-        await withLockRetry(() =>
-          run(worktreePath, ['--literal-pathspecs', 'add', '-A', '--', ...chunk]),
-        );
-      }
-      const staged = parseNameOnlyZ(
-        (await run(worktreePath, ['diff', '--cached', '--name-only', '-z', '--no-renames'])).stdout,
-      );
-      const extra = staged.filter((f) => !wanted.has(f));
-      if (extra.length > 0) {
-        throw new Error(
-          `refusing to commit: the index holds unverified paths (${extra.slice(0, 10).join(', ')})`,
-        );
-      }
-      if (staged.length === 0) {
-        return { sha: await revParse(worktreePath, 'HEAD'), created: false };
-      }
-      // again right before the commit: the pointer must not have changed since the add
-      await verify(ref, baseBranch);
-      // no hooks (SERVICE_GIT_CONFIG); not GPG-signed, so a signing prompt can never hang it
-      await withLockRetry(() =>
-        run(
-          worktreePath,
-          ['commit', '--quiet', '--no-gpg-sign', '-m', message],
-          commitEnv,
-          opts.commitTimeoutMs ?? 600_000,
-        ),
-      );
-      return { sha: await revParse(worktreePath, 'HEAD'), created: true };
+      return commitListed({
+        worktreePath: ref.worktreePath,
+        files,
+        message,
+        env: baseEnv,
+        commitEnv,
+        timeoutMs: opts.commitTimeoutMs ?? 600_000,
+        // again right before the commit: the pointer must not have changed since the add
+        beforeCommit: () => verify(ref, baseBranch),
+      });
     },
 
     async rebuildWorktree({ repoPath, worktreePath, branch, baseBranch }) {
@@ -317,31 +287,7 @@ export function createGitPort(opts: GitPortOptions): CliGitPort {
     },
 
     async resolvePaths({ worktreePath, files }) {
-      const rootCanon = stripSlash(canonical(worktreePath));
-      const out: Record<string, string | null> = {};
-      for (const file of files) {
-        const abs = join(worktreePath, file);
-        let st;
-        try {
-          st = lstatSync(abs);
-        } catch {
-          continue; // deleted
-        }
-        let target: string;
-        if (st.isSymbolicLink()) {
-          // resolve the link (even a dangling one) from its real parent directory
-          const parent = canonical(dirname(abs));
-          target = canonical(resolve(parent, readlinkSync(abs)));
-        } else {
-          target = canonical(abs);
-        }
-        const rel = relative(rootCanon, target);
-        out[file] =
-          rel === '' || rel.startsWith(`..${sep}`) || rel === '..' || rel.startsWith(sep)
-            ? null
-            : rel.split(sep).join('/');
-      }
-      return out;
+      return resolveWorktreePaths(worktreePath, files);
     },
 
     async ignoresCase({ repoPath }) {

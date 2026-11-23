@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { errorMessage, randomIdGen, type Clock, type Logger, type Store } from '@agent-team/core';
 import { createSqliteStore } from '@agent-team/db';
-import { createGitPort, type CliGitPort } from '@agent-team/git';
+import { createGateGit, createGitPort, type CliGitPort } from '@agent-team/git';
 import {
   createCheckExecutor,
   createProcessControl,
@@ -158,6 +158,8 @@ export async function main(
     store,
     runners,
     git: createGit(config),
+    // the gate's outside worktrees (spec §19): same author, hooks off like every service commit
+    gateGit: createGateGit({ author: config.service.git.author }),
     // checks run worker-authored code: same deny list under Seatbelt (macOS), or not at all
     // unless checks.allow_unsandboxed (docs/adr/0014, 0019)
     checks: createCheckExecutor({

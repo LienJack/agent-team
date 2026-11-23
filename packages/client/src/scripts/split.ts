@@ -112,8 +112,9 @@ export function splitGenerated(source: string, maxLines = 450): Map<string, stri
   const out = new Map<string, string>();
   for (const [file, body] of files) {
     const text = body.join('\n');
+    // a part file refers back to its whole type (`components['schemas'][…]`) like any other
     const own = file.replace(/-part-\d+$/, '');
-    const imports = referencedTypes(text, own).map(
+    const imports = referencedTypes(text, own === file ? own : '').map(
       (name) => `import type { ${name} } from './${name}.js';`,
     );
     const parts = new Set(

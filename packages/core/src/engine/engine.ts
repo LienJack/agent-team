@@ -13,6 +13,7 @@ import {
   type RunnerStatus,
   type Task,
   type TaskCreateRequest,
+  type EventData,
 } from '@agent-team/schema';
 import { errorMessage } from '../errors.js';
 import {
@@ -411,6 +412,17 @@ export class Engine {
       tx.emit('run.log_advanced', { offset }, { run_id: run.id });
       tx.dirty = false;
       return true;
+    });
+  }
+
+  /**
+   * A gate job finished (spec §19; the jobs live in the server's memory): one `gate.completed`
+   * event. Not a state change, so the scheduler is not woken.
+   */
+  recordGateCompleted(data: EventData<'gate.completed'>): void {
+    this.ctx.transact((tx) => {
+      tx.emit('gate.completed', data);
+      tx.dirty = false;
     });
   }
 }

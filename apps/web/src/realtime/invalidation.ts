@@ -21,6 +21,8 @@ const runChange: Mapper = (e) => [keys.state(), ...taskOf(e), ...runLogOf(e)];
 const EVENT_QUERIES = {
   'project.created': board,
   'project.updated': board,
+  // gate jobs (spec §19) live in the server's memory; the board shows none of them
+  'gate.completed': none,
 
   'task.created': board,
   'task.updated': boardAndTask,

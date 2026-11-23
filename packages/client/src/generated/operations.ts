@@ -6,5 +6,6 @@
 import type { operations_part1 } from './operations-part-1.js';
 import type { operations_part2 } from './operations-part-2.js';
 import type { operations_part3 } from './operations-part-3.js';
+import type { operations_part4 } from './operations-part-4.js';
 
-export type operations = operations_part1 & operations_part2 & operations_part3;
+export type operations = operations_part1 & operations_part2 & operations_part3 & operations_part4;

@@ -55,6 +55,7 @@ describe('MCP server over stdio against the real HTTP server', () => {
       'add_research',
       'answer_attention',
       'ask_leader',
+      'gate_worktree',
       'list_attention',
       'list_memory',
       'remove_memory',

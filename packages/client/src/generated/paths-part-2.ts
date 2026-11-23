@@ -41,4 +41,38 @@ export interface paths_part2 {
     patch?: never;
     trace?: never;
   };
+  '/api/gate': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Start checking an outside worktree (owned paths, machine checks, then a service-side commit); 429 at gate.max_concurrent */
+    post: operations['startGate'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/gate/{id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** A gate job: running, or done with its verdict (kept 1 hour, lost on restart) */
+    get: operations['getGate'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }

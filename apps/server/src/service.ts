@@ -12,6 +12,7 @@ import {
   type RunnerRegistry,
   type Store,
 } from '@agent-team/core';
+import type { GateGit } from '@agent-team/git';
 import { DATA_LAYOUT, isLiveRunState } from '@agent-team/schema';
 import { createApp } from './app/app.js';
 import { EventHub } from './app/sse.js';
@@ -20,6 +21,7 @@ import { randomToken } from './auth/secrets.js';
 import type { LoadedConfig } from './config.js';
 import { runDoctor } from './doctor.js';
 import type { EnvReader } from './env.js';
+import { createGateJobs, type GateJobs } from './gate/jobs.js';
 import { createHub } from './hub/hub.js';
 import { roleSummarizer, type Summarize } from './hub/summarizer.js';
 import type { Hub, HubRuntime } from './hub/types.js';
@@ -66,6 +68,11 @@ export interface ServiceDeps {
    * adapter, tests pass one against a fake MemOS on loopback.
    */
   memory?: MemosMemory;
+  /**
+   * Git for the gate's outside worktrees (spec §19); main.ts builds it from packages/git. Without
+   * it the gate routes answer 503. Its checks use `checks` (the same sandboxed executor).
+   */
+  gateGit?: GateGit;
 }
 
 export interface RunningService {
@@ -80,6 +87,8 @@ export interface Service {
   readonly leader: Leader;
   readonly hub: Hub;
   readonly context: AppContext;
+  /** Gate jobs (spec §19), when `gateGit` was given. */
+  readonly gates: GateJobs | undefined;
   /** Recover, bind both listeners, write listener.json, start the patrol tick. */
   start(): Promise<RunningService>;
   /**
@@ -164,6 +173,20 @@ export function createService(deps: ServiceDeps): Service {
     onRateLimited: (tx, until) => hub.onLeaderRateLimited(tx, until),
   });
   late.leader = leader;
+  const gates = deps.gateGit
+    ? createGateJobs({
+        engine,
+        store,
+        clock,
+        ids: deps.ids,
+        git: deps.gateGit,
+        checks: deps.checks,
+        dataDir,
+        maxConcurrent: service.gate.max_concurrent,
+        checkTimeoutMs: service.engine.check_timeout_ms,
+        logger,
+      })
+    : undefined;
   const context: AppContext = {
     engine,
     store,
@@ -178,6 +201,7 @@ export function createService(deps: ServiceDeps): Service {
     checkRepo: async (repoPath, baseBranch) => {
       await deps.git.resolveRef({ repoPath, ref: baseBranch });
     },
+    ...(gates ? { gates } : {}),
   };
 
   let local: Listening | undefined;
@@ -200,6 +224,10 @@ export function createService(deps: ServiceDeps): Service {
       }
       events.closeAll();
       await Promise.all([local?.close(), lan?.close(), leaderSocket?.close()]);
+      // running gate checks are killed; their jobs end rejected (nothing committed)
+      await gates
+        ?.stop()
+        .catch((err: unknown) => logger.warn('gate stop failed', { error: errorMessage(err) }));
       const { abandonedRuns } = await engine.shutdown();
       if (abandonedRuns.length > 0) {
         logger.info('stopped live runs (requeued with a recovery note)', {
@@ -298,5 +326,5 @@ export function createService(deps: ServiceDeps): Service {
     }
   }
 
-  return { engine, events, leader, hub, context, start, stop };
+  return { engine, events, leader, hub, context, gates, start, stop };
 }

@@ -195,6 +195,24 @@ team memory rm demo <記憶 id>
 記憶開啟時，dsh 與機器檢查在**所有位址**都連不到 MemOS 的埠（預設 8000；Seatbelt 不能指定主機，所以本機的 8000 埠也
 不能給專案的測試伺服器用）。
 
+## 把關外部 worktree（`team gate`，spec §19）
+
+T3 Code 的 delegate 在自己的 worktree 做完後，不採信它的回報，交給服務核對（ADR 0026）：
+
+```sh
+team gate demo --worktree ~/RanoLabs/worktrees/demo/feat --base <開工時的 sha> --paths "src/feature/, docs/feature.md"
+# g_… pass (committed) head 1a2b3c4d5e6f · 3 file(s) changed
+#   check test: pass
+```
+
+- 核對：worktree 是專案 repo 的連結 worktree（不是主 checkout、不在 `base_branch`）、`--base` 是 HEAD 的祖先；變更
+  （`base..HEAD`＋未提交＋未追蹤且未 ignore）全在 `--paths` 內；專案 checks 在同一個沙箱執行器裡全過（日誌在
+  `DATA/gate/<gate_id>/`）；檢查後變更清單不變。全過才由服務提交核對過的檔案（不跑 hooks，作者同服務端提交，訊息預設
+  `team(gate): <分支>`，`--message` 可改；`--no-commit` 只核對）。重跑是冪等的：已提交的不再提交（`committed=false`）。
+- 結束碼：`pass` 為 0，`rejected`／`checks_failed` 為 1；`--json` 印完整結果。只有人能用（leader 權杖回 403）；
+  同時最多 `gate.max_concurrent`（預設 2）個，超過回 429。job 只在記憶體（完成後保留 1 小時，重啟就重跑）。
+- MCP：`gate_worktree`（同樣等到結果）。
+
 ## CLI 速查
 
 | 指令                                                                                                        | 說明                                                                                                          |
@@ -217,6 +235,7 @@ team memory rm demo <記憶 id>
 | `team leader reset`                                                                                         | 開新的 leader 對話（例如換了 Claude 登入）                                                                    |
 | `team attention list` / `show <id>` / `open --question Q --option A …` / `answer <id> "<答案>"`             | 待決事項；`show` 看全文；回答 worker 的最後一個問題或修正上限的提問後，任務帶著回答自動續行（ADR 0017、0025） |
 | `team memory search <project> <query>` / `add <project> <text\|->` / `list <project>` / `rm <project> <id>` | 專案記憶（spec §18；關閉時 409）；leader 只能 search                                                          |
+| `team gate <project> --worktree W --base SHA --paths "…" [--message M] [--no-commit]`                       | 核對並提交外部 worktree（spec §19）；pass 結束碼 0、其他 1；只有人可以                                        |
 
 每個指令都可加 `--json`。結束碼：0 成功、1 業務錯誤、2 用法或連線錯誤（`team ask` 被 Ctrl-C 中止是 130）。
 
@@ -233,7 +252,7 @@ ln -s /ABS/PATH/agent-team/skills/team-agent ~/.claude/skills/team-agent
 ## MCP（Claude／Codex 桌面版）
 
 工具：`ask_leader`、`status`、`list_attention`、`answer_attention`、`task_action`、`add_research`、
-`show_research`、`search_memory`、`list_memory`、`add_memory`、`remove_memory`（細節見
+`show_research`、`search_memory`、`list_memory`、`add_memory`、`remove_memory`、`gate_worktree`（細節見
 [`apps/mcp/README.md`](apps/mcp/README.md)）。`/ABS/PATH/agent-team` 換成本 repo 的絕對路徑；資料目錄不在預設位置時
 加上 `AGENT_TEAM_HOME`。
 

@@ -71,6 +71,13 @@ export const ServiceConfigSchema = z.strictObject({
       allow_unsandboxed: z.boolean().default(false),
     })
     .prefault({}),
+  /** The gate for worktrees the service did not create (spec §19; docs/adr/0026). */
+  gate: z
+    .strictObject({
+      /** Gate jobs running at once; one more answers 429. */
+      max_concurrent: z.number().int().positive().default(2),
+    })
+    .prefault({}),
   /** Worker runner settings (docs/adr/0019). */
   runners: z
     .strictObject({

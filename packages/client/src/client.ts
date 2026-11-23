@@ -66,6 +66,11 @@ export type MemoryPage = Json<'listMemory'>;
 export type MemoryAddResult = Json<'addMemory', 202>;
 export type MemoryRemoveResult = Json<'removeMemory'>;
 export type MemoryListQuery = Query<'listMemory'>;
+/** The gate (spec §19): a job and the body that starts one. */
+export type GateJob = Schemas['GateJob'];
+export type GateCheck = GateJob['checks'][number];
+export type GateStartBody = Body<'startGate'>;
+export type GateStarted = Json<'startGate', 202>;
 
 export interface TeamClientOptions {
   /** Listener base URL, e.g. `http://127.0.0.1:4517` (no trailing slash needed). */
@@ -163,6 +168,10 @@ export interface TeamClient {
   addMemory(projectId: string, text: string): Promise<MemoryAddResult>;
   /** Delete one item of a project's memory (humans only). */
   removeMemory(projectId: string, memoryId: string): Promise<MemoryRemoveResult>;
+  /** Start checking an outside worktree (humans only; 429 at `gate.max_concurrent`). */
+  startGate(body: GateStartBody): Promise<GateStarted>;
+  /** A gate job (running or done; kept 1 hour, lost on a service restart). */
+  getGate(id: string, options?: CallOptions): Promise<GateJob>;
   /** SSE: replay after `after`, then live; reconnects with the last seq. */
   events(options: EventStreamOptions): EventSubscription;
 }
@@ -315,6 +324,14 @@ export function createTeamClient(options: TeamClientOptions): TeamClient {
       call(() =>
         raw.POST('/api/projects/{id}/memory/{memory_id}/delete', {
           params: { path: { id: projectId, memory_id: memoryId } },
+        }),
+      ),
+    startGate: (body) => call(() => raw.POST('/api/gate', { body })),
+    getGate: (id, callOptions = {}) =>
+      call(() =>
+        raw.GET('/api/gate/{id}', {
+          ...byId(id),
+          ...(callOptions.signal ? { signal: callOptions.signal } : {}),
         }),
       ),
     events: (eventOptions) =>

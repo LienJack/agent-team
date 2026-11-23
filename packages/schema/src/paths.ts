@@ -20,6 +20,8 @@ export const DATA_LAYOUT = {
   runs: 'runs',
   /** `research/<run_id>/`: the empty working directory of one research run (0700; spec §17). */
   research: 'research',
+  /** `gate/<gate_id>/<check>.log`: full output of a gate job's checks (0700; spec §19). */
+  gate: 'gate',
 } as const;
 
 /** Files inside `DATA/runs/<run_id>/`. */
@@ -61,6 +63,11 @@ export function runLogDir(dataDir: string, runId: string): string {
 /** `DATA/research/<run_id>`: a research run's empty cwd (created and removed by the server). */
 export function researchWorkdir(dataDir: string, runId: string): string {
   return joinPosix(dataDir, DATA_LAYOUT.research, runId);
+}
+
+/** `DATA/gate/<gate_id>`: the check logs of one gate job (spec §19). */
+export function gateLogDir(dataDir: string, gateId: string): string {
+  return joinPosix(dataDir, DATA_LAYOUT.gate, gateId);
 }
 
 /** Task branch name (spec §4): `team/<task_id>`. */

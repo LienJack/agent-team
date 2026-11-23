@@ -42,6 +42,8 @@ const SPEC_ROUTES = [
   'GET /api/roles',
   'GET /api/quota',
   'GET /api/doctor',
+  'POST /api/gate',
+  'GET /api/gate/{id}',
 ];
 
 describe('route contracts (spec §11)', () => {

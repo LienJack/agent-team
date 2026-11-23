@@ -14,6 +14,7 @@ import {
   testModelsConfig,
 } from '@agent-team/core/testing';
 import { defaultServiceConfig, type ServiceConfig } from '@agent-team/schema';
+import type { GateGit } from '@agent-team/git';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { createApp } from '../app/app.js';
 import type { AppEnv } from '../app/types.js';
@@ -50,6 +51,8 @@ export interface TestServiceOptions {
   summarize?: Summarize;
   /** Project memory adapter (used only when the test enables memory; a fake MemOS on loopback). */
   memory?: (store: InMemoryStore, config: ServiceConfig) => MemosMemory;
+  /** Git for the gate (spec §19); default none (the gate routes answer 503). */
+  gateGit?: GateGit;
 }
 
 export interface TestService {
@@ -127,6 +130,7 @@ export function createTestService(options: TestServiceOptions = {}): TestService
     ...(options.leader ? { leader: options.leader(root) } : {}),
     ...(options.hub ? { hub: options.hub } : {}),
     ...(options.memory ? { memory: options.memory(store, config) } : {}),
+    ...(options.gateGit ? { gateGit: options.gateGit } : {}),
     // never the real hub_summarizer in tests
     summarize:
       options.summarize ??
