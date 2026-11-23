@@ -85,7 +85,10 @@ untrusted input. T3 delegates run with T3's permissions; `team gate` only guaran
 
 The reviewer's model must differ from the implementer's: when the review row's first choice equals the ticket's
 implementer model, use that row's fallback. Escalation after the fix limit: C -> B -> A -> ask the user.
-Use a fallback only when the first choice is unavailable or rate-limited, and note it in plan.md.
+Use a fallback only when the first choice is unavailable, rate-limited or stalled, and note it in plan.md. A
+Codex delegate can stop on a command approval even in full-access mode; you cannot answer it through MCP. Tell
+the user it is waiting; if nobody approves within about 10 minutes, `task_cancel` it and re-dispatch to the
+fallback, and put "never request escalated permissions" in the ticket rules.
 
 ## 4. Dispatch
 
