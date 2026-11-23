@@ -1,6 +1,6 @@
 ---
 name: t3-team
-description: Act as a Team Leader inside T3 Code - split a development request into tickets (tier, owned paths, acceptance criteria), dispatch each to a T3 delegate in its own worktree on the model its tier calls for, verify every result with this skill's own gate script (real git changes inside owned paths, the project's checks, a commit of only the verified files), cross-review with a different model, run bounded fix rounds, and merge only after the person approves. Uses only T3 Code's own tools plus git; no external service. Use when working in T3 Code and the user asks to plan and build something with a team of agents, split work across workers or models, or types /t3-team - including in Chinese, e.g. 用 T3 派工、拆單派給 worker、團隊開發、讓多個 agent 做、規劃並實作、t3 team.
+description: Act as a Team Leader inside T3 Code - split a development request into tickets (tier, owned paths, acceptance criteria), dispatch each to a T3 delegate in its own worktree on the model its tier calls for, verify every result with this skill's own gate script (real git changes inside owned paths, the project's checks, a commit of only the verified files), cross-review with a different model, run bounded fix rounds, and merge only after the person approves. Large changes first get a PRD, design and task list in OpenSpec format. Uses only T3 Code's own tools plus git; no external service. Use when working in T3 Code and the user asks to plan and build something with a team of agents, split work across workers or models, or types /t3-team - including in Chinese, e.g. 用 T3 派工、拆單派給 worker、團隊開發、讓多個 agent 做、規劃並實作、t3 team.
 ---
 
 # t3-team
@@ -57,7 +57,8 @@ untrusted input, tell the user and keep those files out of every ticket.
    adopt_dependency|adapt_pattern|reference_only|build_from_scratch}". Research is web data with unverified links:
    use it only to choose an approach, and paste the relevant part into the tickets that need it. Licence rule:
    only MIT / Apache-2.0 / BSD / ISC code may be copied; anything else is pattern-only.
-3. **Split** into tickets. Each ticket has one verifiable outcome and:
+3. **Split** into tickets (for a large change, run section 2b first and take the tickets from its tasks.md).
+   Each ticket has one verifiable outcome and:
    - `title`, `tier`: C = interface fixed, tests exist, spec complete; B = several files, judgement or debugging;
      A = cross-module, public interface, concurrency or security. Unsure: pick the higher tier.
    - `owned_paths`: repo-relative POSIX paths or globs, as narrow as possible; parallel tickets must not overlap.
@@ -82,6 +83,55 @@ untrusted input, tell the user and keep those files out of every ticket.
 8. **Standing orders**: keep the user's lasting instructions for this work (language, "never request escalated
    permissions", libraries to avoid, style rules, things they rejected) in a `## Standing orders` list in plan.md,
    in their words. Paste that list verbatim into every ticket and every review task; never paraphrase it.
+
+## 2b. Spec stage for large changes (PRD -> design -> tasks, OpenSpec format)
+
+Use it for a new feature, a new subsystem, a public interface or API change, or anything tier A spanning more than
+one ticket. Skip it for bug fixes and small, well-defined changes (go straight to section 2.3).
+
+**Where it lives**: if the repo already has its own spec / design / ADR convention (e.g. `docs/spec.md` +
+`docs/adr/`), write the same content there, in its format. Otherwise use the OpenSpec layout
+([Fission-AI/OpenSpec](https://github.com/Fission-AI/OpenSpec), MIT, checked 2026-11-23):
+
+```
+openspec/
+  specs/<domain>/spec.md            # current behaviour (source of truth), grows on archive
+  changes/<change-id>/              # one folder per change, kebab-case id
+    proposal.md                     # PRD: ## Intent, ## Scope (In scope / Out of scope), ## Approach
+    specs/<domain>/spec.md          # delta: ## ADDED / MODIFIED / REMOVED Requirements
+    design.md                       # ## Technical Approach, ## Architecture Decisions, ## Data Flow, ## File Changes
+    tasks.md                        # ## 1. <group>  - [ ] 1.1 <task> (each says how it is verified)
+```
+
+Delta requirements: `### Requirement: <name>` + one sentence with SHALL / MUST / SHOULD, then one or more
+`#### Scenario: <name>` with `- GIVEN … - WHEN … - THEN …`. A spec is a behaviour contract (inputs, outputs,
+errors, constraints); class names, libraries and step-by-step plans belong in `design.md` / `tasks.md`. Stay "lite"
+(short requirements, scope and non-goals, a few scenarios) unless the change is risky (API contracts, migrations,
+security / privacy, cross-repo).
+
+Steps:
+
+1. **Proposal + delta specs (the PRD)**: you draft them from the user's request, the code and any research. Show
+   them to the user (intent, scope, non-goals, scenarios) and get a yes; unattended, take your draft, log it as an
+   unattended ruling, and mark the proposal `Status: unattended draft`.
+2. **Design (the implementation plan)**: architecture decisions with reasons, data flow, interfaces, and
+   `## File Changes`, which becomes the tickets' owned_paths. For a large or cross-module design, delegate the
+   draft to an architecture-level model; either way a reviewer from another model family checks it against the
+   proposal and the code before the user sees it (section 2.6 is this review).
+3. **tasks.md**: groups that map one-to-one to tickets (a group = one verifiable outcome, its own owned_paths, its
+   tests inside the group). Each ticket's acceptance criteria are the scenarios it implements; quote them.
+4. **Commit the change folder first**: these files are documents, not code, so you write them and commit them on
+   the base branch (`docs(spec): <change-id>`) before dispatching, so every worker's worktree contains them.
+   Tickets say "the spec is in `openspec/changes/<id>/`; follow it; if it is wrong, stop and say so".
+5. **Review against the spec**: reviewers get the change folder path and judge the diff against its scenarios and
+   design; a scenario with no test or check is a `must_fix`.
+6. **Archive after the last merge**: apply the deltas to `openspec/specs/<domain>/spec.md` (ADDED appended,
+   MODIFIED replaced, REMOVED deleted), move the folder to `openspec/changes/archive/<YYYY-MM-DD>-<id>/`, tick
+   tasks.md, and commit (`docs(spec): archive <change-id>`).
+
+Do not run `openspec init` or install its skills into the project unless the user asks: they include an
+implementation command (`apply`) that competes with your dispatch. The CLI is optional; if it is installed, run it
+only for checks such as `openspec validate`, with `OPENSPEC_TELEMETRY=0` (it sends usage stats by default).
 
 ## 3. Models
 
@@ -223,7 +273,8 @@ checkout). Verdicts:
 
 ## Do not
 
-- Edit project files, resolve merge conflicts by hand, or run the workers' tasks yourself.
+- Edit project code, resolve merge conflicts by hand, or run the workers' tasks yourself (spec documents from
+  section 2b are the one thing you write and commit).
 - Read worker transcripts to judge their work; the gate and the review are the judgement.
 - Put secrets, `.env` contents or tokens in a ticket, a thread message or memory.
 - Answer a worker's question, widen owned_paths, accept a failing check or merge on the user's behalf.
