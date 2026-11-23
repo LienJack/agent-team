@@ -1,119 +1,12 @@
 name: ci
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-
-permissions:
-  contents: read
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
-# Actions are pinned to full commit SHAs (the tag in the comment); update both together.
+on: [push, pull_request]
 jobs:
-  check:
+  test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      # never install git hooks on CI
-      HUSKY: '0'
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      # version comes from "packageManager" in package.json
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: '26'
-          cache: pnpm
-
-      - name: install
-        run: pnpm install --frozen-lockfile
-
-      - name: lint
-        run: |
-          pnpm lint
-          pnpm format:check
-
-      - name: typecheck
-        run: pnpm typecheck
-
-      # every package's vitest project, the web component tests (jsdom) included
-      - name: test
-        run: pnpm test
-
-      # tsc -b --force, then vite build of the board
-      - name: build
-        run: pnpm build
-
-      - name: boundary check
-        run: pnpm check:boundaries
-
-      # openapi.json from the route contracts, then the client types from openapi.json
-      - name: generated files up to date
-        run: pnpm check:generated
-
-      # anything else the steps above rewrote (formatting, generated files) must be committed
-      - name: working tree unchanged
-        run: git diff --exit-code
-
-  # The Seatbelt tests (dsh and check sandboxes, docs/adr/0019, 0020) skip without
-  # `sandbox-exec`, so they only run here.
-  check-macos:
-    runs-on: macos-latest
-    timeout-minutes: 30
-    env:
-      HUSKY: '0'
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: '26'
-          cache: pnpm
-
-      - name: install
-        run: pnpm install --frozen-lockfile
-
-      - name: lint
-        run: pnpm lint
-
-      - name: typecheck
-        run: pnpm typecheck
-
-      - name: test
-        run: pnpm test
-
-  # The board smoke (spec §14 web): Playwright against the real server with fake runners and the
-  # leader off, on loopback ephemeral ports. Playwright's own Chromium is installed here; locally
-  # the config falls back to the system Chrome when that browser is absent.
-  e2e:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      HUSKY: '0'
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: '26'
-          cache: pnpm
-
-      - name: install
-        run: pnpm install --frozen-lockfile
-
-      - name: install the Playwright browser
-        run: pnpm --filter @agent-team/web exec playwright install --with-deps chromium
-
-      # vite build of the board, then the smoke test
-      - name: e2e
-        run: pnpm test:e2e
+          python-version: "3.12"
+      - run: git config --global user.email ci@example.invalid && git config --global user.name ci
+      - run: cd skills/t3-team && python -m unittest -v && python roles_check.py

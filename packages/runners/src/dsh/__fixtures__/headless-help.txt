@@ -1,6 +1,0 @@
-Usage: dsh --profile headless [options] [task...]
-
-Options:
-  --json             write newline-delimited run events to stdout
-  --session-id <id>  adopt the persisted Session with this id
-  -h, --help         show this help
