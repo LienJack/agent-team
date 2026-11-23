@@ -17,7 +17,7 @@ import {
   type ResearchMode,
 } from '@agent-team/schema';
 import { LEADER_OPTIONAL_FLAGS, LEADER_REQUIRED_FLAGS, leaderArgs } from './args.js';
-import { leaderSystemPrompt } from './prompt/system-v6.js';
+import { leaderSystemPrompt } from './prompt/system-v7.js';
 import { leaderSandboxSettings, leaderSocketPath } from './sandbox.js';
 import type { LeaderRuntime } from './types.js';
 

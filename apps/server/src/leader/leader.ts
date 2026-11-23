@@ -26,7 +26,7 @@ import {
 import { markDelivered, persistReply, storedAnswer, unansweredMessages } from './persist.js';
 import { clearStarted, inputKey, markStarted, turnSeed, wasStarted } from './replay.js';
 import { LeaderProcess, leaderModel } from './process.js';
-import { leaderPromptVersion } from './prompt/system-v6.js';
+import { leaderPromptVersion } from './prompt/system-v7.js';
 import { resumeBrief } from './resume.js';
 import {
   leaderStatus,

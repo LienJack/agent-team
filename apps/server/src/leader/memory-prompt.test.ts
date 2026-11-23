@@ -7,7 +7,7 @@ import {
   LEADER_REQUIRED_FLAGS,
   leaderArgs,
 } from './args.js';
-import { leaderPromptVersion, leaderSystemPrompt, MEMORY_SENTENCE } from './prompt/system-v6.js';
+import { leaderPromptVersion, leaderSystemPrompt, MEMORY_SENTENCE } from './prompt/system-v7.js';
 
 // spec §18: with project memory on, the leader's prompt gets one sentence and its allow-list
 // `team memory search` — nothing else of the memory (adding, listing, deleting are a person's).
@@ -31,7 +31,7 @@ describe('§18 the leader and project memory', () => {
       expect(leaderSystemPrompt(mode, false)).not.toContain('專案記憶');
       expect(leaderSystemPrompt(mode)).toBe(leaderSystemPrompt(mode, false));
       expect(leaderSystemPrompt(mode, true)).not.toContain('{{');
-      expect(leaderPromptVersion(mode, true)).toBe(`v6-${mode}-memory`);
+      expect(leaderPromptVersion(mode, true)).toBe(`v7-${mode}-memory`);
       expect(leaderPromptVersion(mode, true)).not.toBe(leaderPromptVersion(mode, false));
     }
     expect(MEMORY_SENTENCE).toContain('`team memory search');

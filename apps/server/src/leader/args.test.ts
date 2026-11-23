@@ -7,7 +7,7 @@ import {
   LEADER_REQUIRED_FLAGS,
   leaderArgs,
 } from './args.js';
-import { DELIVERY_RULE, leaderPromptVersion, leaderSystemPrompt } from './prompt/system-v6.js';
+import { DELIVERY_RULE, leaderPromptVersion, leaderSystemPrompt } from './prompt/system-v7.js';
 
 // The leader's shell surface (spec §9, docs/adr/0012): Bash only, allowed for `team …`, with
 // Claude Code's auto-approved read-only commands denied explicitly.
@@ -65,7 +65,7 @@ describe('leader shell surface', () => {
       expect(prompt).toContain('每次 Bash 只放一個 `team` 指令');
       for (const s of ['`&&`', '`;`', '`|`', '`echo`']) expect(prompt).toContain(s);
       // a new rule is a new prompt version: the next start opens a new conversation
-      expect(leaderPromptVersion(mode)).toBe(`v6-${mode}`);
+      expect(leaderPromptVersion(mode)).toBe(`v7-${mode}`);
     }
   });
 
@@ -78,7 +78,7 @@ describe('leader shell surface', () => {
         expect(DELIVERY_RULE).toContain(s);
       }
       expect(DELIVERY_RULE).toContain('`team status` 的 `report:`');
-      expect(leaderPromptVersion(mode)).toBe(`v6-${mode}`);
+      expect(leaderPromptVersion(mode)).toBe(`v7-${mode}`);
       // the prompt reaches the CLI verbatim through --append-system-prompt
       const argv = leaderArgs({
         model: 'm',
