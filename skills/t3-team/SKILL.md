@@ -150,6 +150,8 @@ Steps:
      options, with licences;
    - present 2-3 real options in a table: how it works, fit with the current code, effort, risk, cost, licence,
      reversibility, plus your recommendation and why;
+   - only decisions with a real trade-off go to the user; where one option clearly wins (it is what the code
+     already uses, or the others fail a hard constraint), decide it and list it under the play-back assumptions;
    - the user picks (unattended: your recommendation, logged as an unattended ruling);
    - record it in design.md under `## Architecture Decisions` as `### Decision: <choice>` with the reasons and the
      rejected options and why (or as an ADR, if the repo uses ADRs).
