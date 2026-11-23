@@ -15,6 +15,9 @@ review_needs_changes」停下。每輪模型審查都會提出新的 must_fix，
 2. 人回答後，回答會交給下一個 worker（跟 worker 的 `needs_leader` 問題一樣，ADR 0017），任務重新排隊，
    `fix_rounds` 歸零，也就是重新給 `max_fix_rounds_before_escalate` 輪修正額度。回答可以寫「哪些可以不管」、
    「先修什麼」或「接受目前做法」。
+   回答 `fix_limit` 這一筆就會重排，不必等同一任務的其他待決事項：worker 在成功的 run 回執 `needs_leader` 裡留的
+   說明也會開成 `worker_question`，以前它們沒回答就擋住重排（2026-11-22 MVP1-1 實際發生）。任務離開 `blocked` 時，
+   這些沒回答的項目照既有規則變成 `superseded`。
 3. 人直接按重試（不回答）也一樣重新給額度；這時那筆待決事項會照既有規則變成 `superseded`。Leader 的重試不重設
    額度：要再給額度是人的決定。
 4. 要放棄就取消任務，不另外做「放棄」選項。

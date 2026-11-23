@@ -15,7 +15,11 @@ const needsChanges = (spec: RunSpec) => ({
 });
 
 /** Every impl/fix run (any runner) edits an owned file; reviews answer with `review`. */
-function scriptAll(h: TestEngine, review: (spec: RunSpec) => { final: unknown }) {
+function scriptAll(
+  h: TestEngine,
+  review: (spec: RunSpec) => { final: unknown },
+  note: (n: number) => string = () => '',
+) {
   let n = 0;
   for (const r of Object.values(h.runners)) {
     r.defaultStep = {
@@ -31,7 +35,7 @@ function scriptAll(h: TestEngine, review: (spec: RunSpec) => { final: unknown })
                 summary: 'ok',
                 files_changed: [],
                 checks: [],
-                needs_leader: '',
+                needs_leader: note(n),
               },
             }
           : review(spec),
@@ -135,6 +139,32 @@ describe('§14 修正與升級 — review → fix → escalate', () => {
     // the resumed fix run passed review: no round was counted against the fresh budget
     expect(h.get(task.id)).toMatchObject({ status: 'done', fix_rounds: 0 });
     expect(prompts.slice(before).some((p) => p.includes('命名問題先不管，只修 null'))).toBe(true);
+  });
+
+  it('notes left by successful runs do not hold up the fix-limit answer; they are superseded', async () => {
+    const h = createTestEngine();
+    const task = h.task({ tier: 'A', impl_role: 'impl_A' });
+    let reviews = 0;
+    scriptAll(
+      h,
+      (spec) => (++reviews <= 3 ? needsChanges(spec) : { final: reviewReceipt(spec) }),
+      (n) => (n <= 3 ? `第 ${n} 輪的說明：介面改了` : ''),
+    );
+    await h.engine.runUntilIdle();
+    const open = h.store.attention.list({ task_id: task.id, statuses: ['open'] });
+    expect(open.map((a) => a.topic).sort()).toEqual([
+      'fix_limit',
+      'worker_question',
+      'worker_question',
+      'worker_question',
+    ]);
+    const decision = open.find((a) => a.topic === 'fix_limit')!;
+    h.engine.answerAttention(decision.id, '照目前做法收尾', 'cli');
+    expect(h.get(task.id)).toMatchObject({ status: 'queued', fix_rounds: 0 });
+    const notes = open.filter((a) => a.topic === 'worker_question');
+    for (const a of notes) expect(h.store.attention.get(a.id)?.status).toBe('superseded');
+    await h.engine.runUntilIdle();
+    expect(h.get(task.id).status).toBe('done');
   });
 
   it('a person retrying a fix-limit block gives it a fresh budget; the open item is superseded', async () => {

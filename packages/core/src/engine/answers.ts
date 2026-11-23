@@ -38,10 +38,12 @@ export function answersFor(tx: Tx, taskId: string): PromptAnswer[] {
 }
 
 /**
- * After a human answered `item`: when its task is blocked by its worker's report or by the fix
- * limit (docs/adr/0025) and no other item of the task is still open, queue the task again (like
- * a human retry: attempts reset, human priority; a fix-limit block also restarts `fix_rounds`).
- * The next prompt carries the answers. Returns the requeued task, if any.
+ * After a human answered `item`: when its task is blocked by its worker's report and no other
+ * item of the task is still open, or blocked by the fix limit and `item` is its `fix_limit`
+ * question (docs/adr/0025), queue the task again (like a human retry: attempts reset, human
+ * priority; a fix-limit block also restarts `fix_rounds`). The fix-limit answer is the decision:
+ * notes workers left as `needs_leader` on runs that succeeded do not hold it up, and leaving
+ * `blocked` supersedes them. The next prompt carries the answers. Returns the requeued task.
  */
 export function resumeAfterAnswer(ctx: EngineContext, tx: Tx, item: Attention): Task | undefined {
   if (item.task_id === null) return undefined;
@@ -49,7 +51,10 @@ export function resumeAfterAnswer(ctx: EngineContext, tx: Tx, item: Attention): 
   if (!task || task.status !== 'blocked') return undefined;
   const fixLimit = isFixLimitBlock(task);
   if (!fixLimit && !(task.blocked_reason ?? '').startsWith(WORKER_REPORT_BLOCK)) return undefined;
-  if (tx.r.attention.list({ task_id: task.id, statuses: ['open'] }).length > 0) return undefined;
+  const decides = fixLimit && item.topic === 'fix_limit';
+  if (!decides && tx.r.attention.list({ task_id: task.id, statuses: ['open'] }).length > 0) {
+    return undefined;
+  }
   const next = saveTask(
     tx,
     task,
