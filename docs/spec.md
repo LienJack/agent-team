@@ -501,3 +501,36 @@ MCP 工具（薄包裝）：`ask_leader`（與 `team ask` 相同的等待方式�
 - **已知限制**：MemOS 的 API 沒有驗證，區網內任何裝置都能讀寫；記憶內容會離開這台電腦（到 NAS，建向量的文字再到
   MemOS 設定的 embedding 供應商；`add_mode=async` 時全文再到它的對話模型；預設 `sync_fast` 不會）。刪除專案不自動刪 cube。MemOS #2461：內容落在
   embedder 上限與切分門檻之間時存下但沒有向量、永遠搜不到（回報者約 500 個中文字就觸發），看板與 CLI 標「搜尋不到」。
+
+## 19. T3 Code 編排與把關 API（ADR 0026）
+
+規劃與派工可改由 T3 Code 的主 thread 擔任（skill `skills/t3-team`）：拆單照 §9 的規則，worker 是 T3 的
+`delegate_task`（`isolation: worktree`）。服務只做把關、調研（§17）與記憶（§18）。原本的 `team task add` 路線不變，兩者並存。
+
+**把關（gate）**：對一個不是服務建立的 worktree 做 §6 第 3–5 步。只有人（operator 權杖、區網）能呼叫；leader 一律拒絕。
+
+```
+POST /api/gate { project_id, worktree_path, base_sha, owned_paths[], commit_message?, commit? (預設 true) }
+     → 202 { gate_id, state: running }
+GET  /api/gate/:id
+     → { gate_id, state(running|done), verdict?(pass|rejected|checks_failed), reasons[], files_changed[], out_of_scope[],
+         checks[{ name, cmd, result(pass|fail|not_run), tail }], head_sha?, committed, started_at, ended_at? }
+```
+
+1. 前置（不符 → `rejected`，`reasons` 寫明）：專案存在；`worktree_path` 是絕對路徑、真實目錄（解析 symlink）、不是主
+   checkout；`.git` 是一般檔案、`--git-common-dir` 是專案 repo 的、top level 就是這個路徑；HEAD 在某個分支上、不是
+   專案的 `base_branch`；`base_sha` 是 HEAD 的祖先。`owned_paths` 照 `OwnedPathSchema` 驗證（400）。
+2. 變更清單 = `base_sha..HEAD` 的檔案 ∪ 未提交的修改 ∪ 未追蹤且未被 ignore 的檔案（排序、去重）。空 → `rejected`
+   （沒有變更）。不在 `owned_paths` 內的（core 的 `filesOutside`，依 `core.ignorecase`）→ `rejected`，列在 `out_of_scope`。
+3. 專案的機器檢查逐條在 worktree 執行，用服務的檢查執行器（同 §6 第 4 步的沙箱與環境白名單；沒有沙箱就照
+   `checks.allow_unsandboxed`）。日誌存 `DATA/gate/<gate_id>/<check>.log`，回應只帶最後 20 行（已遮蔽）。任一失敗 →
+   `checks_failed`，不提交。專案沒有檢查 → `checks` 為空、照常繼續（`reasons` 註明「沒有機器檢查」）。
+4. 重算變更清單；與第 2 步不同 → `rejected`（檢查期間多出或少了檔案），不提交。
+5. `commit` 為 true 且有未提交的變更：只 `git add -- <核對過的檔案>`、不執行 hooks、作者同服務端提交，訊息預設
+   `team(gate): <分支名稱>`；回傳 `head_sha`。沒有未提交的變更（worker 自己提交了，或重跑）→ 不新增提交，`committed=false`。
+6. job 只存在記憶體（重啟遺失，重跑即可：gate 冪等）；同時最多 `gate.max_concurrent`（預設 2）個在跑，超過回 429。
+   完成的 job 保留 1 小時。寫一筆 `gate.completed` 事件（gate_id、project_id、verdict）。
+
+**入口**：`team gate <project> --worktree <path> --base <sha> --paths "<globs>" [--message M] [--no-commit] [--json]`
+（送出後輪詢到 `done`，印出判定、越界檔案、每條檢查的結果；pass 結束碼 0、其他 1）；MCP 工具 `gate_worktree`（同樣
+等到完成）。
