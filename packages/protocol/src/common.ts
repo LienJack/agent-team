@@ -5,13 +5,13 @@ import { ERROR_RESPONSE } from './constants.js';
 // Building blocks shared by every route contract (spec §11). The server implements the routes;
 // the client's types are generated from the document these produce.
 
-type ErrorStatus = 400 | 401 | 403 | 404 | 409 | 415 | 429 | 500 | 501 | 503;
+type ErrorStatus = 400 | 401 | 403 | 404 | 409 | 415 | 500 | 501 | 503;
 
 const ERROR_REF = { $ref: `#/components/responses/${ERROR_RESPONSE}` } as const;
 
 /**
- * Error responses of a route: always 400 (validation), 401 (auth), 403 (origin / LAN) and 500,
- * plus the route-specific ones. All share the error envelope component.
+ * Error responses of a route: always 400 (validation), 401 (local listener token), 403 (leader
+ * guard) and 500, plus the route-specific ones. All share the error envelope component.
  */
 export function errors(...extra: ErrorStatus[]): Record<string, typeof ERROR_REF> {
   const codes = new Set<ErrorStatus>([400, 401, 403, ...extra, 500]);

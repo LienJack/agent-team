@@ -105,6 +105,22 @@ export function boardUrls(listening: Listening): { thisMachine?: string; lan: st
   return { thisMachine: `http://127.0.0.1:${listening.port}`, lan };
 }
 
+/** LAN listener binds that keep the no-login board on this machine. */
+const LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost']);
+
+/**
+ * The start-up line for a board other devices can reach (docs/adr/0024: no authentication, no
+ * origin or host check), or undefined when the LAN listener is bound to loopback.
+ */
+export function openBoardWarning(host: string): string | undefined {
+  if (LOOPBACK.has(host)) return undefined;
+  return (
+    '注意：區網看板沒有任何驗證、來源或主機檢查。同一網路的任何裝置，以及網路上任何瀏覽器裡開著的網頁，' +
+    '都能操作看板並派工（任務會在這台 Mac 上執行程式碼）；要限制請把 service.json 的 lan.host 設為 ' +
+    '"127.0.0.1"，或 lan.enabled 設為 false'
+  );
+}
+
 /** Addresses to print for a LAN listener (every IPv4 interface when bound to 0.0.0.0). */
 export function lanAddresses(listening: Listening): string[] {
   if (!WILDCARD.has(listening.host)) return [listening.url];

@@ -3,8 +3,8 @@ import { request } from 'node:http';
 import { join } from 'node:path';
 import { ListenerFileSchema } from '@agent-team/schema';
 import { afterEach, describe, expect, it } from 'vitest';
-import { boardUrls } from './listeners.js';
-import { createTestService, TEST_PASSWORD, type TestService } from './testing/harness.js';
+import { boardUrls, openBoardWarning } from './listeners.js';
+import { createTestService, type TestService } from './testing/harness.js';
 
 let h: TestService | undefined;
 
@@ -94,32 +94,20 @@ describe('§14 server — listeners and listener.json', () => {
     }
   });
 
-  it('uses TEAM_LAN_PASSWORD from the env file and prints nothing secret', async () => {
+  it('the LAN listener opens without a login and prints no password (docs/adr/0024)', async () => {
     h = createTestService();
     const running = await h.service.start();
-    expect(h.printed.join('')).not.toContain(TEST_PASSWORD);
+    expect(h.printed.join('')).not.toMatch(/密碼|password/i);
+    // bound to loopback in tests: no "anyone on the network" warning
+    expect(h.printed.join('')).not.toContain('沒有任何驗證');
+    const state = await fetch(`${running.lanUrl}/api/state`);
+    expect(state.status).toBe(200);
     const login = await fetch(`${running.lanUrl}/auth/login`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password: TEST_PASSWORD }),
+      body: JSON.stringify({ password: 'x' }),
     });
-    expect(login.status).toBe(200);
-    expect(login.headers.get('set-cookie')).toMatch(/HttpOnly/);
-  });
-
-  it('generates a LAN password when none is set and prints it exactly once', async () => {
-    h = createTestService({ envFile: '# no password\nTEAM_LAN_PASSWORD=\n' });
-    const running = await h.service.start();
-    const lines = h.printed.filter((l) => l.includes('密碼'));
-    expect(lines).toHaveLength(1);
-    const password = /：(\S+)\n$/.exec(lines[0]!)![1]!;
-    expect(password).toMatch(/^[a-z0-9]{4}(-[a-z0-9]{4}){3}$/);
-    const login = await fetch(`${running.lanUrl}/auth/login`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password }),
-    });
-    expect(login.status).toBe(200);
+    expect(login.status).toBe(404);
   });
 
   it('lan.enabled=false starts only the local listener', async () => {
@@ -143,6 +131,13 @@ describe('§14 server — listeners and listener.json', () => {
     expect(all.thisMachine).toBe('http://127.0.0.1:4518');
     expect(all.lan.every((u) => /^http:\/\/[\d.]+:4518$/.test(u))).toBe(true);
     expect(boardUrls(listening('192.168.1.20'))).toEqual({ lan: ['http://192.168.1.20:4518'] });
+    // the board has no authentication: say so whenever other devices can reach it
+    for (const host of ['0.0.0.0', '::', '192.168.1.20']) {
+      expect(openBoardWarning(host)).toMatch(/沒有任何驗證.*lan\.host.*lan\.enabled/);
+    }
+    for (const host of ['127.0.0.1', '::1', 'localhost']) {
+      expect(openBoardWarning(host)).toBeUndefined();
+    }
   });
 
   it('a failed start (port in use) cleans up the listener file', async () => {

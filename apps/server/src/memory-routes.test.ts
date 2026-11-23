@@ -5,10 +5,9 @@ import { createMemosMemory } from './memory/memos.js';
 import { FakeMemos } from './testing/fake-memos.js';
 import {
   createTestService,
+  lanRequest,
   local,
-  SOURCE_HEADER,
   TEST_LEADER_TOKEN,
-  TEST_PASSWORD,
   type Loose,
   type TestService,
 } from './testing/harness.js';
@@ -125,18 +124,7 @@ describe('§18 memory API', () => {
     const p = project(t);
     t.service.engine.addMemory(p.id, '板子上的筆記');
     await t.service.engine.runUntilIdle();
-    const app = t.lanApp();
-    const host = '192.168.1.20:4518';
-    const headers = { host, origin: `http://${host}`, 'sec-fetch-site': 'same-origin' };
-    const login = await app.request(`http://${host}/auth/login`, {
-      method: 'POST',
-      headers: { ...headers, 'content-type': 'application/json', [SOURCE_HEADER]: 'a' },
-      body: JSON.stringify({ password: TEST_PASSWORD }),
-    });
-    const cookie = login.headers.get('set-cookie')?.split(';')[0] ?? '';
-    const res = await app.request(`http://${host}/api/projects/${p.id}/memory`, {
-      headers: { ...headers, cookie },
-    });
+    const res = await lanRequest(t.lanApp(), `/api/projects/${p.id}/memory`);
     expect(res.status).toBe(200);
     expect(((await res.json()) as Loose).memories[0].text).toBe('板子上的筆記');
   });

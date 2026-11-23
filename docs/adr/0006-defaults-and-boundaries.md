@@ -6,6 +6,7 @@
 `reserved_human_slots = 1`、`max_attempts = 3`、`effect_max_attempts = 10`、`circuit_open_ms = 10 分`、
 `run_timeout_ms = 60 分`、`check_timeout_ms = 15 分`、`tick_ms = 5 秒`、LAN session 168 小時、
 服務端提交的作者 `git.author = agent-team <agent-team@localhost>`。埠可設 `0`（由作業系統挑空埠）。
+（2026-11-22）「LAN session 168 小時」已隨區網密碼移除，見 ADR 0024。
 `models.json` 沒有「Codex 額度低」的門檻：`rules.quota.codex_low_utilization` 預設 0.8（耗盡一律算低）。
 `when_claude_high` 在 Claude 使用率 ≥ `claude_high_utilization` 或耗盡時套用；兩條規則都成立時
 `codex_low_quota` 優先。

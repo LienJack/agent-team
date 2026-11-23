@@ -6,10 +6,10 @@ import type { EventHub } from './sse.js';
 /** Hono environment: who is calling (set by the auth middleware of each listener). */
 export interface AppEnv {
   Variables: {
-    /** Idempotency caller: `local`, or `lan:<session hash>`. Never a credential. */
+    /** Idempotency caller: `local`, `local:leader` or `lan`. Never a credential. */
     caller: string;
     actor: Actor;
-    /** Which credential the call came with (derives message source / answer channel). */
+    /** Which listener/credential the call came with (derives message source / answer channel). */
     channel: 'operator' | 'leader' | 'lan';
   };
 }

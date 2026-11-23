@@ -43,14 +43,13 @@ alias team="node /ABS/PATH/agent-team/apps/cli/dist/bin.js"
 | 變數                                     | 用途                                                                                       |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `OPENROUTER_API_KEY`                     | dsh worker 與 `hub_summarizer`（經 OpenRouter）；留在服務端的金鑰代理，dsh 只拿到 run 權杖 |
-| `TEAM_LAN_PASSWORD`                      | 看板登入密碼；留空則每次啟動產生一組，只在終端機印一次                                     |
 | `JEV_API_KEY`、`JEV_URL`、`JEV_PROVIDER` | Jev 判定關卡（預設關閉，v1 不用）                                                          |
 
 秘密不會進資料庫、日誌、API 回應、worker 的派工單或任何子行程的環境。`team doctor` 只顯示「有／沒有」，不顯示值。
 
 **秘密只放在 `.env`，不要 `export` 到啟動服務的 shell。** 同一個使用者的任何行程都讀得到另一個行程啟動時的環境
 （`sysctl KERN_PROCARGS2`，Seatbelt 也擋不住）：服務啟動時若在自己的行程環境裡看到 `OPENROUTER_API_KEY`、
-`TEAM_LAN_PASSWORD`、`JEV_API_KEY`，會對每一個記一條 `secret in the process environment` 警告（只寫名稱）。事後清掉
+`JEV_API_KEY`，會對每一個記一條 `secret in the process environment` 警告（只寫名稱）。事後清掉
 `process.env` 沒有用——被讀的是啟動時的那份。dsh 同理拿不到真金鑰：服務端在 `127.0.0.1` 的臨時埠跑一個金鑰代理，
 每個 dsh run 只拿到一個 run 結束就撤銷的權杖（ADR 0020）。
 
@@ -65,9 +64,9 @@ team serve
 啟動時會印出：
 
 ```
-區網看板密碼（只顯示這一次）：xxxx-xxxx-xxxx-xxxx   ← 只有 .env 沒設 TEAM_LAN_PASSWORD 時
 看板（這台電腦）：http://127.0.0.1:4518
 區網看板：http://192.168.x.y:4518
+注意：區網看板沒有任何驗證、來源或主機檢查。…（lan.host 不是 127.0.0.1 時才印）
 ```
 
 Ctrl-C 正常關機：執行中的 worker 整個行程群組會被終止，它們的 run 標為 `abandoned`、任務重新排入並附上復原說明，
@@ -75,13 +74,21 @@ Ctrl-C 正常關機：執行中的 worker 整個行程群組會被終止，它�
 
 ### 打開看板
 
-- **這台 Mac**：瀏覽器開 `http://127.0.0.1:4518`，輸入密碼。
-- **區網內的其他裝置**：開 `http://<這台 Mac 的區網 IP>:4518`（上面印出的「區網看板」網址），輸入密碼。
-  連續輸錯 5 次會鎖 15 分鐘。區網是未加密的 HTTP，請只在信任的網路使用。
+- **這台 Mac**：瀏覽器開 `http://127.0.0.1:4518`，不需登入。
+- **區網內的其他裝置**：開 `http://<這台 Mac 的區網 IP>:4518`（上面印出的「區網看板」網址），不需登入。
+
+> **警告：區網看板沒有任何驗證（沒有密碼），也不檢查來源（`Origin`）或主機（`Host`）**（擁有者 2026-11-22 的決定，ADR 0024）。同一個網路上的任何人
+> 都能打開看板、派工、驗收、回答待決事項、建專案，而任務與專案的機器檢查會**在這台 Mac 上執行程式碼**。不只區網裝置：
+> 網路上任何一台電腦的瀏覽器裡開著的任何網頁，也可能透過那個瀏覽器操作看板（跨站請求、DNS rebinding）。
+> 區網是未加密的 HTTP。要限制，只有兩個開關（`config/service.json`）：
+>
+> - `"lan": { "enabled": false }`：關掉看板，只剩 CLI／MCP（本機監聽埠，照常要權杖）。
+> - `"lan": { "host": "127.0.0.1" }`：只有這台 Mac 連得到看板；但這台 Mac 上的其他使用者、程式與瀏覽器裡的網頁
+>   仍然可以操作它。
 
 看板只在區網監聽埠（預設 `0.0.0.0:4518`）提供；本機監聽埠 `127.0.0.1:4517` 只給 CLI／MCP，用 `listener.json`
-裡的權杖，不提供頁面。區網上不能新增專案或改設定（這兩件事只能在這台電腦用 CLI 做）。服務每次重新啟動後看板要重新
-登入（session 金鑰每次啟動重產）。
+裡的權杖，不提供頁面。區網上能做的事與本機 CLI 相同（包括建專案與 `leader reset`；看板本身沒有建專案的畫面，
+用 CLI 或 `POST /api/projects`）。
 
 ### 截圖
 
@@ -190,25 +197,25 @@ team memory rm demo <記憶 id>
 
 ## CLI 速查
 
-| 指令                                                                                                        | 說明                                                                                       |
-| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `team serve`                                                                                                | 前景執行服務                                                                               |
-| `team status` / `team doctor` / `team resume`                                                               | 看板摘要／環境與 runner 檢查／不經模型的現況摘要                                           |
-| `team watch [--after seq]`                                                                                  | 每個事件一行，斷線自動接續                                                                 |
-| `team roles`                                                                                                | `config/models.json` 的角色、別名、runner、槽位                                            |
-| `team project add <name> <repo> [--base B] [--check "name=cmd"]… [--allow-network]`                         | 註冊專案（僅本機）；`--allow-network` 讓 worker 沙箱可連公開網路（預設關閉，建立後不能改） |
-| `team task add --project P --title T --tier A\|B\|C --paths "…" (--ticket-file F \| -) [--queue]`           | 建任務                                                                                     |
-| `team task list [--project P] [--status queued,running]` / `team task show <id>`                            | 列出／詳情                                                                                 |
-| `team task queue\|cancel\|retry <id>`                                                                       | 排入／停止並取消／重試                                                                     |
-| `team task reassign <id> <role>`                                                                            | 改派角色（先檢查角色存在且啟用）                                                           |
-| `team task add … --research <task_id>`                                                                      | 引用已完成的調研（可重複，最多 3 個）                                                      |
-| `team research add <project> --title T (--question Q \| --question-file F \| -) [--queue]`                  | 建調研任務（`research.mode` 為 `off` 時 409）                                              |
-| `team research show <task_id>`                                                                              | 調研結果（連結未經服務端驗證）                                                             |
-| `team receipt <task_id>`                                                                                    | 最新回執                                                                                   |
-| `team ask "<text>"`                                                                                         | 對 leader 說話，等到回覆為止；Ctrl-C 只停止等待（訊息保留，回覆會出現在看板聊天）          |
-| `team leader reset`                                                                                         | 開新的 leader 對話（例如換了 Claude 登入）                                                 |
-| `team attention list` / `open --question Q --option A …` / `answer <id> "<答案>"`                           | 待決事項；回答 worker 提出的最後一個問題後，任務帶著回答自動續行（ADR 0017）               |
-| `team memory search <project> <query>` / `add <project> <text\|->` / `list <project>` / `rm <project> <id>` | 專案記憶（spec §18；關閉時 409）；leader 只能 search                                       |
+| 指令                                                                                                        | 說明                                                                              |
+| ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `team serve`                                                                                                | 前景執行服務                                                                      |
+| `team status` / `team doctor` / `team resume`                                                               | 看板摘要／環境與 runner 檢查／不經模型的現況摘要                                  |
+| `team watch [--after seq]`                                                                                  | 每個事件一行，斷線自動接續                                                        |
+| `team roles`                                                                                                | `config/models.json` 的角色、別名、runner、槽位                                   |
+| `team project add <name> <repo> [--base B] [--check "name=cmd"]… [--allow-network]`                         | 註冊專案；`--allow-network` 讓 worker 沙箱可連公開網路（預設關閉，建立後不能改）  |
+| `team task add --project P --title T --tier A\|B\|C --paths "…" (--ticket-file F \| -) [--queue]`           | 建任務                                                                            |
+| `team task list [--project P] [--status queued,running]` / `team task show <id>`                            | 列出／詳情                                                                        |
+| `team task queue\|cancel\|retry <id>`                                                                       | 排入／停止並取消／重試                                                            |
+| `team task reassign <id> <role>`                                                                            | 改派角色（先檢查角色存在且啟用）                                                  |
+| `team task add … --research <task_id>`                                                                      | 引用已完成的調研（可重複，最多 3 個）                                             |
+| `team research add <project> --title T (--question Q \| --question-file F \| -) [--queue]`                  | 建調研任務（`research.mode` 為 `off` 時 409）                                     |
+| `team research show <task_id>`                                                                              | 調研結果（連結未經服務端驗證）                                                    |
+| `team receipt <task_id>`                                                                                    | 最新回執                                                                          |
+| `team ask "<text>"`                                                                                         | 對 leader 說話，等到回覆為止；Ctrl-C 只停止等待（訊息保留，回覆會出現在看板聊天） |
+| `team leader reset`                                                                                         | 開新的 leader 對話（例如換了 Claude 登入）                                        |
+| `team attention list` / `open --question Q --option A …` / `answer <id> "<答案>"`                           | 待決事項；回答 worker 提出的最後一個問題後，任務帶著回答自動續行（ADR 0017）      |
+| `team memory search <project> <query>` / `add <project> <text\|->` / `list <project>` / `rm <project> <id>` | 專案記憶（spec §18；關閉時 409）；leader 只能 search                              |
 
 每個指令都可加 `--json`。結束碼：0 成功、1 業務錯誤、2 用法或連線錯誤（`team ask` 被 Ctrl-C 中止是 130）。
 
@@ -339,8 +346,7 @@ team leader reset
 | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `agent-team is not running (no …/listener.json)` | 服務沒開：`team serve`；或 `AGENT_TEAM_HOME` 與服務不一致                                                                                                                                           |
 | `127.0.0.1:4517 is already in use`               | 另一個 agent-team 還在跑，或改 `service.json` 的埠                                                                                                                                                  |
-| 看板 403 `origin … is not allowed`               | 用服務印出的網址開；反向代理或開發伺服器的來源加進 `lan.allowed_origins`                                                                                                                            |
-| 看板登入 429                                     | 連續輸錯 5 次，鎖 15 分鐘                                                                                                                                                                           |
+| 啟動失敗 `lan: Unrecognized keys: …`             | `service.json` 還留著已移除的區網密碼／來源設定（`lockout_failures`、`lockout_minutes`、`session_hours`、`allowed_origins`）：刪掉這幾個鍵（ADR 0024）                                              |
 | leader 顯示離線 `auth`                           | `claude` 重新登入後 `team leader reset`                                                                                                                                                             |
 | leader 顯示離線 `rate_limit`                     | 額度用完，會在顯示的時間自動重試；或換帳號後 `team leader reset`                                                                                                                                    |
 | leader 顯示離線 `not_installed`                  | 找不到 `claude` 或 `apps/cli/dist`：安裝／`pnpm build` 後 `team leader reset`                                                                                                                       |
@@ -356,8 +362,11 @@ team leader reset
 
 ## 已知限制
 
-- **持有區網密碼的人就能讓 agent 在這台電腦上執行程式碼**（派工、退回、回答待決事項都能從看板做）。區網密碼等同
-  這台電腦上一個受限的 shell，只給信任的人。
+- **區網監聽埠沒有驗證、來源檢查或主機檢查**（ADR 0024）：同一網路上的任何裝置，以及網路上任何瀏覽器裡開著的網頁，
+  都能讓 agent 在這台電腦上執行程式碼（派工、驗收、建帶任意 `checks` 的專案都能從區網做）。這等同把這台電腦上一個
+  受沙箱限制的 shell 開給整個網路。只在完全信任的網路開著，否則設 `lan.enabled: false` 或 `lan.host: "127.0.0.1"`。
+  worker 與機器檢查的沙箱拒連服務自己的埠，現在是它們與「人」的權限之間唯一的屏障（claude worker 連這台電腦的區網 IP
+  沒有實測，ADR 0014）。
 - 沙箱擋什麼（ADR 0014、0018、0019、0020）：三家 worker 讀寫只限 worktree（與暫存、套件快取），讀不到 DATA（資料庫、含權杖
   的 listener 檔）、`.env`、`~/.ssh` 等憑證目錄，也不能改寫 worktree 的 `.git` 指標檔：claude worker 在 Claude Code 的
   沙箱內（連不到任何本機埠）、codex 用權限設定檔、dsh 整個行程在 macOS Seatbelt（`sandbox-exec`）內（服務自己的埠在
@@ -375,7 +384,8 @@ team leader reset
   0600 權限保護：同一個使用者、**不在任何沙箱內**的行程（你自己的工具，以及 leader 的 claude 行程本身——沙箱套在它執行
   的 Bash 上）都讀得到 operator 權杖。Linux 上的 Claude Code 沙箱（bubblewrap）沒有在本機驗證過，且 Claude Code 在
   Linux 上不支援以路徑限定 unix socket（leader 的 `team` 因此連不到服務）。
-- 只有人能驗收、退回、回答待決事項、改派與建專案；leader 用自己的權杖，伺服器依權杖判定身分（ADR 0014）。
+- 只有人能驗收、退回、回答待決事項、改派與建專案；leader 用自己的權杖，伺服器依權杖判定身分（ADR 0014）。區網監聽埠
+  上的每個請求都算「人」。
 - 服務端代提交時不執行 repo 的 git hooks（ADR 0016）；要在提交前檢查的事請寫進專案的 `checks`。
 - 不自動合併分支回主幹；不做提交前的檔案租約、自動輪換帳號、Jev 判定關卡、TLS、多使用者（spec §16）。
 - 區網是未加密的 HTTP；需要 TLS 請自行加反向代理。

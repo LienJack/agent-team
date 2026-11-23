@@ -1,13 +1,10 @@
 import type { StateSnapshot } from '@agent-team/client';
-import { useEffect } from 'react';
-import { isUnauthorized } from '../api/errors.js';
 import { useBoardState } from '../api/queries.js';
 import { useEventStream } from '../realtime/use-event-stream.js';
 import { useUi, type MobileView } from '../store/ui.js';
 import { AttentionPanel } from './attention-panel.js';
 import { Board } from './board.js';
 import { ChatPanel } from './chat-panel.js';
-import { LoginPage } from './login-page.js';
 import { MemoryPanel } from './memory-panel.js';
 import { NewTaskForm } from './new-task-form.js';
 import { TaskDrawer } from './task-drawer.js';
@@ -49,25 +46,15 @@ function ViewTabs({ state, sideOnly }: { state: StateSnapshot | undefined; sideO
 }
 
 function Shell() {
-  const auth = useUi((s) => s.auth);
-  const setAuth = useUi((s) => s.setAuth);
   const view = useUi((s) => s.view);
   const newTaskOpen = useUi((s) => s.newTaskOpen);
   const memoryOpen = useUi((s) => s.memoryOpen);
-  const state = useBoardState(auth !== 'required');
+  // the LAN listener has no login (docs/adr/0024): the board loads straight away
+  const state = useBoardState();
   const data = state.data;
   useApplyTheme();
+  useEventStream(data?.last_seq);
 
-  useEffect(() => {
-    if (state.isSuccess && state.fetchStatus === 'idle' && useUi.getState().auth === 'unknown') {
-      setAuth('ok');
-    }
-  }, [state.isSuccess, state.fetchStatus, setAuth]);
-  useEventStream(auth === 'ok' ? data?.last_seq : undefined);
-
-  if (auth === 'required' || (state.isError && isUnauthorized(state.error) && !data)) {
-    return <LoginPage />;
-  }
   if (!data) {
     return (
       <main className="mx-auto max-w-md p-6">

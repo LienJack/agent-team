@@ -393,9 +393,3 @@ export const DoctorResponseSchema = z.object({
   runners: z.array(RunnerCapabilitiesSchema),
 });
 export type DoctorResponse = z.infer<typeof DoctorResponseSchema>;
-
-// --------------------------------------------------------------------- auth
-
-/** POST /auth/login (LAN listener) → HttpOnly, SameSite=Strict session cookie. */
-export const LoginRequestSchema = z.object({ password: z.string().min(1).max(1000) });
-export const LoginResponseSchema = z.object({ ok: z.literal(true) });

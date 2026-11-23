@@ -37,6 +37,7 @@ catalog 路由不做背景的模型清單刷新（`/models/user`）。`models.js
   第三輪）。代理在 runner probe 之前啟動、在服務關閉的最後（所有 run 結束之後）關閉；啟動失敗只記警告，dsh 不可用。
 - 服務自己的環境：同樣讀得到，所以不去清它；啟動時若 `OPENROUTER_API_KEY`、`TEAM_LAN_PASSWORD`、`JEV_API_KEY`
   出現在行程環境（而不只在 `.env`），每個記一條 `secret in the process environment` 警告（只寫名稱），README 說明。
+  （2026-11-22）`TEAM_LAN_PASSWORD` 已移除（ADR 0024）；本 ADR 其他提到它的地方是當時的紀錄。
 
 **子行程環境稽核**（`process/env.ts` 的白名單 `BASE_ENV_NAMES` = PATH、HOME、USER、LOGNAME、SHELL、TMPDIR、LANG、LC_*、
 TERM、TZ、代理變數（去掉 userinfo）、SSL_CERT_FILE／DIR、NODE_EXTRA_CA_CERTS、`__CF_USER_TEXT_ENCODING`，另加 `NO_COLOR=1`）：

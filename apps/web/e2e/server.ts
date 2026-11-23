@@ -23,13 +23,11 @@ const repoRoot = resolve(webDir, '../..');
 const serverMain = join(repoRoot, 'apps/server/src/main.ts');
 const tsxCli = join(repoRoot, 'node_modules/tsx/dist/cli.mjs');
 
-export const TEST_PASSWORD = 'e2e board password 42';
-
 export interface TestServer {
   lanUrl: string;
   localUrl: string;
   repoPath: string;
-  /** Typed client on the local (bearer) listener, e.g. to seed a project (local-only route). */
+  /** Typed client on the local (bearer) listener, e.g. to seed a project. */
   local: TeamClient;
   /** Everything the server wrote (for failure messages). */
   output(): string;
@@ -79,7 +77,8 @@ export async function startServer(): Promise<TestServer> {
   );
   copyFileSync(join(repoRoot, 'config/models.json'), join(config, 'models.json'));
   const envFile = join(tmp, 'test.env');
-  writeFileSync(envFile, `TEAM_LAN_PASSWORD="${TEST_PASSWORD}"\n`);
+  // an empty .env of its own: the real one is never read
+  writeFileSync(envFile, '');
 
   writeFileSync(join(repoPath, 'README.md'), '# e2e\n');
   git(repoPath, home, 'init', '-q', '-b', 'main');

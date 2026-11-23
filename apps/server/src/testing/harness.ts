@@ -17,7 +17,6 @@ import { defaultServiceConfig, type ServiceConfig } from '@agent-team/schema';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { createApp } from '../app/app.js';
 import type { AppEnv } from '../app/types.js';
-import { createLanAuth } from '../auth/guards.js';
 import { createEnvReader } from '../env.js';
 import type { Summarize } from '../hub/summarizer.js';
 import type { HubRuntime } from '../hub/types.js';
@@ -32,14 +31,13 @@ export const TEST_LEADER_TOKEN = 'test-leader-token-0123456789';
 /** Loosely typed JSON response body for assertions. */
 // oxlint-disable-next-line typescript/no-explicit-any
 export type Loose = any;
-export const TEST_PASSWORD = 'correct horse battery staple';
-/** Header the in-process LAN app uses as the lockout source (app.request has no socket). */
-export const SOURCE_HEADER = 'x-test-source';
+/** Address of the in-process LAN app in `lanRequest` (as other devices open it). */
+export const LAN_HOST = '192.168.1.20:4518';
 
 export interface TestServiceOptions {
   /** Change the (already loopback/ephemeral) service config. */
   configure?: (config: ServiceConfig) => void;
-  /** Lines of the temp .env (default: a LAN password). */
+  /** Lines of the temp .env (default: empty). */
   envFile?: string;
   logger?: Logger;
   /** A built board directory (with index.html) for the LAN listener. */
@@ -68,8 +66,8 @@ export interface TestService {
   printed: string[];
   /** Local-listener app for `app.request` (bearer TEST_TOKEN). */
   localApp(): OpenAPIHono<AppEnv>;
-  /** LAN app for `app.request` (password TEST_PASSWORD, source from SOURCE_HEADER). */
-  lanApp(overrides?: Partial<ServiceConfig['lan']>): OpenAPIHono<AppEnv>;
+  /** LAN app for `app.request` (no authentication; see `lanRequest`). */
+  lanApp(): OpenAPIHono<AppEnv>;
   /** The temp root (holds DATA, the .env and anything a test writes). */
   root: string;
   /** Stop the service (if started) and delete the temp directory. */
@@ -89,7 +87,7 @@ export function createTestService(options: TestServiceOptions = {}): TestService
   const root = mkdtempSync(join(tmpdir(), 'team-server-'));
   const dataDir = join(root, 'data');
   const envPath = join(root, 'test.env');
-  writeFileSync(envPath, options.envFile ?? `TEAM_LAN_PASSWORD="${TEST_PASSWORD}"\n`);
+  writeFileSync(envPath, options.envFile ?? '');
   const config = testServiceConfig();
   options.configure?.(config);
 
@@ -126,7 +124,6 @@ export function createTestService(options: TestServiceOptions = {}): TestService
     env,
     logger,
     print: (text) => void printed.push(text),
-    sourceOf: (c) => c.req.header(SOURCE_HEADER) ?? 'test-source',
     ...(options.leader ? { leader: options.leader(root) } : {}),
     ...(options.hub ? { hub: options.hub } : {}),
     ...(options.memory ? { memory: options.memory(store, config) } : {}),
@@ -156,22 +153,7 @@ export function createTestService(options: TestServiceOptions = {}): TestService
         token: TEST_TOKEN,
         leaderToken: TEST_LEADER_TOKEN,
       }),
-    lanApp: (overrides = {}) => {
-      const lan = { ...config.lan, ...overrides };
-      return createApp(service.context, {
-        listener: 'lan',
-        lan: createLanAuth({
-          password: TEST_PASSWORD,
-          clock,
-          logger,
-          allowedOrigins: lan.allowed_origins,
-          lockoutFailures: lan.lockout_failures,
-          lockoutMinutes: lan.lockout_minutes,
-          sessionHours: lan.session_hours,
-          sourceOf: (c) => c.req.header(SOURCE_HEADER) ?? 'test-source',
-        }),
-      });
-    },
+    lanApp: () => createApp(service.context, { listener: 'lan' }),
     cleanup: async () => {
       await service.stop();
       rmSync(root, { recursive: true, force: true });
@@ -195,4 +177,23 @@ export function local(
   };
   if (body !== undefined) init.body = JSON.stringify(body);
   return init;
+}
+
+/** `app.request` on the LAN app: no credential, a JSON body (POST when `body` is given). */
+export function lanRequest(
+  app: OpenAPIHono<AppEnv>,
+  path: string,
+  init: { method?: string; body?: unknown; headers?: Record<string, string> } = {},
+): Promise<Response> {
+  return Promise.resolve(
+    app.request(`http://${LAN_HOST}${path}`, {
+      method: init.method ?? (init.body === undefined ? 'GET' : 'POST'),
+      headers: {
+        host: LAN_HOST,
+        ...(init.body === undefined ? {} : { 'content-type': 'application/json' }),
+        ...init.headers,
+      },
+      ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+    }),
+  );
 }

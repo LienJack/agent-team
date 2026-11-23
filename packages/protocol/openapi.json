@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "description": "Local multi-agent development service (docs/spec.md §11). Generated from @agent-team/protocol; do not edit by hand."
   },
-  "security": [{ "bearerAuth": [] }, { "sessionCookie": [] }],
+  "security": [{ "bearerAuth": [] }, {}],
   "components": {
     "schemas": {
       "Project": {
@@ -635,14 +635,12 @@
                   "validation_failed",
                   "unauthorized",
                   "forbidden",
-                  "lan_forbidden",
                   "not_found",
                   "conflict",
                   "version_conflict",
                   "invalid_transition",
                   "idempotency_conflict",
                   "request_in_progress",
-                  "locked",
                   "unavailable",
                   "not_implemented",
                   "internal"
@@ -723,13 +721,7 @@
       "bearerAuth": {
         "type": "http",
         "scheme": "bearer",
-        "description": "Local listener: the token from DATA/run/listener.json (new on every start)"
-      },
-      "sessionCookie": {
-        "type": "apiKey",
-        "in": "cookie",
-        "name": "team_session",
-        "description": "LAN listener: session cookie from POST /auth/login"
+        "description": "Local listener: the token from DATA/run/listener.json (new on every start). The LAN listener takes no credential (docs/adr/0024)."
       }
     }
   },
@@ -1090,8 +1082,7 @@
       "post": {
         "operationId": "createProject",
         "tags": ["projects"],
-        "summary": "Register a project (local listener only)",
-        "x-local-only": true,
+        "summary": "Register a project",
         "parameters": [
           {
             "schema": { "type": "string", "minLength": 1, "maxLength": 200 },
@@ -2253,8 +2244,7 @@
       "post": {
         "operationId": "resetLeader",
         "tags": ["leader"],
-        "summary": "New leader conversation (local listener only)",
-        "x-local-only": true,
+        "summary": "New leader conversation",
         "parameters": [
           {
             "schema": { "type": "string", "minLength": 1, "maxLength": 200 },
@@ -2464,57 +2454,6 @@
           "403": { "$ref": "#/components/responses/Error" },
           "404": { "$ref": "#/components/responses/Error" },
           "409": { "$ref": "#/components/responses/Error" },
-          "500": { "$ref": "#/components/responses/Error" }
-        }
-      }
-    },
-    "/auth/login": {
-      "post": {
-        "operationId": "login",
-        "tags": ["auth"],
-        "summary": "Log in to the LAN board",
-        "security": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "password": { "type": "string", "minLength": 1, "maxLength": 1000 }
-                },
-                "required": ["password"]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Logged in",
-            "headers": {
-              "Set-Cookie": {
-                "schema": {
-                  "type": "string",
-                  "description": "team_session=…; HttpOnly; SameSite=Strict; Path=/"
-                },
-                "required": true,
-                "description": "team_session=…; HttpOnly; SameSite=Strict; Path=/"
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": { "ok": { "type": "boolean", "enum": [true] } },
-                  "required": ["ok"]
-                }
-              }
-            }
-          },
-          "400": { "$ref": "#/components/responses/Error" },
-          "401": { "$ref": "#/components/responses/Error" },
-          "403": { "$ref": "#/components/responses/Error" },
-          "429": { "$ref": "#/components/responses/Error" },
           "500": { "$ref": "#/components/responses/Error" }
         }
       }

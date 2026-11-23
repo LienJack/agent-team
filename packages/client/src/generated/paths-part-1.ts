@@ -138,7 +138,7 @@ export interface paths_part1 {
     /** All projects */
     get: operations['listProjects'];
     put?: never;
-    /** Register a project (local listener only) */
+    /** Register a project */
     post: operations['createProject'];
     delete?: never;
     options?: never;
@@ -413,7 +413,7 @@ export interface paths_part1 {
     };
     get?: never;
     put?: never;
-    /** New leader conversation (local listener only) */
+    /** New leader conversation */
     post: operations['resetLeader'];
     delete?: never;
     options?: never;

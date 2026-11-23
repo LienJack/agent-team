@@ -14,9 +14,9 @@ import { denyPathsFor, refusedPorts, strip, type SandboxPolicy } from '../sandbo
 //   such as a user-owned `/opt/homebrew`), never to the worktree's `.git` pointer;
 // - no connections to the service's own ports (local and LAN listener, on any address). Other
 //   loopback ports stay usable (test suites start their own servers) and so does the network:
-//   check commands such as `pnpm install` are the project owner's configuration. The tokens and
-//   the LAN password are unreadable anyway; the port rule is defence in depth. The model-key
-//   proxy's port is one of those ports (docs/adr/0020);
+//   check commands such as `pnpm install` are the project owner's configuration. The tokens are
+//   unreadable anyway, but the LAN listener takes no credential (docs/adr/0024), so for it this
+//   port rule is the only barrier. The model-key proxy's port is one of those ports (docs/adr/0020);
 // - signals only to the sandbox's own processes, no unix sockets into home, DATA or the
 //   agent/container sockets (`confinedProcess`, docs/adr/0019 round 3).
 // Elsewhere (Linux) checks do not run unless `checks.allow_unsandboxed` (docs/adr/0019).

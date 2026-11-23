@@ -45,13 +45,6 @@ export const ENV_VARS = [
     description: 'Jev 供應者',
   },
   {
-    name: 'TEAM_LAN_PASSWORD',
-    source: 'env_file',
-    secret: true,
-    required: false,
-    description: '區網看板密碼；未設定則啟動時產生一組並只在終端機印出一次',
-  },
-  {
     name: 'AGENT_TEAM_HOME',
     source: 'process',
     secret: false,

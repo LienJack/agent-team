@@ -13,39 +13,18 @@ export const PLACEHOLDER_HTML = `<!doctype html>
 <style>
   :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
   body { max-width: 32rem; margin: 3rem auto; padding: 0 1rem; line-height: 1.6; }
-  input, button { font: inherit; padding: .4rem .6rem; }
 </style>
 </head>
 <body>
 <h1>agent-team</h1>
-<p>看板尚未建置（<code>apps/web</code>）。API 已可使用：登入後可讀取 <code>/api/state</code>。</p>
-<form id="login">
-  <label>區網密碼 <input type="password" name="password" autocomplete="current-password" required></label>
-  <button type="submit">登入</button>
-</form>
-<p id="result" role="status"></p>
-<script>
-  document.getElementById('login').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const password = new FormData(e.target).get('password');
-    const res = await fetch('/auth/login', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password }),
-    });
-    const body = await res.json().catch(() => ({}));
-    document.getElementById('result').textContent = res.ok
-      ? '已登入。'
-      : (body.error && body.error.message) || '登入失敗';
-  });
-</script>
+<p>看板尚未建置（<code>pnpm build</code>）。API 已可使用，例如 <a href="/api/state"><code>/api/state</code></a>。</p>
 </body>
 </html>
 `;
 
 /**
  * Board files for the LAN listener: `apps/web/dist` when it has an `index.html` (unknown paths
- * fall back to it for client-side routing), else the placeholder page. Never under /api or /auth.
+ * fall back to it for client-side routing), else the placeholder page. Never under /api.
  */
 export function registerStatic(app: OpenAPIHono<AppEnv>, webDist: string | undefined): void {
   if (webDist === undefined) {
@@ -53,11 +32,11 @@ export function registerStatic(app: OpenAPIHono<AppEnv>, webDist: string | undef
     return;
   }
   app.use('*', async (c, next) => {
-    if (c.req.path.startsWith('/api/') || c.req.path.startsWith('/auth/')) return next();
+    if (c.req.path.startsWith('/api/')) return next();
     return serveStatic<AppEnv>({ root: webDist })(c, next);
   });
   app.get('*', async (c, next) => {
-    if (c.req.path.startsWith('/api/') || c.req.path.startsWith('/auth/')) return next();
+    if (c.req.path.startsWith('/api/')) return next();
     return c.html(await readFile(`${webDist}/index.html`, 'utf8'));
   });
 }

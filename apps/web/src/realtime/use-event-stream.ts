@@ -1,29 +1,25 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { useClient } from '../api/context.js';
-import { isUnauthorized } from '../api/errors.js';
 import { useUi } from '../store/ui.js';
 import { createInvalidationBatcher, queriesForEvent } from './invalidation.js';
 
 /**
  * Subscribe to GET /api/events from the snapshot's `last_seq` (spec §13). The client's helper
- * reconnects with the last seen seq; every event invalidates only its queries (coalesced). After
- * a 401 (server restart) the page shows the login screen; logging in again resumes from the
- * last cursor.
+ * reconnects with the last seen seq (also across a service restart); every event invalidates only
+ * its queries (coalesced). A re-subscription (new client) resumes from the last cursor.
  */
 export function useEventStream(snapshotSeq: number | undefined): void {
   const client = useClient();
   const qc = useQueryClient();
-  const auth = useUi((s) => s.auth);
-  const session = useUi((s) => s.session);
   const cursor = useRef<number | undefined>(undefined);
   const firstSeq = useRef<number | undefined>(undefined);
   if (firstSeq.current === undefined && snapshotSeq !== undefined) firstSeq.current = snapshotSeq;
   const ready = snapshotSeq !== undefined;
 
   useEffect(() => {
-    if (!ready || auth !== 'ok') return;
-    const { setConnection, setAuth } = useUi.getState();
+    if (!ready) return;
+    const { setConnection } = useUi.getState();
     const batcher = createInvalidationBatcher(qc);
     setConnection('connecting');
     const sub = client.events({
@@ -33,13 +29,7 @@ export function useEventStream(snapshotSeq: number | undefined): void {
         cursor.current = event.seq;
         batcher.add(queriesForEvent(event));
       },
-      onError: (err) => {
-        if (isUnauthorized(err)) {
-          setAuth('required');
-          return;
-        }
-        setConnection('reconnecting');
-      },
+      onError: () => setConnection('reconnecting'),
     });
     let closed = false;
     // ends by itself only on a fatal answer (401/403/404; onError already ran)
@@ -55,5 +45,5 @@ export function useEventStream(snapshotSeq: number | undefined): void {
       batcher.dispose();
       setConnection('idle');
     };
-  }, [client, qc, ready, auth, session]);
+  }, [client, qc, ready]);
 }

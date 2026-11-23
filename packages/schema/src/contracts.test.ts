@@ -78,9 +78,9 @@ describe('api contracts', () => {
 describe('env and paths', () => {
   it('list the secrets from .env.example', () => {
     const names = ENV_VARS.map((v) => v.name);
-    expect(names).toEqual(
-      expect.arrayContaining(['OPENROUTER_API_KEY', 'JEV_API_KEY', 'TEAM_LAN_PASSWORD']),
-    );
+    expect(names).toEqual(expect.arrayContaining(['OPENROUTER_API_KEY', 'JEV_API_KEY']));
+    // the LAN board has no password any more (docs/adr/0024)
+    expect(names).not.toContain('TEAM_LAN_PASSWORD');
     expect(isSecretEnvVar('OPENROUTER_API_KEY')).toBe(true);
     expect(isSecretEnvVar('AGENT_TEAM_HOME')).toBe(false);
   });

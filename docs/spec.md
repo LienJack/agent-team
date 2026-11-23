@@ -274,7 +274,7 @@ worker 規則：只改 owned_paths；不 commit、不 push；不要提問，解�
 - leader 用 leader 專用權杖呼叫 API（伺服器據此判定身分）。只有人能做：驗收通過／退回、回答待決事項、改派、建專案、
   reset。leader 的重試不重置 attempts、每個任務有上限（`engine.leader_retry_budget`），`start_unknown`、無法確認 worker
   已結束、`failed` 的任務不能由 leader 重試（ADR 0014）。
-- `team leader reset`（`POST /leader/reset`，僅本機）：開新對話（新 session id，第一個 turn 先附現況摘要），
+- `team leader reset`（`POST /leader/reset`，只有人能做）：開新對話（新 session id，第一個 turn 先附現況摘要），
   例如換了一個 Claude 登入；未登入或額度用完時 leader 標為不可用，訊息保留、恢復後依序回覆。
 
 ## 10. 中樞與 Grok
@@ -302,15 +302,16 @@ worker 規則：只改 owned_paths；不 commit、不 push；不要提問，解�
   身分由權杖決定，不接受任何宣稱身分的標頭。不提供看板頁面。CLI 與 MCP 走這個。訊息的 `source` 與回答的 `via` 只由監聽埠
   與憑證推導（區網 `web`；operator `cli`，含 MCP），請求內容裡的值忽略；`client_msg_id` 不得用伺服器前綴。
 - **區網**：`service.json` 的 `lan.enabled`（預設開啟）、`lan.host`（預設 `0.0.0.0`）、`lan.port`（預設 4518）。
-  - 密碼取 `.env` 的 `TEAM_LAN_PASSWORD`；未設定則啟動時產生一組隨機值並只在終端機印出一次。
-  - `POST /auth/login` 換取 HMAC 簽章的 session cookie（HttpOnly、SameSite=Strict、同源才接受）。常數時間比較。
-  - 同一來源連續錯誤 5 次鎖定 15 分鐘。
-  - 檢查 `Origin` 允許清單與 `Sec-Fetch-Site`，不符回 403。不使用寬鬆的 CORS。權杖與密碼不出現在網址。
-  - 區網**不開放**：新增或修改 project（涉及本機路徑）、任何設定寫入。其餘（看板、聊天、待決事項、任務操作、日誌檢視）開放。
-  - 路由守衛（區網禁用、leader 禁用）把 `HEAD` 視為 `GET`，受保護路徑上未註冊的方法一律拒絕。
+  - **沒有驗證、沒有來源檢查、沒有主機檢查**（擁有者 2026-11-22 的決定，ADR 0024）：不登入、不檢查 `Origin`／
+    `Sec-Fetch-Site`／`Host`；每個請求都是人（human），權限與本機 operator 權杖相同（含建專案、`leader reset`）。
+    同一網路的任何裝置、以及網路上任何瀏覽器裡開著的網頁都能操作看板、派工，而任務會在這台電腦上執行程式碼。
+  - 僅有的限制：`lan.enabled: false`（關閉）或 `lan.host: "127.0.0.1"`（只限這台電腦；這台電腦瀏覽器裡的網頁仍可操作）。
+  - 不送 CORS 標頭（其他網站的網頁讀不到回應，但可以送出不需預檢的請求）。請求解析照舊：宣告了 JSON 本文的路由拒絕
+    其他 Content-Type。
+  - 路由守衛（leader 禁用）把 `HEAD` 視為 `GET`，受保護路徑上未註冊的方法一律拒絕。
   - 區網內為未加密 HTTP；TLS 交給反向代理，v1 不做。
-  - 看板（`apps/web/dist`）只由區網監聽埠提供；在這台電腦上也是開區網埠（例如 `http://127.0.0.1:4518`）登入。
-  - `team serve` 印出看板網址（這台電腦與各區網位址）；密碼是啟動時產生的才印，且只印一次。
+  - 看板（`apps/web/dist`）只由區網監聽埠提供；在這台電腦上也是開區網埠（例如 `http://127.0.0.1:4518`）。
+  - `team serve` 印出看板網址（這台電腦與各區網位址）；綁定非 loopback 位址時另印一行「沒有任何驗證」的提醒。
 
 路由（`/api` 下，皆有 Zod 請求與回應 schema，錯誤一律 `{ error: { code, message, hint? } }`）：
 
@@ -319,7 +320,7 @@ GET  /state                         看板快照；每個任務附最近一次 r
                                     workspace 的 head_sha 與 run 合計，卡片不必再各自請求；summary：五欄計數（加總等於
                                     total，已取消另計）與一行 report
 GET  /events?after=<seq>            SSE：首幀 server.connected，15 秒心跳，帶游標補發；每連線有上限的佇列，溢出只斷該連線
-GET/POST /projects                  （POST 僅本機）
+GET/POST /projects
 GET/POST /tasks        GET /tasks/:id
 POST /tasks/:id/{queue,cancel,retry,approve,reject}      POST /tasks/:id/reassign { role }
                                     任務指令都回 { task, delivery, report }：等一次排程（最多 3 秒）後依現況推導
@@ -371,7 +372,7 @@ MCP 工具（薄包裝）：`ask_leader`（與 `team ask` 相同的等待方式�
 - 待決事項：問題 + 選項按鈕。聊天面板：直接對 leader（不等待：送出後回覆經 `leader.reply` 事件出現）。
 - 即時：訂閱 `/events`，斷線後用最後的 `seq` 接續；收到事件後重新讀取受影響的資源（對照表是一張以全部事件型別為鍵的表，
   新增事件型別時型別檢查會在那裡失敗）。日誌尾段跟著 `run.log_advanced`，頂部的 leader 狀態跟著 `leader.status_changed`。
-- 登入頁（區網）。
+- 不需登入（區網監聽埠沒有驗證，ADR 0024）。
 
 ## 14. 測試
 
@@ -381,9 +382,9 @@ MCP 工具（薄包裝）：`ask_leader`（與 `team ask` 相同的等待方式�
 | db | 每個 SQLite repository 對照記憶體版跑同一組契約測試；遷移可從空庫套用 |
 | runners | 用假 CLI 與錄製的 fixture 驗證解析、參數組裝、逾時終止行程群組、標準輸入已關閉、日誌遮蔽 |
 | git | 暫存倉庫：worktree 建立與移除、變更清單、代 commit、基底漂移 |
-| server | 行程內路由測試；專門的驗證、來源檢查、鎖定、冪等、SSE 游標與溢出測試 |
+| server | 行程內路由測試；專門的權杖驗證、區網無驗證、冪等、SSE 游標與溢出測試 |
 | 端到端 | 假 runner：建專案 → 派任務 → 完成並有服務端 commit；另一條走拒絕 → 修正 → 升級 |
-| web | Playwright 一條：登入、看到看板、回答一筆待決事項 |
+| web | Playwright 一條：開看板（不登入）、看到看板、回答一筆待決事項 |
 | 冒煙 | 真實 runner，各一條，`TEAM_SMOKE=1` 才跑 |
 
 測試不得碰 `~/.agent-team`、`~/RanoLabs`，不得呼叫真實模型（冒煙除外）。
@@ -396,7 +397,7 @@ MCP 工具（薄包裝）：`ask_leader`（與 `team ask` 相同的等待方式�
 | effect 表（序號與世代）、outbox、queue-only ports、記憶體 repositories、保留槽位、復原說明 | dsh-superagent-prototype |
 | workspace／run 分層、結束訊號與行程結束賽跑、服務端 commit、孤兒清理、MCP 薄包裝 | vibe-kanban |
 | dispatch_id 當柵欄、冪等請求表、四種派工結果、基底漂移檢查、照劇本的假 CLI、參數探測 | Orca |
-| 變更紀錄 + SSE 游標、提醒特徵去重、本機與區網兩個監聽埠、來源鎖定 | agent-orchestrator |
+| 變更紀錄 + SSE 游標、提醒特徵去重、本機與區網兩個監聽埠 | agent-orchestrator |
 | listener 檔、錯誤信封與結束碼、選用能力介面、邊界檢查腳本、檔案行數上限、ADR | Tutti |
 | 訊息的客戶端編號去重 | happy |
 

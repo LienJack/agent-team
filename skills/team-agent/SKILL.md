@@ -27,15 +27,17 @@ user <-- team status / task show / receipt -------- service verifies, runs check
      (umask 077; nohup team serve > ~/.agent-team/logs/serve.log 2>&1 < /dev/null &)
    ```
 
-   Never start a second copy (port 4517 already in use means it is running). Do not read `serve.log` aloud: its
-   first lines may hold the board password.
+   Never start a second copy (port 4517 already in use means it is running).
 
 3. Anything else wrong: `team doctor` and tell the user what it reports. A leader shown as offline with `auth` or
    `rate_limit` needs the user (log in again, then `team leader reset`); do not reset it yourself.
 4. Open the board for the user: `open http://127.0.0.1:4518` (their default browser; in the Claude desktop app
-   you may open it in the browser pane instead). It asks for the board password (`TEAM_LAN_PASSWORD` in the
-   repo's `.env`, or the one printed once at start-up): the user types it, you never do. From another device on
-   the LAN the address is `http://<this Mac's LAN IP>:4518`.
+   you may open it in the browser pane instead). It does not ask for a password: by the owner's decision
+   (2026-11-22, docs/adr/0024) the board has no authentication, no origin check and no host check, so any device
+   on the network, and any web page open in a browser on the network, can drive it and dispatch tasks that run
+   code on this Mac. The only restrictions are `lan.enabled: false` or `lan.host: "127.0.0.1"` in
+   `config/service.json`; mention this if the user asks who can reach the board. From another device on the LAN
+   the address is `http://<this Mac's LAN IP>:4518`.
 5. Tell the user in two or three lines: tasks per column, open decisions, runner state, and that the board is open.
 
 ## 2. Hand work over
@@ -89,7 +91,7 @@ user choose; never pick for them.
 
 - Do the implementation yourself in this session when the user asked the team to do it.
 - Edit files in a task's worktree, commit or push for a worker, or touch `~/.agent-team` by hand.
-- Print `.env`, `listener.json`, tokens or the board password.
+- Print `.env`, `listener.json` or tokens.
 - Enable the service's own Grok hub (`grok.enabled`): Grok goes through the existing hub session (see the
   `grok-bridge` skill).
 

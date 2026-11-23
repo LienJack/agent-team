@@ -1,9 +1,7 @@
 import { TeamApiError } from '@agent-team/client';
-import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query';
-import { useUi } from '../store/ui.js';
-import { isUnauthorized } from './errors.js';
+import { QueryClient } from '@tanstack/react-query';
 
-const NO_RETRY = new Set(['unauthorized', 'forbidden', 'lan_forbidden', 'not_found', 'locked']);
+const NO_RETRY = new Set(['unauthorized', 'forbidden', 'not_found']);
 
 /** Retry reads only for transient failures (connection, 503), never for auth or 4xx answers. */
 export function shouldRetry(failureCount: number, error: unknown): boolean {
@@ -13,17 +11,9 @@ export function shouldRetry(failureCount: number, error: unknown): boolean {
   return failureCount < 3;
 }
 
-/**
- * The page's QueryClient. Any 401 (expired session, server restart: the session key is random
- * per start) switches the page to the login screen.
- */
+/** The page's QueryClient (the LAN listener has no login, docs/adr/0024). */
 export function createQueryClient(): QueryClient {
-  const onError = (error: unknown) => {
-    if (isUnauthorized(error)) useUi.getState().setAuth('required');
-  };
   return new QueryClient({
-    queryCache: new QueryCache({ onError }),
-    mutationCache: new MutationCache({ onError }),
     defaultOptions: {
       queries: { retry: shouldRetry, staleTime: 5_000 },
       mutations: { retry: false },

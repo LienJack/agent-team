@@ -9,7 +9,6 @@ import {
   MessageIdSchema,
 } from '@agent-team/schema';
 import { body, errors, idParam, json, MutationHeadersSchema } from '../common.js';
-import { LOCAL_ONLY_EXTENSION } from '../constants.js';
 
 const tags = ['leader'];
 
@@ -61,16 +60,14 @@ export const listLeaderMessages = createRoute({
 
 /**
  * Start a new leader conversation (new session id; the next turn begins with the resume brief),
- * e.g. after logging in with another account. Local listener only: it is an operator action on
- * this machine.
+ * e.g. after logging in with another account. Humans only (both listeners, docs/adr/0024).
  */
 export const resetLeader = createRoute({
   operationId: 'resetLeader',
   tags,
   method: 'post',
   path: '/api/leader/reset',
-  summary: 'New leader conversation (local listener only)',
-  [LOCAL_ONLY_EXTENSION]: true,
+  summary: 'New leader conversation',
   request: { headers: MutationHeadersSchema },
   responses: { 200: json(LeaderResetResponseSchema, 'The new session'), ...errors(503) },
 });

@@ -1,7 +1,7 @@
 import { TeamApiError } from '@agent-team/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createBrowserClient } from './client.js';
-import { describeError, isConnectionError, isLeaderUnavailable, isUnauthorized } from './errors.js';
+import { describeError, isConnectionError, isLeaderUnavailable } from './errors.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -26,6 +26,9 @@ describe('browser client on a plain-HTTP origin (no crypto.randomUUID)', () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]!.headers.get('Idempotency-Key')).toMatch(UUID);
     expect(seen[0]!.url).toBe('http://192.168.1.20:4518/api/tasks/t_1/queue');
+    // no credential of any kind on the LAN (docs/adr/0024)
+    expect(seen[0]!.headers.get('authorization')).toBeNull();
+    expect(seen[0]!.headers.get('cookie')).toBeNull();
   });
 });
 
@@ -51,12 +54,5 @@ describe('error helpers', () => {
     );
     expect(isLeaderUnavailable(stub501)).toBe(true);
     expect(describeError(down).title).toBe('無法連線到服務');
-  });
-
-  it('recognises an expired session', () => {
-    expect(isUnauthorized(new TeamApiError({ code: 'unauthorized', message: 'x' }, 401))).toBe(
-      true,
-    );
-    expect(isUnauthorized(new Error('x'))).toBe(false);
   });
 });

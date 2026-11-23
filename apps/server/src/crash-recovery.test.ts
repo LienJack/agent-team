@@ -128,7 +128,7 @@ describe('H2 crash recovery with a real server process (kill -9 mid-run)', () =>
       }),
     );
     copyFileSync(join(repoRoot, 'config/models.json'), join(dir, 'config/models.json'));
-    writeFileSync(join(dir, 'test.env'), 'TEAM_LAN_PASSWORD="not-used-here"\n');
+    writeFileSync(join(dir, 'test.env'), '');
     const repo = join(dir, 'repo');
     const git = (...args: string[]) =>
       execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@x.invalid', ...args], {

@@ -45,6 +45,8 @@ worker 仍在各自的沙箱裡且以 git 與機器檢查核對。另外：WebFe
 網段——這是從 Claude Code 執行檔字串讀到的（其中一段描述的是別的產品面），沒有實測，而「沒有點的主機名」那條擋不住
 `127.0.0.1` 或區網 IP：原則上這台電腦或區網上的其他服務可能被抓到（本服務的 API 都要權杖）。搜尋字串本身是模型決定的，
 提示裡只有題目，所以能洩漏的只有題目與網頁內容。codex 的調研 run 只有真實測過一次；claude 的調研 run 沒有真實測過。
+（2026-11-22）「本服務的 API 都要權杖」已不成立：區網監聽埠不需權杖（ADR 0024），連得到這台電腦區網 IP 的
+WebFetch 可以讀（GET）看板資料與 run 日誌。
 
 **驗證**：`packages/core/src/engine/research*.test.ts`、`packages/runners/src/research-runners.test.ts`（照劇本的 CLI 釘住
 argv 與 settings）、`apps/server/src/research.test.ts`、`packages/db/src/migrate-research.test.ts`；真實 run（1 個 codex

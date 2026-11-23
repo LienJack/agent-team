@@ -37,7 +37,7 @@ export function createGit(config: LoadedConfig): CliGitPort {
 
 /**
  * Paths no worker sandbox may read or write (docs/adr/0014): DATA (database, listener files with
- * the tokens, run logs), the service `.env` (TEAM_LAN_PASSWORD, API keys) and this checkout's
+ * the tokens, run logs), the service `.env` (API keys) and this checkout's
  * `.env`. Credential directories under home are added by the runners.
  */
 export function serviceDenyPaths(

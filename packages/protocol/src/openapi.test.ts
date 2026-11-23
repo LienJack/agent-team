@@ -2,13 +2,13 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { IDEMPOTENCY_HEADER } from '@agent-team/schema';
 import { describe, expect, it } from 'vitest';
-import { ALL_ROUTES, buildOpenApiDocument, isLocalOnly, routes } from './document.js';
+import { ALL_ROUTES, buildOpenApiDocument } from './document.js';
 import { formatWithOxfmt, workspaceRoot } from './scripts/format.js';
 
 const packageDir = fileURLToPath(new URL('..', import.meta.url));
 const committedPath = fileURLToPath(new URL('../openapi.json', import.meta.url));
 
-/** Spec §11 route list (paths under /api, plus the LAN login). Keep docs/spec.md §11 in sync. */
+/** Spec §11 route list (every path under /api). Keep docs/spec.md §11 in sync. */
 const SPEC_ROUTES = [
   'GET /api/state',
   'GET /api/events',
@@ -41,7 +41,6 @@ const SPEC_ROUTES = [
   'GET /api/roles',
   'GET /api/quota',
   'GET /api/doctor',
-  'POST /auth/login',
 ];
 
 describe('route contracts (spec §11)', () => {
@@ -50,11 +49,17 @@ describe('route contracts (spec §11)', () => {
     expect(actual).toEqual([...SPEC_ROUTES].sort());
   });
 
-  it('mark only project creation and the leader reset as local-only', () => {
-    expect(ALL_ROUTES.filter(isLocalOnly).map((r) => r.operationId)).toEqual([
-      'createProject',
-      'resetLeader',
-    ]);
+  it('mark no route local-only and need no LAN credential (docs/adr/0024)', () => {
+    const doc = buildOpenApiDocument() as {
+      security: unknown;
+      paths: Record<string, Record<string, Record<string, unknown>>>;
+      components: { securitySchemes: Record<string, unknown> };
+    };
+    const ops = Object.values(doc.paths).flatMap((byMethod) => Object.values(byMethod));
+    expect(ops.some((op) => 'x-local-only' in op)).toBe(false);
+    expect(Object.keys(doc.paths).every((p) => p.startsWith('/api/'))).toBe(true);
+    expect(Object.keys(doc.components.securitySchemes)).toEqual(['bearerAuth']);
+    expect(doc.security).toEqual([{ bearerAuth: [] }, {}]);
   });
 
   it('accept an Idempotency-Key on every mutating /api route', () => {
@@ -82,7 +87,6 @@ describe('route contracts (spec §11)', () => {
     const text = JSON.stringify(doc);
     expect(text).toContain('"#/components/schemas/Task"');
     expect(text).toContain('"#/components/responses/Error"');
-    expect(routes.login.security).toEqual([]);
   });
 });
 

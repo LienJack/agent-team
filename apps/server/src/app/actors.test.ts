@@ -1,15 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   createTestService,
+  lanRequest,
   local,
   TEST_LEADER_TOKEN,
-  TEST_PASSWORD,
   type Loose,
   type TestService,
 } from '../testing/harness.js';
 
 // docs/adr/0014: the server derives the actor from the credential. The operator token
-// (listener.json) and a LAN session are `human`; the leader-scoped token (leader/listener.json,
+// (listener.json) and the LAN listener (no login, docs/adr/0024) are `human`; the leader-scoped token (leader/listener.json,
 // used by the leader's `team` shim) is `leader`; anything else is refused. No request header or
 // body field can claim an actor, a message source or an answer channel.
 
@@ -112,28 +112,16 @@ describe('L9c source and via come from the listener and the credential, never th
     expect(spoof.body.attention.answered_via).toBe('cli');
   });
 
-  it('LAN session: always web', async () => {
+  it('LAN listener: always web', async () => {
     const app = h.lanApp();
-    const host = '192.168.1.20:4518';
-    const headers = { host, origin: `http://${host}`, 'sec-fetch-site': 'same-origin' };
-    const login = await app.request(`http://${host}/auth/login`, {
-      method: 'POST',
-      headers: { ...headers, 'content-type': 'application/json' },
-      body: JSON.stringify({ password: TEST_PASSWORD }),
-    });
-    const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0]!;
-    const post = (path: string, body: unknown) =>
-      app.request(`http://${host}${path}`, {
-        method: 'POST',
-        headers: { ...headers, cookie, 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      });
     for (const source of [undefined, 'cli', 'grok']) {
-      const res = await post('/api/leader/messages', {
-        text: 'hi',
-        ...(source ? { source } : {}),
-        client_msg_id: `w-${source ?? 'none'}`,
-        wait: false,
+      const res = await lanRequest(app, '/api/leader/messages', {
+        body: {
+          text: 'hi',
+          ...(source ? { source } : {}),
+          client_msg_id: `w-${source ?? 'none'}`,
+          wait: false,
+        },
       });
       const id = ((await res.json()) as Loose).message_id as string;
       expect(h.store.messages.get(id)!.source).toBe('web');

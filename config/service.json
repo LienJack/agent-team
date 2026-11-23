@@ -3,11 +3,7 @@
   "lan": {
     "enabled": true,
     "host": "0.0.0.0",
-    "port": 4518,
-    "allowed_origins": [],
-    "lockout_failures": 5,
-    "lockout_minutes": 15,
-    "session_hours": 168
+    "port": 4518
   },
   "grok": {
     "enabled": false,

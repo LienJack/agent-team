@@ -41,13 +41,13 @@ describe('secrets in the process environment (docs/adr/0020)', () => {
     const log = (m: string, f?: Record<string, unknown>) => lines.push(JSON.stringify([m, f]));
     const logger = { debug: log, info: log, warn: log, error: log };
     const names = warnProcessSecrets(
-      { TEAM_LAN_PASSWORD: 'lan-pass-value-123', JEV_URL: 'http://jev', PATH: '/bin' },
+      { JEV_API_KEY: 'jev-key-value-123', JEV_URL: 'http://jev', PATH: '/bin' },
       logger,
     );
-    expect(names).toEqual(['TEAM_LAN_PASSWORD']);
+    expect(names).toEqual(['JEV_API_KEY']);
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toContain('TEAM_LAN_PASSWORD');
-    expect(lines.join('\n')).not.toContain('lan-pass-value-123');
+    expect(lines[0]).toContain('JEV_API_KEY');
+    expect(lines.join('\n')).not.toContain('jev-key-value-123');
     expect(warnProcessSecrets({}, logger)).toEqual([]);
   });
 });

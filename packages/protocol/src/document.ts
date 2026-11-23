@@ -14,9 +14,8 @@ import {
   WorkspaceSchema,
 } from '@agent-team/schema';
 import type { z } from 'zod';
-import { ERROR_RESPONSE, LOCAL_ONLY_EXTENSION, SESSION_COOKIE_NAME } from './constants.js';
+import { ERROR_RESPONSE } from './constants.js';
 import { attentionRoutes } from './routes/attention.js';
-import { authRoutes } from './routes/auth.js';
 import { leaderRoutes } from './routes/leader.js';
 import { memoryRoutes } from './routes/memory.js';
 import { projectRoutes } from './routes/projects.js';
@@ -33,15 +32,9 @@ export const routes = {
   ...memoryRoutes,
   ...leaderRoutes,
   ...attentionRoutes,
-  ...authRoutes,
 };
 export type RouteName = keyof typeof routes;
 export const ALL_ROUTES: readonly RouteConfig[] = Object.values(routes);
-
-/** True for routes the LAN listener must refuse (spec §11: project writes, settings writes). */
-export function isLocalOnly(route: RouteConfig): boolean {
-  return (route as Record<string, unknown>)[LOCAL_ONLY_EXTENSION] === true;
-}
 
 /** Domain objects emitted once under components/schemas and referenced everywhere else. */
 const COMPONENTS: ReadonlyArray<[string, z.ZodType]> = [
@@ -112,13 +105,9 @@ export function buildOpenApiDocument(): Record<string, unknown> {
   registry.registerComponent('securitySchemes', 'bearerAuth', {
     type: 'http',
     scheme: 'bearer',
-    description: 'Local listener: the token from DATA/run/listener.json (new on every start)',
-  });
-  registry.registerComponent('securitySchemes', 'sessionCookie', {
-    type: 'apiKey',
-    in: 'cookie',
-    name: SESSION_COOKIE_NAME,
-    description: 'LAN listener: session cookie from POST /auth/login',
+    description:
+      'Local listener: the token from DATA/run/listener.json (new on every start). The LAN ' +
+      'listener takes no credential (docs/adr/0024).',
   });
   for (const route of ALL_ROUTES) registry.registerPath(route);
 
@@ -131,7 +120,8 @@ export function buildOpenApiDocument(): Record<string, unknown> {
         'Local multi-agent development service (docs/spec.md §11). Generated from ' +
         '@agent-team/protocol; do not edit by hand.',
     },
-    security: [{ bearerAuth: [] }, { sessionCookie: [] }],
+    // bearer on the local listener; none on the LAN listener
+    security: [{ bearerAuth: [] }, {}],
   }) as unknown as { [key: string]: Json };
 
   const paths = doc['paths'] as { [path: string]: Json };

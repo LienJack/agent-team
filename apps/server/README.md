@@ -1,6 +1,6 @@
 # @agent-team/server
 
-Hono 服務（spec §9–§11）：本機與區網兩個監聽埠、Bearer 與密碼 session 驗證、來源檢查與鎖定、冪等、SSE、
+Hono 服務（spec §9–§11）：本機與區網兩個監聽埠（本機要 Bearer 權杖；區網沒有驗證，ADR 0024）、冪等、SSE、
 leader（`src/leader/`：一個無頭 Claude 對話，序列處理、事件合併、壓縮與現況摘要、額度與登入處理）與
 Grok 中樞（`src/hub/`：`grokmsg` 收發、outbox、合併與安靜時段、`hub_summarizer` 整理；預設關閉）。
 
@@ -14,7 +14,7 @@ Grok 中樞（`src/hub/`：`grokmsg` 收發、outbox、合併與安靜時段、`
   測試用 `src/testing/fake-memos.ts`（loopback 上的假 MemOS）。
 - 其餘模組只依賴 ports：`createService(deps)`、`createApp(ctx, { listener })`；測試用 `src/testing/harness.ts`
   （記憶體 store + core 的假 ports）。
-- 身分由權杖決定（ADR 0014）：本機監聽埠的 operator 權杖（`DATA/run/listener.json`）與區網 session 是人；leader 專用權杖
+- 身分由權杖決定（ADR 0014）：本機監聽埠的 operator 權杖（`DATA/run/listener.json`）與區網監聽埠（不驗證，ADR 0024）是人；leader 專用權杖
   （`DATA/leader/listener.json`）是 leader。leader 的 `team` 是 `DATA/leader/bin/team`（本 repo 建置好的 CLI，
   `AGENT_TEAM_LISTENER_FILE` 指向 leader 的 listener 檔）；leader 身分不能讀 run 日誌、對話紀錄、事件串流，不能驗收、
   退回、回答待決事項、改派、建專案，也不能 `team ask`／`team leader reset`（403）。訊息來源與回答管道只由憑證推導

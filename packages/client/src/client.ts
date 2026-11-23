@@ -69,11 +69,11 @@ export type MemoryListQuery = Query<'listMemory'>;
 export interface TeamClientOptions {
   /** Listener base URL, e.g. `http://127.0.0.1:4517` (no trailing slash needed). */
   baseUrl: string;
-  /** Bearer token of the local listener (from listener.json). Omit on the LAN (cookie). */
+  /** Bearer token of the local listener (from listener.json). Omit on the LAN (no credential). */
   token?: string;
   /** `fetch` to use (tests, custom agents). */
   fetch?: (input: Request) => Promise<Response>;
-  /** Browser: `same-origin` sends the LAN session cookie. */
+  /** `fetch` credentials mode (browser). */
   credentials?: RequestInit['credentials'];
   /**
    * Fresh `{ baseUrl, token }` for the event stream's reconnects (Node: listener.json read
@@ -144,7 +144,7 @@ export interface TeamClient {
   /** One leader input and its reply (null while pending). */
   leaderMessage(id: string, options?: CallOptions): Promise<LeaderMessageDetail>;
   leaderMessages(query?: LeaderMessagesQuery): Promise<Message[]>;
-  /** New leader conversation (local listener only; `team leader reset`). */
+  /** New leader conversation (`team leader reset`; humans only). */
   resetLeader(): Promise<LeaderReset>;
   listAttention(query?: AttentionListQuery): Promise<Attention[]>;
   openAttention(body: AttentionCreateBody): Promise<Attention>;
@@ -160,8 +160,6 @@ export interface TeamClient {
   addMemory(projectId: string, text: string): Promise<MemoryAddResult>;
   /** Delete one item of a project's memory (humans only). */
   removeMemory(projectId: string, memoryId: string): Promise<MemoryRemoveResult>;
-  /** LAN listener: exchange the password for the session cookie. */
-  login(password: string): Promise<void>;
   /** SSE: replay after `after`, then live; reconnects with the last seq. */
   events(options: EventStreamOptions): EventSubscription;
 }
@@ -314,9 +312,6 @@ export function createTeamClient(options: TeamClientOptions): TeamClient {
           params: { path: { id: projectId, memory_id: memoryId } },
         }),
       ),
-    login: async (password) => {
-      await call(() => raw.POST('/auth/login', { body: { password } }));
-    },
     events: (eventOptions) =>
       subscribeEvents(
         {

@@ -388,40 +388,4 @@ export interface operations_part3 {
       500: components['responses']['Error'];
     };
   };
-  login: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          password: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Logged in */
-      200: {
-        headers: {
-          /** @description team_session=…; HttpOnly; SameSite=Strict; Path=/ */
-          'Set-Cookie': string;
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            /** @enum {boolean} */
-            ok: true;
-          };
-        };
-      };
-      400: components['responses']['Error'];
-      401: components['responses']['Error'];
-      403: components['responses']['Error'];
-      429: components['responses']['Error'];
-      500: components['responses']['Error'];
-    };
-  };
 }

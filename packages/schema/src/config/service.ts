@@ -18,17 +18,16 @@ export const ServiceConfigSchema = z.strictObject({
       port: port.default(4517),
     })
     .prefault({}),
-  /** LAN listener for the board (password → session cookie). */
+  /**
+   * LAN listener for the board. No authentication, no origin or host check (docs/adr/0024):
+   * every request is the human actor. `enabled: false` turns it off; `host: "127.0.0.1"` keeps
+   * it to this machine. These two are the only restrictions.
+   */
   lan: z
     .strictObject({
       enabled: z.boolean().default(true),
       host: z.string().default('0.0.0.0'),
       port: port.default(4518),
-      /** Extra allowed `Origin` values besides the listener's own origin. */
-      allowed_origins: z.array(z.string()).default([]),
-      lockout_failures: z.number().int().positive().default(5),
-      lockout_minutes: z.number().int().positive().default(15),
-      session_hours: z.number().int().positive().default(168),
     })
     .prefault({}),
   /** Grok bridge / hub (spec §10). Off by default: the existing hub session watches the inbox. */

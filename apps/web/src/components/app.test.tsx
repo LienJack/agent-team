@@ -5,7 +5,6 @@ import {
   type TeamClient,
 } from '@agent-team/client';
 import { screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useUi } from '../store/ui.js';
 import { makeAttention, makeBoardTask, makeState } from '../test/fixtures.js';
@@ -20,8 +19,6 @@ const idle: EventSubscription = {
 
 beforeEach(() =>
   useUi.setState({
-    auth: 'unknown',
-    session: 0,
     connection: 'idle',
     view: 'board',
     selectedTaskId: undefined,
@@ -29,7 +26,7 @@ beforeEach(() =>
 );
 
 describe('App shell', () => {
-  it('shows the login page on 401 and the board after logging in', async () => {
+  it('shows the board straight away: no login on the LAN (docs/adr/0024)', async () => {
     const snapshot = makeState({
       tasks: [
         makeBoardTask({ title: '草稿一' }),
@@ -37,28 +34,15 @@ describe('App shell', () => {
       ],
       open_attention: [makeAttention()],
     });
-    let loggedIn = false;
-    const state = vi.fn<TeamClient['state']>(async () => {
-      if (!loggedIn)
-        throw new TeamApiError({ code: 'unauthorized', message: 'not logged in' }, 401);
-      return snapshot as StateSnapshot;
-    });
-    const login = vi.fn<TeamClient['login']>(async () => {
-      loggedIn = true;
-    });
+    const state = vi.fn<TeamClient['state']>(async () => snapshot as StateSnapshot);
     const getTask = vi.fn<TeamClient['getTask']>(async (id) => ({
       task: snapshot.tasks.find((t) => t.id === id)!,
       runs: [],
       workspace: null,
       attention: [],
     }));
-    renderWithClient(
-      <App />,
-      fakeClient({ state, login, getTask, events: vi.fn<TeamClient['events']>(() => idle) }),
-    );
-
-    await userEvent.type(await screen.findByLabelText('區網密碼'), 'pw');
-    await userEvent.click(screen.getByRole('button', { name: '登入' }));
+    const events = vi.fn<TeamClient['events']>(() => idle);
+    renderWithClient(<App />, fakeClient({ state, getTask, events }));
 
     for (const column of ['待派', '進行中', '待驗收', '阻塞', '完成']) {
       expect(await screen.findByRole('heading', { name: column })).toBeTruthy();
@@ -66,7 +50,9 @@ describe('App shell', () => {
     expect(screen.getByRole('button', { name: '草稿一' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '做完了' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '未決事項 1 筆' })).toBeTruthy();
-    expect(useUi.getState().auth).toBe('ok');
+    expect(screen.queryByLabelText(/密碼/)).toBeNull();
+    // the live stream starts from the snapshot
+    expect(events).toHaveBeenCalledTimes(1);
     // cards render from the snapshot alone: no per-card detail request
     expect(getTask).not.toHaveBeenCalled();
   });

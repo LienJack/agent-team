@@ -98,9 +98,7 @@ describe('config/service.json', () => {
   it('has the spec defaults', () => {
     const cfg = defaultServiceConfig();
     expect(cfg.local).toEqual({ host: '127.0.0.1', port: 4517 });
-    expect(cfg.lan).toMatchObject({ enabled: true, host: '0.0.0.0', port: 4518 });
-    expect(cfg.lan.lockout_failures).toBe(5);
-    expect(cfg.lan.lockout_minutes).toBe(15);
+    expect(cfg.lan).toEqual({ enabled: true, host: '0.0.0.0', port: 4518 });
     expect(cfg.grok.enabled).toBe(false);
     expect(cfg.engine.rate_limit_cooldown_ms).toBe(15 * 60 * 1000);
     expect(cfg.engine.retry_initial_ms).toBe(5000);
@@ -128,5 +126,14 @@ describe('config/service.json', () => {
   it('accepts partial files and rejects unknown keys', () => {
     expect(parseServiceConfig({ lan: { enabled: false } }).lan.port).toBe(4518);
     expect(ServiceConfigSchema.safeParse({ lan: { enabeld: false } }).success).toBe(false);
+    // the LAN login and origin settings are gone (docs/adr/0024): an old file says so at start-up
+    for (const [key, value] of [
+      ['lockout_failures', 5],
+      ['lockout_minutes', 15],
+      ['session_hours', 168],
+      ['allowed_origins', []],
+    ] as const) {
+      expect(ServiceConfigSchema.safeParse({ lan: { [key]: value } }).success).toBe(false);
+    }
   });
 });

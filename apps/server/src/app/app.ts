@@ -1,5 +1,5 @@
 import { TeamError } from '@agent-team/core';
-import { OpenAPIHono, type RouteConfig, type RouteHandler } from '@hono/zod-openapi';
+import { OpenAPIHono, type RouteConfig } from '@hono/zod-openapi';
 import {
   ALL_ROUTES,
   addMemory,
@@ -8,10 +8,8 @@ import {
   createProject,
   getLeaderMessage,
   getRunLog,
-  isLocalOnly,
   listLeaderMessages,
   listMemory,
-  login,
   postLeaderMessage,
   reassignTask,
   rejectTask,
@@ -22,7 +20,7 @@ import {
 import type { MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { secureHeaders } from 'hono/secure-headers';
-import { bearerAuth, type LanAuth } from '../auth/guards.js';
+import { bearerAuth, lanHumanActor } from '../auth/guards.js';
 import { notFound, onError, validationHook } from './errors.js';
 import { refreshReplay } from './delivery.js';
 import { idempotency } from './idempotency.js';
@@ -34,24 +32,9 @@ import type { AppContext, AppEnv } from './types.js';
 
 export type AppOptions =
   | { listener: 'local'; token: string; leaderToken: string }
-  | { listener: 'lan'; lan: LanAuth };
+  | { listener: 'lan' };
 
 const MAX_BODY_BYTES = 1024 * 1024;
-
-/** Routes the LAN listener refuses (spec §11: project writes; settings writes would join). */
-function lanForbidden(): MiddlewareHandler<AppEnv> {
-  const refused = refusedBy(ALL_ROUTES.filter(isLocalOnly));
-  return async (c, next) => {
-    if (refused(c.req.method, c.req.path)) {
-      throw new TeamError(
-        'lan_forbidden',
-        `${c.req.method} ${c.req.path} is only available on the local listener`,
-        'run it on this machine, e.g. `team project add`',
-      );
-    }
-    await next();
-  };
-}
 
 const routePattern = (path: string) => new RegExp(`^${path.replace(/\{[^}]+\}/g, '[^/]+')}$`);
 
@@ -120,8 +103,9 @@ function leaderForbidden(): MiddlewareHandler<AppEnv> {
 
 /**
  * The Hono app of one listener (spec §11). Both listeners serve the same routes against the same
- * engine; they differ in authentication (bearer token vs. password session cookie), origin
- * checks, LAN-forbidden routes and the board's static files (LAN only).
+ * engine. The local one needs a bearer token (which decides human or leader); the LAN one has no
+ * authentication and no origin or host check — every request there is the human (docs/adr/0024)
+ * — and serves the board's static files.
  */
 export function createApp(ctx: AppContext, options: AppOptions): OpenAPIHono<AppEnv> {
   const app = new OpenAPIHono<AppEnv>({ defaultHook: validationHook });
@@ -134,16 +118,13 @@ export function createApp(ctx: AppContext, options: AppOptions): OpenAPIHono<App
     await next();
   });
   app.use('/api/*', bodyLimit({ maxSize: MAX_BODY_BYTES }));
-  app.use('/auth/*', bodyLimit({ maxSize: 16 * 1024 }));
 
   if (options.listener === 'local') {
     app.use('/api/*', bearerAuth({ operator: options.token, leader: options.leaderToken }));
     app.use('/api/*', leaderForbidden());
   } else {
-    app.use('/api/*', options.lan.originGuard);
-    app.use('/auth/*', options.lan.originGuard);
-    app.use('/api/*', options.lan.sessionGuard);
-    app.use('/api/*', lanForbidden());
+    // no login, no Origin or Host check (owner's decision, docs/adr/0024): always the human
+    app.use('/api/*', lanHumanActor);
   }
   app.use('/api/*', idempotency({ ...ctx, refresh: (body) => refreshReplay(ctx, body) }));
 
@@ -151,12 +132,6 @@ export function createApp(ctx: AppContext, options: AppOptions): OpenAPIHono<App
   registerMemoryRoutes(app, ctx);
   registerSystemRoutes(app, ctx);
 
-  if (options.listener === 'lan') {
-    const lan = options.lan;
-    const handler: RouteHandler<typeof login, AppEnv> = (c) =>
-      lan.login(c, c.req.valid('json').password) as never;
-    app.openapi(login, handler);
-    registerStatic(app, ctx.webDist);
-  }
+  if (options.listener === 'lan') registerStatic(app, ctx.webDist);
   return app;
 }

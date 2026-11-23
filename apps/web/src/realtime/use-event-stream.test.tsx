@@ -41,7 +41,7 @@ const statusEvent = {
   data: { from: 'queued', to: 'running', reason: null },
 } as EventRecord;
 
-beforeEach(() => useUi.setState({ auth: 'ok', session: 0, connection: 'idle' }));
+beforeEach(() => useUi.setState({ connection: 'idle' }));
 
 describe('useEventStream', () => {
   it('subscribes after the snapshot seq and invalidates only the affected queries', async () => {
@@ -60,28 +60,32 @@ describe('useEventStream', () => {
     expect(invalidate.mock.calls.map((c) => c[0]?.queryKey)).toEqual([['state'], ['task', 't_1']]);
   });
 
-  it('shows reconnecting on drops and the login screen on 401', () => {
-    const { subs, client } = streamClient();
-    renderWithClient(<Probe seq={5} />, client);
+  it('shows reconnecting on drops, offline when the stream ends', async () => {
+    let end!: () => void;
+    const subs: Array<{ options: EventStreamOptions }> = [];
+    const events = vi.fn<TeamClient['events']>((options: EventStreamOptions) => {
+      subs.push({ options });
+      return {
+        lastSeq: () => 42,
+        close: () => {},
+        done: new Promise<void>((resolve) => (end = resolve)),
+      };
+    });
+    renderWithClient(<Probe seq={5} />, fakeClient({ events }));
     const drop = new TeamApiError({ code: 'unavailable', message: 'closed' }, 0);
     act(() => subs[0]!.options.onError?.(drop));
     expect(useUi.getState().connection).toBe('reconnecting');
-
-    const expired = new TeamApiError({ code: 'unauthorized', message: 'not logged in' }, 401);
-    act(() => subs[0]!.options.onError?.(expired));
-    expect(useUi.getState().auth).toBe('required');
-    expect(subs[0]!.closed).toBe(true);
+    await act(async () => end());
+    expect(useUi.getState().connection).toBe('offline');
   });
 
-  it('resumes from the last seen seq after logging in again', () => {
+  it('keeps one subscription while later snapshots arrive', () => {
     const { subs, client } = streamClient();
     const view = renderWithClient(<Probe seq={5} />, client);
-    act(() => useUi.getState().setAuth('required'));
-    expect(subs[0]!.closed).toBe(true);
-    act(() => useUi.getState().loggedIn());
     view.rerender(<Probe seq={9} />);
-    expect(subs).toHaveLength(2);
-    expect(subs[1]!.options.after).toBe(42); // the closed subscription's cursor
+    expect(subs).toHaveLength(1);
+    view.unmount();
+    expect(subs[0]!.closed).toBe(true);
   });
 
   it('waits for the snapshot before subscribing', () => {

@@ -5,7 +5,6 @@ import { create } from 'zustand';
 export type ThemeChoice = 'system' | 'light' | 'dark';
 export type MobileView = 'board' | 'attention' | 'chat';
 export type Connection = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'offline';
-export type AuthState = 'unknown' | 'ok' | 'required';
 
 export interface Toast {
   id: number;
@@ -42,9 +41,6 @@ interface UiState {
   memoryOpen: boolean;
   projectFilter: string | undefined;
   connection: Connection;
-  auth: AuthState;
-  /** Bumped after a login so the event stream restarts. */
-  session: number;
   toasts: Toast[];
   setTheme(theme: ThemeChoice): void;
   setView(view: MobileView): void;
@@ -53,8 +49,6 @@ interface UiState {
   setMemoryOpen(open: boolean): void;
   setProjectFilter(id: string | undefined): void;
   setConnection(connection: Connection): void;
-  setAuth(auth: AuthState): void;
-  loggedIn(): void;
   toast(tone: Toast['tone'], text: string): void;
   dismissToast(id: number): void;
 }
@@ -69,8 +63,6 @@ export const useUi = create<UiState>()((set) => ({
   memoryOpen: false,
   projectFilter: undefined,
   connection: 'idle',
-  auth: 'unknown',
-  session: 0,
   toasts: [],
   setTheme: (theme) => {
     writeTheme(theme);
@@ -82,8 +74,6 @@ export const useUi = create<UiState>()((set) => ({
   setMemoryOpen: (memoryOpen) => set({ memoryOpen }),
   setProjectFilter: (projectFilter) => set({ projectFilter }),
   setConnection: (connection) => set({ connection }),
-  setAuth: (auth) => set({ auth }),
-  loggedIn: () => set((s) => ({ auth: 'ok', session: s.session + 1 })),
   toast: (tone, text) => {
     const id = nextToast++;
     set((s) => ({ toasts: [...s.toasts.slice(-3), { id, tone, text }] }));

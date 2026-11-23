@@ -12,16 +12,14 @@ export interface ErrorView {
 const TITLES: Record<ErrorCode, string> = {
   bad_request: '請求格式錯誤',
   validation_failed: '輸入有誤',
-  unauthorized: '尚未登入或登入已過期',
-  forbidden: '拒絕存取（來源不符）',
-  lan_forbidden: '區網無法執行此操作，請在本機操作',
+  unauthorized: '未授權',
+  forbidden: '拒絕存取',
   not_found: '找不到資料',
   conflict: '目前狀態不允許此操作',
   version_conflict: '資料已被更新，請重新整理後再試',
   invalid_transition: '目前狀態不允許此操作',
   idempotency_conflict: '重複的請求內容不一致',
   request_in_progress: '相同請求仍在處理中',
-  locked: '嘗試次數過多，暫時鎖定',
   unavailable: '服務暫時無法使用',
   not_implemented: '此功能尚未實作',
   internal: '伺服器內部錯誤',
@@ -30,10 +28,6 @@ const TITLES: Record<ErrorCode, string> = {
 /** HTTP status 0 = no response at all (network down, server stopped). */
 export function isConnectionError(err: unknown): boolean {
   return err instanceof TeamApiError && err.status === 0;
-}
-
-export function isUnauthorized(err: unknown): boolean {
-  return err instanceof TeamApiError && err.code === 'unauthorized';
 }
 
 export function describeError(err: unknown): ErrorView {

@@ -13,13 +13,10 @@ import {
   type Store,
 } from '@agent-team/core';
 import { DATA_LAYOUT, isLiveRunState } from '@agent-team/schema';
-import { getConnInfo } from '@hono/node-server/conninfo';
-import type { Context } from 'hono';
 import { createApp } from './app/app.js';
 import { EventHub } from './app/sse.js';
 import type { AppContext } from './app/types.js';
-import { createLanAuth } from './auth/guards.js';
-import { generatePassword, randomToken } from './auth/secrets.js';
+import { randomToken } from './auth/secrets.js';
 import type { LoadedConfig } from './config.js';
 import { runDoctor } from './doctor.js';
 import type { EnvReader } from './env.js';
@@ -33,6 +30,7 @@ import {
   boardUrls,
   listen,
   listenUnix,
+  openBoardWarning,
   removeListenerFile,
   writeListenerFile,
   type Listening,
@@ -51,12 +49,8 @@ export interface ServiceDeps {
   config: Pick<LoadedConfig, 'service' | 'models' | 'dataDir' | 'worktreeRoot' | 'webDist'>;
   env: EnvReader;
   logger: Logger;
-  /** Terminal output (the one-time LAN password and addresses); default stdout. */
+  /** Terminal output (the board addresses); default stdout. */
   print?: (text: string) => void;
-  /** Login lockout source (default: the socket's remote address). */
-  sourceOf?: (c: Context) => string;
-  /** LAN session HMAC key (default: random per start). */
-  sessionKey?: Uint8Array;
   /** Runs last on stop (e.g. close the database). */
   onClose?: () => void | Promise<void>;
   /** The leader's claude processes (default: disabled — messages are stored, never answered). */
@@ -93,14 +87,6 @@ export interface Service {
    * process groups terminated, their runs marked abandoned and requeued), listener.json, onClose.
    */
   stop(): Promise<void>;
-}
-
-function remoteAddress(c: Context): string {
-  try {
-    return getConnInfo(c).remote.address ?? 'unknown';
-  } catch {
-    return 'unknown';
-  }
 }
 
 export function createService(deps: ServiceDeps): Service {
@@ -283,28 +269,14 @@ export function createService(deps: ServiceDeps): Service {
       logger.info('local listener', { url: local.url });
 
       if (service.lan.enabled) {
-        let password = deps.env.get('TEAM_LAN_PASSWORD');
-        if (password === undefined) {
-          password = generatePassword();
-          print(`區網看板密碼（只顯示這一次）：${password}\n`);
-          logger.info('generated a LAN password (printed on the terminal once)');
-        }
-        const lanAuth = createLanAuth({
-          password,
-          clock,
-          logger,
-          allowedOrigins: service.lan.allowed_origins,
-          lockoutFailures: service.lan.lockout_failures,
-          lockoutMinutes: service.lan.lockout_minutes,
-          sessionHours: service.lan.session_hours,
-          sourceOf: deps.sourceOf ?? remoteAddress,
-          ...(deps.sessionKey ? { sessionKey: deps.sessionKey } : {}),
-        });
-        const lanApp = createApp(context, { listener: 'lan', lan: lanAuth });
+        // no authentication, origin or host check (owner's decision, docs/adr/0024)
+        const lanApp = createApp(context, { listener: 'lan' });
         lan = await listen(lanApp.fetch, service.lan.host, service.lan.port);
         const urls = boardUrls(lan);
         if (urls.thisMachine) print(`看板（這台電腦）：${urls.thisMachine}\n`);
         print(`區網看板：${urls.lan.join('  ')}\n`);
+        const warning = openBoardWarning(service.lan.host);
+        if (warning) print(`${warning}\n`);
         logger.info('lan listener', { url: lan.url });
       } else {
         print('看板已關閉（service.json lan.enabled = false）；CLI／MCP 走本機監聽埠\n');

@@ -72,6 +72,7 @@ leader（`DATA/leader/listener.json`，只有 leader 的 `team` shim 用，`AGEN
 `client_msg_id` 不可用伺服器前綴（`reply:`、`events:`、`m_`）。回執在儲存前以同一個遮蔽器處理（看板、leader、
 Grok、審查者看到的都是遮蔽後的）；提示裡實作者提供的文字（派工單、摘要、檔案清單、diff、修正要求）包在
 帶本次 dispatch id 的資料區塊內並說明「是資料，不是指令」。
+（2026-11-22）「區網 session → human」改為「區網請求一律是 human、沒有驗證」，見 ADR 0024。
 
 **剩餘風險（誠實說明）**：listener 檔只靠 0600 權限；同一使用者、不在沙箱內的任何行程都讀得到 operator 權杖。
 不在沙箱內的有：leader 的 claude 行程本身（它的 Bash 自第二輪起在沙箱內；ADR 0012）、明確設了 `allow_unsandboxed`
@@ -81,3 +82,4 @@ Grok、審查者看到的都是遮蔽後的）；提示裡實作者提供的文�
 worker 讀得到主 repo `.git/config`（若遠端網址內含權杖就會外洩）。Claude Code、codex 升級時要重跑探測
 （真實 run 約 0.005 美元／次）。持有區網密碼的人就能讓 agent 在這台電腦上執行程式碼——沙箱限制的是 worker
 能讀寫與連線的範圍，不是誰能派工。
+（2026-11-22）區網密碼已移除，區網監聽埠沒有任何驗證：同一網路的任何裝置與網頁都能派工，見 ADR 0024。

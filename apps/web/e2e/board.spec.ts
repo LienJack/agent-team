@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { startServer, TEST_PASSWORD, type TestServer } from './server.js';
+import { startServer, type TestServer } from './server.js';
 
-// Board smoke (spec §14 web): log in on the LAN listener, see the board, create and queue a task,
-// watch it reach 完成 through the event stream, answer an attention item from the web.
+// Board smoke (spec §14 web): open the LAN listener (no login, docs/adr/0024), see the board,
+// create and queue a task, watch it reach 完成 through the event stream, answer an attention item
+// from the web.
 
 let server: TestServer;
 
@@ -19,19 +20,12 @@ test.afterAll(async () => {
   await server?.stop();
 });
 
-test('login → board → new task reaches 完成 → answer attention', async ({ page }) => {
+test('board → new task reaches 完成 → answer attention', async ({ page }) => {
   test.setTimeout(120_000);
   await page.goto(server.lanUrl);
 
-  // the LAN listener needs the password
-  await expect(page.getByRole('heading', { name: 'agent-team 看板' })).toBeVisible();
-  await page.getByLabel('區網密碼').fill('wrong password');
-  await page.getByRole('button', { name: '登入' }).click();
-  await expect(page.getByRole('alert')).toContainText('密碼錯誤');
-  await page.getByLabel('區網密碼').fill(TEST_PASSWORD);
-  await page.getByRole('button', { name: '登入' }).click();
-
-  // board with its five columns, live event stream
+  // no login step: the board with its five columns and the live event stream right away
+  await expect(page.getByLabel(/密碼/)).toHaveCount(0);
   for (const column of ['待派', '進行中', '待驗收', '阻塞', '完成']) {
     await expect(page.getByRole('heading', { name: column, exact: true })).toBeVisible();
   }

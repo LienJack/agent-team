@@ -6,8 +6,8 @@ import { defaultClientConditions, defineConfig } from 'vite';
 // Workspace packages are bundled from source through their `@agent-team/source` export condition,
 // so a build does not depend on the other packages' dist/.
 //
-// `pnpm dev` proxies /api and /auth to a running LAN listener (AGENT_TEAM_WEB_PROXY, default
-// http://127.0.0.1:4518); add the dev origin to `lan.allowed_origins` for the origin check.
+// `pnpm dev` proxies /api to a running LAN listener (AGENT_TEAM_WEB_PROXY, default
+// http://127.0.0.1:4518).
 const proxyTarget = process.env['AGENT_TEAM_WEB_PROXY'] ?? 'http://127.0.0.1:4518';
 
 export default defineConfig({
@@ -33,7 +33,6 @@ export default defineConfig({
     host: '127.0.0.1',
     proxy: {
       '/api': { target: proxyTarget },
-      '/auth': { target: proxyTarget },
     },
   },
 });

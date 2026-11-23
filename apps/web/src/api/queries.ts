@@ -6,13 +6,12 @@ import { useClient } from './context.js';
 import { keys } from './keys.js';
 
 /** GET /api/state. Polls every 15 s only while the event stream is down. */
-export function useBoardState(enabled = true) {
+export function useBoardState() {
   const client = useClient();
   const live = useUi((s) => s.connection === 'live');
   return useQuery({
     queryKey: keys.state(),
     queryFn: () => client.state(),
-    enabled,
     refetchInterval: live ? false : 15_000,
   });
 }

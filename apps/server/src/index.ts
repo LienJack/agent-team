@@ -7,7 +7,7 @@ export { REPLAYED_HEADER } from './app/idempotency.js';
 export type { AppContext, AppEnv } from './app/types.js';
 export { boardSnapshot, cardFields } from './app/board.js';
 export { roleList } from './app/routes-system.js';
-export { createLanAuth, bearerAuth, type LanAuth, type LanAuthOptions } from './auth/guards.js';
+export { bearerAuth, lanHumanActor } from './auth/guards.js';
 export { ConfigError, loadConfig, type LoadedConfig } from './config.js';
 export { runDoctor } from './doctor.js';
 export { createEnvReader, envFilePath, type EnvReader } from './env.js';

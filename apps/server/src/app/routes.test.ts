@@ -203,12 +203,13 @@ describe('§14 server — routes (happy path and validation failure)', () => {
     const doctor = await call('/api/doctor');
     expect(doctor.status).toBe(200);
     const env = doctor.body['checks'].filter((c: { name: string }) => c.name.startsWith('env.'));
-    expect(env.find((c: { name: string }) => c.name === 'env.TEAM_LAN_PASSWORD')).toEqual({
-      name: 'env.TEAM_LAN_PASSWORD',
+    expect(env.find((c: { name: string }) => c.name === 'env.OPENROUTER_API_KEY')).toEqual({
+      name: 'env.OPENROUTER_API_KEY',
       ok: true,
-      detail: 'present (optional)',
+      detail: 'absent (optional)',
     });
-    expect(JSON.stringify(doctor.body)).not.toContain('correct horse');
+    // no LAN password any more (docs/adr/0024)
+    expect(env.map((c: { name: string }) => c.name)).not.toContain('env.TEAM_LAN_PASSWORD');
     expect(doctor.body['runners']).toHaveLength(3);
   });
 

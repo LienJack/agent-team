@@ -24,7 +24,6 @@ describe('env reader (spec §4: one variable at a time, process env wins)', () =
         'export OPENROUTER_API_KEY="sk-or-\\"quoted\\""',
         "JEV_URL='http://jev.local/#x'",
         'JEV_PROVIDER=acme # trailing comment',
-        'TEAM_LAN_PASSWORD=',
         'JEV_API_KEY=first',
         'JEV_API_KEY=second',
       ].join('\n'),
@@ -33,9 +32,11 @@ describe('env reader (spec §4: one variable at a time, process env wins)', () =
     expect(env.get('OPENROUTER_API_KEY')).toBe('sk-or-"quoted"');
     expect(env.get('JEV_URL')).toBe('http://jev.local/#x');
     expect(env.get('JEV_PROVIDER')).toBe('acme');
-    expect(env.get('TEAM_LAN_PASSWORD')).toBeUndefined();
-    expect(env.has('TEAM_LAN_PASSWORD')).toBe(false);
     expect(env.get('JEV_API_KEY')).toBe('second');
+    writeFileSync(file, 'JEV_PROVIDER=\n');
+    const empty = createEnvReader({ file, processEnv: {} });
+    expect(empty.get('JEV_PROVIDER')).toBeUndefined();
+    expect(empty.has('JEV_PROVIDER')).toBe(false);
   });
 
   it('the process environment wins; process-only variables never come from the file', () => {
@@ -55,17 +56,16 @@ describe('env reader (spec §4: one variable at a time, process env wins)', () =
   it('names the secrets set in the process environment, never their values (docs/adr/0020)', () => {
     const names = secretsInProcessEnv({
       OPENROUTER_API_KEY: 'sk-or-v1-from-process-env-0000',
-      TEAM_LAN_PASSWORD: 'pw-from-process',
       JEV_API_KEY: '',
       JEV_URL: 'http://jev.local',
       AGENT_TEAM_HOME: '/tmp/x',
     });
-    expect(names).toEqual(['OPENROUTER_API_KEY', 'TEAM_LAN_PASSWORD']);
+    expect(names).toEqual(['OPENROUTER_API_KEY']);
     expect(secretsInProcessEnv({})).toEqual([]);
-    // every secret the service uses is covered
+    // every secret the service uses is covered; the old LAN password is not one (docs/adr/0024)
     expect(
       secretsInProcessEnv({ OPENROUTER_API_KEY: 'x', JEV_API_KEY: 'x', TEAM_LAN_PASSWORD: 'x' }),
-    ).toEqual(['OPENROUTER_API_KEY', 'JEV_API_KEY', 'TEAM_LAN_PASSWORD']);
+    ).toEqual(['OPENROUTER_API_KEY', 'JEV_API_KEY']);
   });
 
   it('AGENT_TEAM_ENV_FILE overrides the project-root .env', () => {
