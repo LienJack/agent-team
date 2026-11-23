@@ -37,7 +37,12 @@ untrusted input. T3 delegates run with T3's permissions; `team gate` only guaran
    tickets to files, then ask the user to start a leader thread there: `t3_thread_launch` with that `projectId`,
    `workspaceStrategy: {type: "root"}`, and a message that invokes this skill on the saved plan. Launch it only
    when the user agrees (it is a new top-level thread).
-5. Call `orchestrator_capabilities` once (T3 rule) and check the models in section 3 are available.
+5. **No competing agent-team work**: `team task list --json` (the text `team status` hides drafts) must show no
+   task of this project that is not `done`/`cancelled` and whose `owned_paths` overlap the plan. If one exists,
+   ask the user whether to cancel it; after cancelling, tell agent-team's leader with
+   `team ask '<work> now runs in T3 (t3-team); do not recreate or queue it'`, or it may recreate the task when it
+   sees the cancellation event. Check again right before each dispatch.
+6. Call `orchestrator_capabilities` once (T3 rule) and check the models in section 3 are available.
 
 ## 2. Plan (the Leader rules)
 
